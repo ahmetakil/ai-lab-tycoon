@@ -2,37 +2,71 @@
 
 How the economy is tuned, what the bot measures, and why the numbers are what
 they are. Knobs live in `lib/sim/balance.dart` (constants) and
-`lib/sim/content.dart` (tiles, rooms, costs and effects). The grid rules are
-in `docs/GRID.md` (final numbers at the end) and `lib/sim/grid.dart`. The
-headless player is `lib/sim/bot.dart`; the report tool is
-`tool/balance_sim.dart`.
+`lib/sim/content.dart` (eras, tiles, rooms, costs and effects). The grid rules
+are in `docs/GRID.md` and `lib/sim/grid.dart`. The headless player is
+`lib/sim/bot.dart`; the report tool is `tool/balance_sim.dart`.
 
 ```
-dart run tool/balance_sim.dart [minutes=360] [--log-every=10] [--seed=12345]
+dart run tool/balance_sim.dart [minutes=360] [--log-every=10] [--seed=12345] [--dt=1]
     [--strategy=balanced|hardware-only|software-first|no-upgrades]
-    [--layout=template|naive|random]
-dart run tool/balance_sim.dart 720 --compare     # all strategies + layouts
+    [--layout=template|naive|random] [--schedule=continuous|casual]
+dart run tool/balance_sim.dart 6000 --schedule=casual      # 2-3 day casual player
+dart run tool/balance_sim.dart 3600 --compare              # strategies, continuous
+dart run tool/balance_sim.dart 5760 --compare --schedule=casual
 ```
+
+With `--schedule=casual`, `minutes` is wall-clock time (sessions plus offline
+gaps) and the tool prints the timeline in wall-clock and sim time plus a
+per-session table.
+
+## Target: a 2–3 day casual game
+
+The target player plays 3–4 sessions of 30–60 min a day and the game runs
+offline in between (offline progress is capped at 8 h, unchanged).
+`PlaySchedule.casual` (bot.dart) models one 24 h day:
+
+| session | length | then offline |
+|---|---|---|
+| 1 | 60 min | 2.5 h |
+| 2 | 45 min | 3 h |
+| 3 | 30 min | 3 h |
+| 4 | 60 min | 12.25 h night (8 h of it simulated) |
+
+Gaps go through the real offline path (`Game.applyOffline`): money, users and
+the running training run continue, there are no viral spikes, and the 8 h
+cap applies. Offline catch-up runs in coarse steps (`Game.offlineStep`: 1 s
+for short absences, up to 10 s for 8 h, ≤ ~3k ticks). It depends only on the
+absence length, so it's deterministic. A test checks it against 1 s steps
+(within 1%).
 
 ## The bot (an "engaged human")
 
-- Looks at the game every 3 s. It only uses choices the UI offers: 50% or 75%
-  of the training cluster for training, and 1 m (Garage), 3 m (Startup and
-  early Lab) or 10 m runs (Lab once rating ≥ 1300).
-- Starts the next run as soon as one finishes. It releases a model only if it
-  beats the current one. It releases open weights in the Garage (hype +
-  community bonus) and closed from then on, always with a cryptic tweet.
-- Viral spike while overloaded: rents cloud GPUs if they cost < 25% of cash,
-  otherwise pauses training until the spike ends.
-- Spending: it scores every option by Δprogress / $. Progress = predicted
-  rating (from the training cluster) in compute doublings + log(users it
-  could serve) + ½·log(ARPU). The options are each available upgrade, the
-  next build step in each of its three newest rooms, a switch upgrade, a
-  cooler upgrade, replacing a full room's weakest GPU tile, the next room and
-  the next power tier. Grid options are valued by really applying them to the
-  grid and undoing them (heat and clusters included). It buys the best
-  affordable option, up to 12 per look. If something better is close, it saves
-  for it, and waits longer the better the deal (60 s, up to 8 min max).
+- Looks at the game every 3 s (tests use 6–12 s and dt 3–6; the numbers barely
+  move). It only uses choices the UI offers: 50% or 75% of the training
+  cluster, and the era's three run lengths (`EraInfo.runDurations`).
+- **Run length.** Continuous play takes the middle option in the Garage and
+  Startup and the longest from the Small lab on. In a session it takes the
+  middle one if it fits the session, else the longest run that finishes before
+  it comes back. Whenever a shorter run already crosses the next rating gate
+  or rival (the UI shows the predicted rating), it takes that one. Before
+  closing the app (`Bot.leave`) it ships a finished model, resumes a paused
+  run and starts the run that will finish while it's away.
+- Releases a model only if it beats the current one: open weights in the
+  Garage, closed later, always with a cryptic tweet.
+- **Viral spike while overloaded.** It rents cloud GPUs only if the extra users
+  would pass the next rival (and it costs < 25% of cash). Otherwise it pauses
+  training until the spike ends (serving the crowd pays better).
+- **Spending.** It scores every option by Δprogress / $ (predicted rating in
+  compute doublings + log(users it could serve) + ½·log(ARPU)). The options:
+  each available upgrade, the next build step in each of its three newest
+  rooms, a switch upgrade, a cooler upgrade, and swapping a room's weakest GPU
+  for its best one (when the room is full, or per kW when power is the limit).
+  Also the next room and the next power tier. It buys the best affordable
+  option, up to 12 per look. It saves for something better if it's close: up to
+  4 min in the Garage, rising to 60 min at the Frontier, and never more than
+  8 min inside a scheduled session (offline earnings pay for the big items).
+  When growth is blocked (out of power, or out of floor space), the next power
+  tier or room is "essential" and it saves for it however long it takes.
 
 ### Placement (`--layout`)
 
@@ -51,264 +85,232 @@ dart run tool/balance_sim.dart 720 --compare     # all strategies + layouts
 - **random**: buys about one switch and one cooler per two GPUs, but drops
   every tile on a random empty cell.
 
-## Pacing (balanced bot, template layout, seed 12345)
+## Eras, gates and unlocks
 
-| Milestone | Time | Target |
-|---|---|---|
-| First switch (with the 2nd GPU) / first fan (4th GPU) | 0h03 / 0h07 | first few minutes |
-| Garage → **Startup** (3k users) | 0h09 | 8–12 min |
-| Rivals beaten by 0h30 | 4 (Hugging Hands 0h06, GPT-ish-1 0h09, BURT 0h19, GPT-ish-2 0h23) | ≥ 2 in 20–30 min |
-| Startup → **Lab** (rating 1100) | 0h45 | 35–50 min |
-| Meenie, GPT-ish-3 | 0h45, 0h47 | |
-| Mixtrawl 8x7B | 0h58 | |
-| ChatGPT-ish (100M users) | 1h12 | |
-| GPT-ish-4, Claudette 3.5 Sonata, DeepSleep-R1 | 1h18–1h20 | |
-| Claudette 3.7 Sonata | 1h42 | |
-| o-three, Grokk 3, GPT-ish-4.5 | 1h57–2h16 | |
-| GPT-ish-5 (800M users) | 3h00 | |
-| Gemeni 3 Pro, Amused Spark | 3h16, 3h26 | |
-| GPT-ish-5.5 "Tater", Claudette Parable 5, Gemeni 4 Xenon, **GPT-ish-6 Astral (final)** | 3h58 | 4–6 h |
+| era (enum) | label | years | gate to enter | room |
+|---|---|---|---|---|
+| `garage` | Parents' garage | 2017 | start | Garage 4×4 |
+| `startup` | Startup | 2018–19 | 3k users | Server closet 6×6 |
+| `smallLab` | Small lab | 2020–22 | rating 1000 | Colocation cage 8×8 |
+| `mediumLab` | Medium lab | 2023 | rating 1120 (GPT-ish-3) | Datacenter hall 12×12 |
+| `bigLab` | Big lab | 2023–25 | rating 1260 (ChatGPT-ish) | Datacenter campus 12×12 |
+| `globalLab` | Frontier lab | 2025–26 | rating 1500 (Grokk 3 class) | Gigawatt site 12×12 |
 
-Rooms in that run: closet 0h14, colo 0h38, hall 0h53, campus 1h02,
-gigasite 2h39. Seeds 1, 777, 4242 and 2026 give
-Startup at 9 min (4242: 5 min, a lucky early viral spike plus cloud rental),
-Lab at 43–47 min and the final rival at 3h56–4h04. The bot is a fast,
-ROI-optimal player, so humans should land later, around 4.5–5.5 h.
+`Game.nextEraGoal` exposes the next gate (metric, target, progress) for the
+UI. Eras unlock one per tick, and offline too (a users gate can fill while
+you're away). Rivals carry an `era` and can't be beaten before you reach it, so
+an overpowered model unlocks its rivals one era at a time.
 
-Health stats (seed 12345; the other seeds are similar):
-- Longest stretch with no purchase or release before the ladder is done:
-  **9.5 min** (9.3–9.7 across seeds). Target < 10. It is the save-up for
-  the first gigasite building (~$0.8B) after the gigawatt tier.
-- OVERLOADED **8.9%** of the time, 3.8 points of it during viral spikes
-  (14 spikes in 6 h).
-- At the final rival: **1.5B users, $75B ARR, 1.1M H100-equivalents,
-  ~0.9 GW**. Real 2026 figures: ChatGPT 1.2B WAU, OpenAI ARR $40–70B
-  (disputed), one Stargate-class site is ~1M H100e at ~1.15 GW. Users never
-  exceed `maxUsers`. Money never goes negative.
-- Training stays on one well-fed cluster: at the final rival the bot trains
-  on the gigasite at 100% scaling efficiency, every room is a single cluster
-  and heat costs < 10% of peak TFLOPS (all checked in the playthrough test).
+**No deadlocks.** Every gate is reachable with the era's own power cap, rooms
+and *middle* run length. The rating gates sit below what that era's cluster and
+data budget can reach: Small lab tops out near 1120–1165 depending on the books
+corpus, Medium lab ~1340 with licensed data, Big lab ~1560. None of them needs
+users or revenue, so a player who ships open weights (ARPU ×0.6) or never rents
+cloud GPUs can't get stuck. Earlier drafts had a 1M-users Medium gate that only
+cloud overflow could reach at the colo power cap, and a $10B ARR Frontier gate
+the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 
-## Placement matters (template vs naive vs random)
+### What each era unlocks
 
-`--compare`, 12 h cap, seed 12345:
+### Parents' garage (`garage`, 2017)
+- room: Garage 4×4 ($0)
+- power: Garage outlet 1.8 kW ($0), Upgraded electrical panel 8.0 kW ($3k)
+- gpu: RTX 2060 (used) ($900), RTX 4090 ($2k), Used V100 ($3k)
+- cooling: Box fan ($120), Window AC ($500)
+- network: Home router ($150), 5 Gbit switch ($600), 10 GbE switch ($3k)
+- research: Mixed precision (FP16) $800, Request batching $1k, KV cache $3k, LoRA fine-tuning $2k, Filtered web crawl $3k
+- stunts: Quiet release, Cryptic tweet, Live demo
+- runs: 1m / 3m / 10m at 1440× (1.0 d / 3.0 d / 10 d of compute)
+- rivals: Tiny-Transformer (765), GPT-ish-1 (796)
+### Startup (`startup`, 2018–19)
+- room: Server closet 6×6 ($15k)
+- power: Office with 3-phase power 40.0 kW ($60k)
+- gpu: DGX A100 (8× A100) ($50k, +5%/tile)
+- cooling: Precision AC (CRAC) ($12k)
+- network: 100G Ethernet ($20k)
+- research: Custom CUDA kernels $234k, Quantization (INT8/INT4) $293k, Public code dataset $390k, Deduplication & quality filters $585k, Data mixture optimisation $1.5M, Instruction tuning $390k
+- stunts: 
+- runs: 3m / 10m / 30m at 1440× (3.0 d / 10 d / 30 d of compute)
+- rivals: BURT-Large (888), GPT-ish-2 (950)
+### Small lab (`smallLab`, 2020–22)
+- room: Colocation cage 8×8 ($2.0M)
+- power: Colocation cage 500.0 kW ($1.0M)
+- gpu: HGX H100 (8× H100) ($150k, +12%/tile)
+- cooling: Rear-door heat exchanger ($40k)
+- network: InfiniBand NDR 400G ($60k)
+- research: FlashAttention $2.5M, High-speed interconnect $4.2M, Liquid cooling $6.7M, Books & papers corpus $20M, Compute-optimal scaling $8.3M, FSDP / ZeRO sharding $12M
+- stunts: Mystery model on the arena
+- runs: 10m / 30m / 1h at 480× (3.3 d / 10 d / 20 d of compute)
+- rivals: Meenie (1085), GPT-ish-3 (1120)
+### Medium lab (`mediumLab`, 2023)
+- room: Datacenter hall 12×12 ($3.0M)
+- power: Datacenter hall 2.0 MW ($4.0M), Datacenter campus 20.0 MW ($12M)
+- gpu: H100 rack ($580k, +10%/tile), GB200 NVL72 ($2.9M, +10%/tile)
+- cooling: Chiller plant ($150k), Direct liquid-cooling loop ($250k)
+- network: InfiniBand spine ($1.0M)
+- research: Mixture of Experts $75M, RLHF $100M, 3D parallelism $125M, Distillation $150M, Paged KV cache $125M, Licensed data deals $8.0M
+- stunts: 
+- runs: 30m / 1h / 3h at 180× (3.8 d / 7.5 d / 23 d of compute)
+- rivals: Mixtrawl 8x7B (1210), ChatGPT-ish (1260)
+### Big lab (`bigLab`, 2023–25)
+- room: Datacenter campus 12×12 ($30M)
+- power: Dedicated power plant deal 300.0 MW ($250M)
+- gpu: B200 SuperPOD ($39M, +9%/tile), Vera Rubin NVL144 ($3.9M, +9%/tile), Rubin SuperPOD ($55M, +9%/tile)
+- cooling: Cooling tower ($4.0M)
+- network: NVLink fabric ($5.0M)
+- research: FP8 training $300M, Speculative decoding $2.3B, Synthetic data $3.0B, AI feedback (RLAIF) $1.0B, Long context (ring attention) $1.5B, Reasoning (RL on chain of thought) $2.5B
+- stunts: Livestreamed keynote
+- runs: 1h / 3h / 6h at 72× (3.0 d / 9.0 d / 18 d of compute)
+- rivals: GPT-ish-4 (1339), Claudette 3.5 Sonata (1373), DeepSleep-R1 (1378), Claudette 3.7 Sonata (1455), o-three (1463), Grokk 3 (1503), GPT-ish-4.5 (1506)
+### Frontier lab (`globalLab`, 2025–26)
+- room: Gigawatt site 12×12 ($400M)
+- power: Gigawatt campus 1.0 GW ($600M), Restarted nuclear plant 2.0 GW ($2.0B), Multi-site cluster 4.0 GW ($5.0B)
+- gpu: Rubin building ($300M, +3%/tile)
+- cooling: Closed-loop dry coolers ($9.0M)
+- network: Optical fabric ($30M)
+- research: Multi-token prediction $6.0B, Expert data (PhD annotators) $7.0B, Test-time compute scaling $28B, Agentic RL environments $35B, Prefill/decode disaggregation $10B
+- stunts: Big-game TV ad
+- runs: 2h / 4h / 8h at 36× (3.0 d / 6.0 d / 12 d of compute)
+- rivals: GPT-ish-5 (1512), Gemeni 3 Pro (1571), Amused Spark (1580), GPT-ish-5.5 "Tater" (1596), Claudette Parable 5 (1618), Gemeni 4 Xenon (1622), GPT-ish-6 Astral (1626)
+
+The big parody labs (ClosedAI, Anthropomorphic) fight it out in Big lab with
+DeepSleep and yAI. The frontier fight (GPT-ish-5 → GPT-ish-6 Astral, with
+Gogol DeepThought's Gemeni and MetaMind's Amused Spark) is in the Frontier lab.
+The rival ratings are unchanged: they come from real FLOPs through the game's
+own formula.
+
+## Pacing: casual schedule (balanced bot, template layout, seed 12345)
+
+| Milestone | Wall-clock | (sim) | Target |
+|---|---|---|---|
+| Startup | 0h12 | 0h12 | ~10–15 min, first session |
+| Small lab | 0h48 | 0h48 | ~1–2 h |
+| Medium lab | 7h15 | 7h15 | ~8–14 h |
+| Big lab | 24h00 | 19h45 | ~24–32 h |
+| Frontier lab | 34h45 | 30h30 | ~40–50 h |
+| Final rival (GPT-ish-6 Astral) | **51h30** | 43h00 | ~50–70 h |
+
+Rivals (wall-clock): Tiny-Transformer 0h09, GPT-ish-1 0h12, BURT and
+GPT-ish-2 0h35, Meenie 4h00, GPT-ish-3 7h15, Mixtrawl 10h45, ChatGPT-ish 24h00,
+GPT-ish-4 → o-three 27h30, Grokk 3 / GPT-ish-4.5 / GPT-ish-5 34h45,
+Gemeni 3 Pro / Amused Spark / Tater 48h00, the last three 51h30. That's 10
+sessions and 8h15 of active play.
+
+Off target: Frontier lab arrives about 5 h early (on day 2's evening session,
+not after night 2), and Medium lab ~45 min before the 8 h mark. Pushing
+Frontier past night 2 left Big lab's last day-2 session with nothing to do
+(power full, waiting for a run). Idle sessions were judged worse than an early
+unlock.
 
 ```
-strategy / layout        | Startup | Lab    | rival 5 | rival 10 | rival 15 | final  | rivals | overload
-balanced / template     |  0h09  |  0h45 |  0h45  |  1h20   |  2h16   |  3h58 | 22/22  | 9.2%
-hardwareOnly / template |    —    |    —   |    —    |    —     |    —     |    —   |  1/22  | 0.1%
-noUpgrades / template   |    —    |    —   |    —    |    —     |    —     |    —   |  1/22  | 0.9%
-softwareFirst / template |  0h10  |  1h13 |  1h10  |  2h10   |  3h36   |  5h21 | 22/22  | 8.7%
-balanced / naive        |  0h52  |    —   |    —    |    —     |    —     |    —   |  3/22  | 6.7%
-balanced / random       |  0h11  |    —   |  1h21  |    —     |    —     |    —   |  5/22  | 6.9%
+sess | wall start | sim start | len | era at start | ran away | 1st act | decisions (buy/rel) | idle max | rivals | eras
+   0 |       0h00 |      0h00 |  60 | Parents' garage | -        |   0s   |   51 (32/9) |   8.4m |      4 | Startup, Small lab
+   1 |       3h30 |      3h30 |  45 | Small lab    | yes      |   0s   |   81 (77/2) |  10.8m |      1 | 
+   2 |       7h15 |      7h15 |  30 | Small lab    | yes      |   0s   |   80 (78/1) |  11.3m |      1 | Medium lab
+   3 |      10h45 |     10h45 |  60 | Medium lab   | yes      |   0s   |   39 (37/1) |   8.9m |      1 | 
+   4 |      24h00 |     19h45 |  60 | Medium lab   | yes      |   0s   |   98 (96/1) |   5.2m |      1 | Big lab
+   5 |      27h30 |     23h15 |  45 | Big lab      | yes      |   0s   |   14 (12/1) |   8.0m |      5 | 
+   6 |      31h15 |     27h00 |  30 | Big lab      | yes      |   0s   |   22 (20/1) |   6.3m |      0 | 
+   7 |      34h45 |     30h30 |  60 | Big lab      | yes      |   0s   |   38 (36/1) |   7.0m |      3 | Frontier lab
+   8 |      48h00 |     39h30 |  60 | Frontier lab | yes      |   0s   |   50 (48/1) |   8.7m |      3 | 
+   9 |      51h30 |     43h00 |  45 | Frontier lab | yes      |   0s   |    2 (1/0) |   0.3m |      3 |
 ```
 
-- **template** finishes at 3h58.
-- **naive** (no switches, no coolers, random cells) trains on a single tile,
-  so its model barely improves: Startup only at 0h52 and 3 rivals in 12 h.
-  In the test at 3 h it trails the template by > 150 rating.
-- **random** buys a similar mix of switches and coolers but scatters them:
-  most GPUs never touch a switch and coolers sit next to nothing. It reaches
-  Startup on time (serving doesn't need a network) but never Lab: 5 rivals in
-  12 h.
-- **software-first** reaches Lab 28 min later and the final rival 1h23 later.
-- **hardware-only** buys no software or research upgrades (only data and the
-  liquid cooling racks need). It no longer even leaves the Garage: a 4×4
-  garage holds 8 GPUs, and with MFU stuck at 25% and no batching it can't
-  serve the 3k users Startup needs. Buying the $1.2k batching upgrade is
-  enough to escape, so this is a strategy dead end, not a game deadlock.
-- **no-upgrades** hits the data wall at once and stays in the Garage.
+- **Longest active stretch with nothing to buy or do: 11.3 min** (session 3,
+  saving for the campus power tier). Target < 10; every other session is ≤ 9 min.
+- Every session from the second on has a decision in its first second. A
+  finished training run waits on return in 9 of 10 sessions, and decisions per
+  session have a median of 50. The 2 in the last session is the final rival
+  falling a minute in.
+- Seeds 1, 777 and 2026 give the identical timeline (max idle 10.8–11.3 min).
+  Seed 4242 is a session faster early (Medium 4h00, Big 10h45), Frontier
+  48h00, final 58h45, max idle 14.2 min.
+- At the final rival: 2.6B users, $41B ARR, 1.7M H100e, 1.4 GW.
 
-## What changed with the grid (v2)
+## Pacing: continuous play (no gaps)
 
-- Startup now unlocks at **3k users** (was 5k): the garage physically holds
-  ~8 GPUs once it has switches and coolers, against ~13 in the old shop.
-- `servingBase` 0.0135 → 0.015, colo tier $2.5M → $2M, gigawatt tier
-  $750M → $450M, test-time compute stays $2.5B, agentic RL $6B → $8B.
-- Rooms cost: closet $10k, colo $200k, hall $1.5M, campus $15M, gigasite
-  $50M, each gated by its power tier (office, colo, hall, campus, gigawatt).
-- Extra tile `pod_r_class` (R-class pod, campus, power-plant tier): without
-  it the campus was full of B-class pods from ~2h15 with nothing to buy until
-  the gigasite.
+Startup 0h12, Small lab 0h48, Medium lab 3h01, Big lab 10h26, Frontier
+27h07, final rival **46h20** (seed 12345, 1 s / 3 s). So non-stop play beats the
+casual player by about 5 h of wall-clock but needs ~46 h of active play,
+against ~8 h for the casual player. Offline earns at full rate, so playing
+non-stop is no big advantage. That's deliberate for a casual idle game.
+The catch: a continuous player hits long save-ups (longest stretch with nothing
+to buy: ~2.9 h, late Frontier lab), because the big research items are sized for
+offline earnings.
+
+## Strategies and placement
+
+```
+continuous, 60h00 cap
+strategy / layout        | Startup      | Small lab    | Medium lab   | Big lab      | Frontier lab | final  | rivals
+balanced / template     |  0h12        |  0h48        |  3h01        | 10h26        | 27h07        | 46h20 | 22/22
+hardwareOnly / template |  0h14        |    —         |    —         |    —         |    —         |    —   |  4/22
+noUpgrades / template   |  0h18        |    —         |    —         |    —         |    —         |    —   |  2/22
+softwareFirst / template |  0h15        |  1h22        |  3h38        | 11h05        | 29h26        | 46h57 | 22/22
+balanced / naive        |    —         |    —         |    —         |    —         |    —         |    —   |  1/22
+balanced / random       |  0h16        |    —         |    —         |    —         |    —         |    —   |  4/22
+
+casual, 96h00 cap
+strategy / layout        | Startup      | Small lab    | Medium lab   | Big lab      | Frontier lab | final  | rivals
+balanced / template     |  0h12        |  0h48        |  7h15        | 24h00        | 34h45        | 51h30 | 22/22
+hardwareOnly / template |  0h14        |  4h11        |    —         |    —         |    —         |    —   |  5/22
+noUpgrades / template   |  0h18        |    —         |    —         |    —         |    —         |    —   |  2/22
+softwareFirst / template |  0h15        |  3h40        |  7h15        | 24h00        | 34h45        | 58h45 | 22/22
+balanced / naive        |  3h36        | 10h45        |    —         |    —         |    —         |    —   |  4/22
+balanced / random       |  0h16        |  4h11        | 10h45        | 27h30        |    —         |    —   | 13/22
+```
+
+- **naive** (no switches, no coolers) trains on single tiles: on the casual
+  schedule it's stuck in the Small lab with 4 rivals after 4 days.
+- **random** scatters switches and coolers: one era and ~5 rivals behind at
+  40 h, 13/22 after 4 days.
+- **hardware-only** (no software/research beyond data and liquid cooling)
+  never leaves the Small lab. **no-upgrades** stays in the Startup.
+- **software-first** finishes too, 7 h later on the casual schedule.
 
 ## Why the numbers are what they are
 
-**Rival ratings are the game's own formula.** Each snapshot stores its real
-estimated training FLOPs (Epoch AI via `docs/research/rival_labs.md`) and a
-post-training bonus. Its rating is
-`700 + 23·log2(FLOPs/1e18) + bonus`, the same as the player's `ratingOf`. A
-test checks this. The bonuses track the player's research stack over time:
-0 before 2023 → 60–80 (instruction tuning + RLHF era) → 105 (2024) → 150–215
-(reasoning, 2025) → 225–240 (test-time and agentic RL, 2026). The player's
-own maximum is 250. So beating GPT-ish-6 Astral needs roughly its effective
-compute (~6–9e26) and a full post-training stack. FLOPs marked
-`flopsInterpolated` (o-three, Gemeni 3 Pro, Amused Spark, Tater, Claudette
-Parable 5, Gemeni 4 Xenon) have no public estimate and are interpolated between
-neighbours.
+**Time compression per era.** `computeTimeScale` (1440: one real minute is
+a day) stays the game calendar and sets ARR, and 2017 → 2026 is ~55 h of
+play at that rate, which is also why a 2–3 day game fits the history.
+Training runs instead use their era's `EraInfo.computeTimeScale`, fixed when
+the run starts (saved as `TrainingRun.timeScale`): 1440 in the Garage and
+Startup, 480, 180, 72 and 36 at the Frontier. Runs get longer (1 min in the
+Garage, 8 h at the Frontier, so one finishes while you're away). The longest
+run of each era is still 10–30 days of compute, so a bigger cluster, not a
+longer wait, makes a better model, and late clusters are realistic (~0.5–1M
+GPUs). With one scale, an 8 h run would equal a year of compute, and one gigasite
+tile could train GPT-ish-6.
 
-**Users are the real figures** where they exist (WAU and MAU are mixed, as in
-the research notes). The rest are interpolated and marked "interp." in
-content.dart. Rating strictly increases along the ladder and years never go
-backwards. Users mostly increase. The dips are labs with small consumer apps
-(Anthropomorphic, yAI, DeepSleep). They act as pure rating gates; the test
-allows dips down to 10% of the running maximum.
+**GPU supply crunch.** Each GPU tile of a type you already own makes the next
+one pricier (`TileDef.priceGrowth`, 3–12% compounding, capped at
+`maxSupplyPremium` = ×4 list; selling refunds half of list). List prices keep
+the "newer GPU beats older per $ and per kW" chain. Every new generation
+arrives at list price, so an era unlock feels like relief. The crunch stretches
+each era without lumps: there's always a next GPU to buy, just pricier.
 
-**Users fill to capacity; viral spikes overflow.** Signups used to keep
-piling up to 1.5× capacity whenever demand > capacity, so the game was
-OVERLOADED ~60% of the time. Now users stop at capacity (a waitlist, see
-`Game.waitlistUsers`) and only a viral spike pushes past it. Overload churn
-is 8%/s and settles at capacity, so OVERLOADED ends instead of fading out
-asymptotically. Viral spikes need demand > capacity and have a 10-min
-cooldown. A viral spike plus a cloud rental (serving ×2) lets you serve
-about 2–3× capacity for 90 s, which is often how you overtake a rival's user
-count. That's intended.
+**Power tiers cost ~10 min of revenue** at the moment the previous cap fills
+(colo $1M … gigawatt $600M). A power-blocked session has nothing to do, so
+those must never be long saves. **Research is the big sink** ($75–150M in Medium
+lab, $1–3B in Big lab, $6–35B at the Frontier). It's bought on return from
+offline earnings and never blocks GPU purchases.
 
-**Hype no longer compounds.** A release used to multiply hype, so one-minute
-garage releases snowballed to 10×+ demand. Now hype becomes max(current,
-boost), capped at 8.
+**Revenue and serving.** `revenue = users^0.7` (unchanged) and
+`servingExponent` 0.3 → 0.33 (bigger models cost a little more to serve).
+Users per MW must stay high enough for the rival user counts at each era's
+power cap: at 0.42 the 150 MW Big lab served only ~80M users, and o-three's
+400M was impossible. Quantization is ×2 (INT8/INT4); paged KV cache is ×2.4.
 
-**Hardware dominance chain.** Each newer GPU tile beats the older ones on
-both TFLOPS/$ and TFLOPS/kW (the Old gaming GPU is the one deliberate trap:
-cheapest up front, worse on everything else), so the power cap and floor
-space, not a pricing trap, push you up the tech tree. Per-GPU power is
-roughly all-in: H-class 1.25–1.3 kW, B-class 2.35–2.4 kW, R-class 3.3–3.4 kW.
-B-class needs liquid cooling and a campus site, as GB200 racks do; R-class
-needs the power-plant tier.
+**Data budget.** 4B start × web crawl 50 × code 3 × books & papers 2 ×
+licensed 16 × synthetic 4 ≈ 77T tokens, data-optimal up to ~1.7e27 FLOPs as
+before, but spread so each era has its data step. Synthetic data used to be the
+only big multiplier, and the Medium lab hit a hard data wall below its gate.
 
-**Two-ended economy.** Early users are demand-limited, so `demandBase` (90)
-paces the Garage and Startup. Late users are capacity-limited, so
-`servingBase` (0.015; was 0.0135 before the grid) paces the users side of the ladder and sets the final
-ARR. Serving cost grows as `effC^0.3`, so bigger models genuinely cost more to
-serve, and the serving upgrades (batching → distillation → MTP) are how you
-keep up. Startup-era upgrades were made pricier (MoE $1.5M, colo $2.5M,
-RLHF moved to the Lab era, where it belongs historically). Otherwise the
-Startup economy snowballed and Lab arrived at ~20 min.
+**Room space.** The hall and campus grew to 12×12 and the colo tier to
+500 kW, and the plant tier to 300 MW. The gigasite building is ~8k Rubin GPUs at
+$300M, so each era has enough floor and power for in-session GPU purchases
+between offline lumps.
 
-**Data wall.** Tokens: 4B start × crawl 50 × code 3 × synthetic 50 × licensed
-2.5 ≈ 75T tokens (frontier-realistic). That is data-optimal up to ~1.7e27
-FLOPs. Mid-game "data-limited" phases happen just before each data upgrade.
-The final rungs need agentic RL and test-time compute, not just more GPUs.
-
-**Power-tier save-ups stay under ~8 min.** Each tier costs about 5–8 min of
-the revenue you have when you hit the previous cap. A tier is bought as soon
-as it's affordable, then filled with GPUs.
-
-**Post-ladder sandbox.** The restarted-nuclear (2 GW) and multi-site (4 GW)
-tiers come after the final rival. The gigasite holds 66 building tiles
-(~1.1M R-class GPUs, ~3 GW), so 4 GW is never quite filled; by 6 h the bot
-runs ~2.5M H100e on 2 GW.
-
-## Tool output (`dart run tool/balance_sim.dart`, 6 h, balanced)
-
-```
-strategy: balanced, layout: template
-
-time  | money      | rev/s     | ARR        | users      | rating | GPUs    | power kW        | util | train cluster          | rooms | era
- 0h00 |        501 |      1.20 |      26.3k |       2.70 |    700 |    1.00 |    0.45/   1.80 | 0.25 | 1.00 GPU garage 100%   |     1 | Garage
- 0h06  >>> BEAT Hugging Hands Collective Tiny-Transformer (2017)
- 0h09  >>> ERA: Startup
- 0h09  >>> BEAT ClosedAI GPT-ish-1 (2018)
- 0h10 |        965 |       181 |      3.97M |       3.5k |    809 |    8.00 |    7.68/   8.00 | 0.33 | 8.00 GPU garage 100%   |     1 | Startup
- 0h19  >>> BEAT Gogol DeepThought BURT-Large (2018)
- 0h20 |      43.1k |      1.0k |     22.53M |      20.1k |    889 |      32 |      25/     40 | 0.33 | 24 GPU closet 100%     |     2 | Startup
- 0h21  !!! viral spike (capacity 34.4k, users 28.7k)
- 0h23  >>> BEAT ClosedAI GPT-ish-2 (2019)
- 0h30 |     236.5k |      4.4k |     95.49M |     158.2k |    999 |      56 |      39/     40 | 0.55 | 48 GPU closet 100%     |     2 | Startup
- 0h34  !!! viral spike (capacity 141.3k, users 141.3k)
- 0h40 |      37.2k |      8.9k |    194.35M |     436.7k |   1014 |      96 |      87/    250 | 0.55 | 40 GPU colo 100%       |     3 | Startup
- 0h45  >>> ERA: Lab
- 0h45  >>> BEAT Gogol DeepThought Meenie (2020)
- 0h47  >>> BEAT ClosedAI GPT-ish-3 (2020)
- 0h50 |      1.20M |     43.8k |    959.89M |      3.30M |   1142 |     216 |     250/    250 | 0.55 | 104 GPU colo 100%      |     3 | Lab
- 0h54  !!! viral spike (capacity 16.53M, users 13.04M)
- 0h58  >>> BEAT Mistrawl Mixtrawl 8x7B (2023)
- 1h00 |      1.28M |    178.1k |      3.90B |     24.42M |   1235 |    1.2k |    2.0k/  20.0k | 0.66 | 864 GPU hall 100%      |     4 | Lab
- 1h10 |     21.48M |    344.6k |      7.55B |     62.71M |   1297 |    3.1k |    6.0k/  20.0k | 0.66 | 2.7k GPU hall 100%     |     5 | Lab
- 1h12  >>> BEAT ClosedAI ChatGPT-ish (2023)
- 1h18  >>> BEAT ClosedAI GPT-ish-4 (2023)
- 1h20 |      6.36M |    608.7k |     13.33B |    141.35M |   1364 |    9.2k |   18.4k/  20.0k | 0.66 | 6.1k GPU campus 100%   |     5 | Lab
- 1h20  >>> BEAT Anthropomorphic Claudette 3.5 Sonata (2024)
- 1h20  >>> BEAT DeepSleep DeepSleep-R1 (2025)
- 1h30 |     21.09M |    569.7k |     12.48B |    128.59M |   1425 |   10.8k |   22.6k/ 150.0k | 0.66 | 7.2k GPU campus 100%   |     5 | Lab
- 1h35  !!! viral spike (capacity 149.90M, users 140.23M)
- 1h40 |     41.12M |    738.0k |     16.16B |    186.15M |   1445 |   16.9k |   41.3k/ 150.0k | 0.66 | 13.3k GPU campus 100%  |     5 | Lab
- 1h42  >>> BEAT Anthropomorphic Claudette 3.7 Sonata (2025)
- 1h50 |     60.42M |    825.5k |     18.08B |    218.44M |   1470 |   24.1k |   62.9k/ 150.0k | 0.66 | 20.5k GPU campus 100%  |     5 | Lab data-limited
- 1h57  !!! viral spike (capacity 232.29M, users 229.96M)
- 1h57  >>> BEAT ClosedAI o-three (2025)
- 2h00 |     24.24M |    923.5k |     20.23B |    256.42M |   1491 |   33.3k |   90.3k/ 150.0k | 0.66 | 29.7k GPU campus 100%  |     5 | Lab
- 2h03  >>> BEAT yAI Grokk 3 (2025)
- 2h10 |     61.45M |    998.3k |     21.86B |    286.58M |   1505 |   42.5k |  117.7k/ 150.0k | 0.66 | 38.9k GPU campus 100%  |     5 | Lab
- 2h16  !!! viral spike (capacity 301.78M, users 297.71M)
- 2h16  >>> BEAT ClosedAI GPT-ish-4.5 (2025)
- 2h20 |    273.78M |     1.04M |     22.67B |    301.78M |   1516 |   49.7k |  139.7k/ 150.0k | 0.66 | 46.1k GPU campus 100%  |     5 | Lab
- 2h30 |    336.57M |     1.31M |     28.62B |    306.14M |   1532 |   49.7k |  146.8k/ 150.0k | 0.66 | 46.1k GPU campus 100%  |     5 | Lab
- 2h37  !!! viral spike (capacity 302.15M, users 302.15M)
- 2h40 |    131.18M |     1.42M |     31.20B |    302.15M |   1553 |   49.7k |  146.8k/  1.00M | 0.66 | 46.1k GPU campus 100%  |     6 | Lab
- 2h50 |    203.39M |     2.01M |     44.07B |    495.02M |   1553 |   66.1k |  192.8k/  1.00M | 0.66 | 46.1k GPU campus 100%  |     6 | Lab
- 3h00 |    771.34M |     2.57M |     56.33B |    702.81M |   1553 |   82.4k |  238.8k/  1.00M | 0.66 | 46.1k GPU campus 100%  |     6 | Lab
- 3h00  >>> BEAT ClosedAI GPT-ish-5 (2025)
- 3h10 |    168.19M |     3.32M |     72.64B |      1.01B |   1558 |  131.6k |  376.7k/  1.00M | 0.66 | 81.9k GPU gigasite 100% |     6 | Lab
- 3h16  >>> BEAT Gogol DeepThought Gemeni 3 Pro (2025)
- 3h20 |    583.14M |     3.41M |     74.60B |      1.05B |   1574 |  164.4k |  468.8k/  1.00M | 0.66 | 114.7k GPU gigasite 100% |     6 | Lab data-limited
- 3h26  >>> BEAT MetaMind Labs Amused Spark (2026)
- 3h30 |    195.91M |     3.64M |     79.76B |      1.16B |   1586 |  213.5k |  607.0k/  1.00M | 0.66 | 163.8k GPU gigasite 100% |     6 | Lab data-limited
- 3h33  !!! viral spike (capacity 1.24B, users 1.22B)
- 3h40 |    161.96M |     4.01M |     87.91B |      1.33B |   1590 |  262.7k |  745.1k/  1.00M | 0.66 | 213.0k GPU gigasite 100% |     6 | Lab data-limited
- 3h50 |    190.56M |     4.38M |     95.84B |      1.50B |   1593 |  311.8k |  883.3k/  1.00M | 0.66 | 262.1k GPU gigasite 100% |     6 | Lab data-limited
- 3h50  !!! viral spike (capacity 1.52B, users 1.52B)
- 3h58  >>> BEAT ClosedAI GPT-ish-5.5 "Tater" (2026)
- 3h58  >>> BEAT Anthropomorphic Claudette Parable 5 (2026)
- 3h58  >>> BEAT Gogol DeepThought Gemeni 4 Xenon (2026)
- 3h58  >>> BEAT ClosedAI GPT-ish-6 Astral (2026)
- 4h00 |    391.97M |     3.40M |     74.48B |      1.05B |   1630 |  311.8k |  883.3k/  1.00M | 0.66 | 262.1k GPU gigasite 100% |     6 | Lab data-limited
- 4h05  !!! viral spike (capacity 1.10B, users 1.10B)
- 4h10 |    973.36M |     3.62M |     79.22B |      1.14B |   1630 |  344.6k |  977.5k/  1.00M | 0.66 | 294.9k GPU gigasite 100% |     6 | Lab data-limited
- 4h19  !!! viral spike (capacity 1.13B, users 1.13B)
- 4h20 |    646.01M |     5.05M |    110.66B |      1.84B |   1631 |  344.6k |  977.5k/  2.00M | 0.66 | 294.9k GPU gigasite 100% |     6 | Lab data-limited
- 4h30 |    566.92M |     3.89M |     85.26B |      1.27B |   1631 |  393.7k |   1.12M/  2.00M | 0.66 | 344.1k GPU gigasite 100% |     6 | Lab data-limited
- 4h40 |    481.70M |     4.16M |     91.01B |      1.39B |   1633 |  442.9k |   1.25M/  2.00M | 0.66 | 393.2k GPU gigasite 100% |     6 | Lab data-limited
- 4h50 |    606.40M |     4.40M |     96.47B |      1.52B |   1634 |  492.0k |   1.39M/  2.00M | 0.66 | 442.4k GPU gigasite 100% |     6 | Lab data-limited
- 5h00 |     57.20M |     4.67M |    102.28B |      1.65B |   1636 |  557.6k |   1.58M/  2.00M | 0.66 | 507.9k GPU gigasite 100% |     6 | Lab data-limited
- 5h10 |    410.86M |     4.94M |    108.28B |      1.79B |   1637 |  606.7k |   1.72M/  2.00M | 0.66 | 557.1k GPU gigasite 100% |     6 | Lab data-limited
- 5h18  !!! viral spike (capacity 1.90B, users 1.90B)
- 5h20 |    409.31M |     5.23M |    114.62B |      3.16B |   1638 |  672.3k |   1.90M/  2.00M | 0.66 | 622.6k GPU gigasite 100% |     6 | Lab OVERLOADED data-limited
- 5h30 |      1.97B |     5.35M |    117.19B |      2.00B |   1639 |  705.0k |   1.99M/  2.00M | 0.66 | 655.4k GPU gigasite 100% |     6 | Lab data-limited
- 5h40 |      5.17B |     5.32M |    116.56B |      1.99B |   1640 |  705.0k |   1.99M/  2.00M | 0.66 | 655.4k GPU gigasite 100% |     6 | Lab data-limited
- 5h40  !!! viral spike (capacity 1.99B, users 1.99B)
- 5h50 |    710.05M |     6.39M |    139.87B |      1.99B |   1675 |  705.0k |   1.99M/  2.00M | 0.66 | 655.4k GPU gigasite 100% |     6 | Lab data-limited
- 5h58  !!! viral spike (capacity 1.99B, users 1.99B)
- 6h00 |      4.77B |     9.92M |    217.14B |      4.05B |   1675 |  705.0k |   1.99M/  2.00M | 0.66 | 655.4k GPU gigasite 100% |     6 | Lab OVERLOADED data-limited
-
-=== summary (balanced, template) ===
-era Garage    0h00
-era Startup   0h09
-era Lab       0h45
-rival  0h06  Hugging Hands Collective Tiny-Transformer (2017)
-rival  0h09  ClosedAI GPT-ish-1 (2018)
-rival  0h19  Gogol DeepThought BURT-Large (2018)
-rival  0h23  ClosedAI GPT-ish-2 (2019)
-rival  0h45  Gogol DeepThought Meenie (2020)
-rival  0h47  ClosedAI GPT-ish-3 (2020)
-rival  0h58  Mistrawl Mixtrawl 8x7B (2023)
-rival  1h12  ClosedAI ChatGPT-ish (2023)
-rival  1h18  ClosedAI GPT-ish-4 (2023)
-rival  1h20  Anthropomorphic Claudette 3.5 Sonata (2024)
-rival  1h20  DeepSleep DeepSleep-R1 (2025)
-rival  1h42  Anthropomorphic Claudette 3.7 Sonata (2025)
-rival  1h57  ClosedAI o-three (2025)
-rival  2h03  yAI Grokk 3 (2025)
-rival  2h16  ClosedAI GPT-ish-4.5 (2025)
-rival  3h00  ClosedAI GPT-ish-5 (2025)
-rival  3h16  Gogol DeepThought Gemeni 3 Pro (2025)
-rival  3h26  MetaMind Labs Amused Spark (2026)
-rival  3h58  ClosedAI GPT-ish-5.5 "Tater" (2026)
-rival  3h58  Anthropomorphic Claudette Parable 5 (2026)
-rival  3h58  Gogol DeepThought Gemeni 4 Xenon (2026)
-rival  3h58  ClosedAI GPT-ish-6 Astral (2026)
-rivals beaten: 22/22; upgrades: 29/29; releases: 47; viral spikes: 14
-overloaded 8.9% of the time (3.8% during viral spikes); longest stretch without a purchase/release: 9.5 min (from  2h38)
-at the final rival: 1.48B users, ARR 75.34B, 1.10M H100-equivalents, 883 MW
-longest gap between rival wins: 44 min
-max users 4.05B (cap 5.00B); final money 4.77B, ARR 217.14B; power 1.99M kW; H100e 2.49M
-```
+**Unchanged from v2:** the grid rules, demand/hype/viral numbers, rival
+ratings and users, hype cap 8, overload settle, cloud rental cost, the 8 h
+offline cap.

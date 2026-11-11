@@ -444,6 +444,23 @@ def cool_tower(s):
             s.ellipse2(p[0] + ox, p[1] + oy, r * 1.3, r, '#DDF6FF', stroke=None, opacity=0.75 - k * 0.2, glow=True)
 
 
+@tile('cool_dry', 'cool')
+def cool_dry(s):
+    # closed-loop dry cooler: a low V-coil radiator bank with a grid of fans
+    b = s.box(8, 10, 0, 84, 80, 26, color='#4F6E92')
+    for i in range(7):
+        u = 0.06 + i * 0.13
+        s.fline(b, 'left', [(u, 0.2), (u + 0.065, 0.8), (u + 0.13, 0.2)], COOLD, sw=2)
+        s.fline(b, 'right', [(u, 0.2), (u + 0.065, 0.8), (u + 0.13, 0.2)], shade(COOLD, -0.35), sw=2)
+    s.frect(b, 'left', 0.0, 0.88, 1.0, 1.0, CYAN, glow=True, opacity=0.8)
+    for i in range(3):
+        for j in range(2):
+            fan_top(s, b, 0.2 + i * 0.3, 0.28 + j * 0.44, 11, blade=SILVER, hub=CYAN)
+    # sealed loop: two pipes in, no steam
+    pipe3(s, [(30, 92, 6), (30, 100, 6)], '#3D8BFF', sw=7)
+    pipe3(s, [(50, 92, 6), (50, 100, 6)], CYAN, sw=7)
+
+
 # ============================================================ Network (amber)
 NETC = '#2B3150'
 

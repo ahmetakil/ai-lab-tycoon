@@ -12,10 +12,12 @@ Earlier rooms keep working (they're good for serving).
 |---|---|---|---|---|---|
 | garage | Garage | garage | 4×4 | 1 GPU | 1 |
 | closet | Server closet | startup | 6×6 | 8-GPU server | 4 |
-| colo | Colocation cage | startup | 8×8 | 8-GPU server | 8 |
-| hall | Datacenter hall | lab | 10×10 | rack (~32–72 GPUs) | 30 |
-| campus | Datacenter campus | lab | 10×10 | pod (~1k GPUs) | (tune) |
-| gigasite | Gigawatt site | lab | 12×12 | building (~20k GPUs) | (tune) |
+| colo | Colocation cage | smallLab | 8×8 | 8-GPU server | 8 |
+| hall | Datacenter hall | mediumLab | 12×12 | rack (~32–72 GPUs) | 30 |
+| campus | Datacenter campus | bigLab | 12×12 | pod (~1k GPUs) | 60 |
+| gigasite | Gigawatt site | globalLab | 12×12 | building (~8k GPUs) | 100 |
+
+(Six eras since save v3; see docs/BALANCE.md for gates and what each era unlocks.)
 
 Rooms are bought with money (and gated by era/power tier). The global **power cap** (existing
 power tiers) still applies across all rooms. Numbers marked "tune" are for the sim agent.
@@ -78,7 +80,7 @@ If netHeat > 0, the tile throttles: `speed = max(0.3, 1 − 0.7 × netHeat / hea
   unlocks InfiniBand. `parallelism` unlocks the optical fabric and maybe raises gpuCap.
 - Power cap is global across rooms; GPU and cooling tiles draw power.
 - Tiles can be moved for free (encourages rearranging) and sold for 50%.
-- Save format bumps to v2; v1 saves start fresh (unreleased game, fine).
+- Save format bumps to v2; v1 saves start fresh (unreleased game, fine). v3 (six eras) resets v2 saves the same way.
 
 ## Sim API (contract the UI codes against)
 ```dart
@@ -163,14 +165,24 @@ Display names use real GPU products (RTX 4090, H100, GB200 NVL72, ...); ids keep
 old class names. Lab and company names stay parody.
 
 ### Rooms and tiles
-| room | size | GPU tile = | ambient/cell (total) | cost | needs power tier |
-|---|---|---|---|---|---|
-| `garage` Garage | 4×4 | 1 GPU | 1 (16) | free | 0 (outlet) |
-| `closet` Server closet | 6×6 | 8-GPU server | 4 (144) | $10k | 2 (office) |
-| `colo` Colocation cage | 8×8 | 8-GPU server | 8 (512) | $200k | 3 (colo) |
-| `hall` Datacenter hall | 10×10 | rack (32–72 GPUs) | 30 (3000) | $1.5M | 4 (hall) |
-| `campus` Datacenter campus | 10×10 | pod (~1k GPUs) | 60 (6000) | $15M | 5 (campus) |
-| `gigasite` Gigawatt site | 12×12 | building (~16k GPUs) | 100 (14.4k) | $50M | 7 (gw_campus) |
+| room | era | size | GPU tile = | ambient/cell (total) | cost | needs power tier |
+|---|---|---|---|---|---|---|
+| `garage` Garage | garage | 4×4 | 1 GPU | 1 (16) | free | 0 (outlet) |
+| `closet` Server closet | startup | 6×6 | 8-GPU server | 4 (144) | $15k | 2 (office, 40 kW) |
+| `colo` Colocation cage | smallLab | 8×8 | 8-GPU server | 8 (512) | $2M | 3 (colo, 500 kW) |
+| `hall` Datacenter hall | mediumLab | 12×12 | rack (32–72 GPUs) | 30 (4320) | $3M | 4 (hall, 2 MW) |
+| `campus` Datacenter campus | bigLab | 12×12 | pod (~1k GPUs) | 60 (8640) | $30M | 5 (campus, 20 MW) |
+| `gigasite` Gigawatt site | globalLab | 12×12 | building (~8k GPUs) | 100 (14.4k) | $400M | 7 (gw_campus, 1 GW) |
+
+Power tiers: outlet 1.8 kW, panel 8 kW (garage); office 40 kW (startup); colo
+500 kW (smallLab); hall 2 MW and campus 20 MW (mediumLab); plant 300 MW
+(bigLab); gigawatt 1 GW, nuclear 2 GW, multi-site 4 GW (globalLab).
+
+**GPU supply crunch** (since v3): a GPU tile costs
+`cost × min(4, (1 + priceGrowth)^owned)`, where `owned` counts that tile type
+across all rooms (`Game.tilePrice`). Garage GPUs and all cooling and network
+gear have no crunch. Selling refunds half the list price. The table below
+shows list prices.
 
 | GPU tile | rooms | GPUs | TFLOPS | kW | heat | cost | locks |
 |---|---|---|---|---|---|---|---|
@@ -184,7 +196,7 @@ old class names. Lab and company names stay parody.
 | `pod_b_class` | campus | 1024 | 2.3M | 2406.4 | 600 | $39M | liquid_cooling, tier 5 (campus) |
 | `rack_r_class` | hall | 72 | 252k | 244.8 | 340 | $3.9M | liquid_cooling, tier 6 (plant) |
 | `pod_r_class` | campus | 1024 | 3.6M | 3430 | 750 | $54.6M | liquid_cooling, tier 6 (plant) |
-| `bldg_r_class` | gigasite | 16.4k | 57.3M | 54.1k | 900 | $800M | liquid_cooling, tier 7 (gw_campus) |
+| `bldg_r_class` | gigasite | 8.2k | 28.7M | 27.0k | 700 | $300M | liquid_cooling, tier 7 (gw_campus) |
 
 | cooling tile | rooms | cooling | kW | cost | locks |
 |---|---|---|---|---|---|
@@ -195,6 +207,7 @@ old class names. Lab and company names stay parody.
 | `cool_chiller` | hall, campus | 300 | 40 | $150k |  |
 | `cool_liquid` | hall, campus | 450 | 10 | $250k | liquid_cooling |
 | `cool_tower` | campus, gigasite | 1800 | 200 | $4M |  |
+| `cool_dry` | gigasite | 3000 | 450 | $9M |  |
 
 | network tile | rooms | gpuCap (GPUs) | Gbps | kW | cost | locks |
 |---|---|---|---|---|---|---|

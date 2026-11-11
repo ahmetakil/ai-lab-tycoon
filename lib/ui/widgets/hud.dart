@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
@@ -15,7 +14,10 @@ import 'panel.dart';
 const _eraColors = <Era, Color>{
   Era.garage: AppColors.amber,
   Era.startup: AppColors.cyan,
-  Era.lab: AppColors.violet,
+  Era.smallLab: AppColors.neon,
+  Era.mediumLab: Color(0xFF5B8CFF),
+  Era.bigLab: AppColors.violet,
+  Era.globalLab: Color(0xFFFF6FD8),
 };
 
 /// Accent colour per era (falls back for eras without a colour yet).
@@ -76,7 +78,7 @@ class Hud extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Tag(s.era.label.toUpperCase(), color: eraColor(s.era)),
+                  Tag(s.era.shortLabel.toUpperCase(), color: eraColor(s.era)),
                   if (controller.speed != 1) ...[
                     const SizedBox(width: 6),
                     Tag('×${formatNumber(controller.speed)}', color: AppColors.red, mono: true),
@@ -262,29 +264,31 @@ Future<void> showSettingsSheet(BuildContext context, GameController controller) 
                           setSheet(() {});
                         },
                       ),
-                      if (kDebugMode) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.fast_forward_outlined, color: AppColors.red),
-                            const SizedBox(width: 16),
-                            const Expanded(child: Text('Debug speed')),
-                            SegmentedButton<double>(
-                              showSelectedIcon: false,
-                              segments: const [
-                                ButtonSegment(value: 1, label: Text('×1')),
-                                ButtonSegment(value: 10, label: Text('×10')),
-                                ButtonSegment(value: 60, label: Text('×60')),
-                              ],
-                              selected: {controller.speed},
-                              onSelectionChanged: (v) {
-                                controller.speed = v.first;
-                                setSheet(() {});
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
+                      // Shown in every build for now (playtesting in Chrome).
+                      const SizedBox(height: 8),
+                      const Row(
+                        children: [
+                          Icon(Icons.fast_forward_outlined, color: AppColors.red),
+                          SizedBox(width: 16),
+                          Expanded(child: Text('Playtest speed')),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SegmentedButton<double>(
+                        key: const ValueKey('playtest-speed'),
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment(value: 1, label: Text('1×')),
+                          ButtonSegment(value: 10, label: Text('10×')),
+                          ButtonSegment(value: 60, label: Text('60×')),
+                          ButtonSegment(value: 600, label: Text('600×')),
+                        ],
+                        selected: {controller.speed},
+                        onSelectionChanged: (v) {
+                          controller.speed = v.first;
+                          setSheet(() {});
+                        },
+                      ),
                       const SizedBox(height: 20),
                       NeonButton(
                         label: 'Reset game',

@@ -39,6 +39,27 @@ class ModelReleased extends GameEvent {
   const ModelReleased(this.release, this.stunt, this.stuntSucceeded);
 }
 
+/// What the next era asks for, for the UI ("Next: Small lab at rating 1000").
+class EraGoal {
+  final Era era;
+  final String metric; // 'users' | 'rating' | 'arr'
+  final double target;
+  final double current;
+  const EraGoal(this.era, this.metric, this.target, this.current);
+
+  bool get met => current >= target;
+
+  /// 0..1 on the metric's natural scale (log for users and ARR).
+  double get progress {
+    if (met) return 1;
+    if (metric == 'rating') {
+      return ((current - ratingBase) / (target - ratingBase)).clamp(0.0, 1.0);
+    }
+    if (current <= 1) return 0;
+    return (math.log(current) / math.log(target)).clamp(0.0, 1.0);
+  }
+}
+
 class OfflineReport {
   final double seconds;
   final double moneyEarned;
@@ -155,6 +176,20 @@ class Game {
     );
   }
 
+  /// What placing one more [t] costs now: the list price, plus the supply
+  /// crunch premium for every tile of that type already placed
+  /// (TileDef.priceGrowth, GPUs only).
+  double tilePrice(TileDef t) => t.priceGrowth == 0
+      ? t.cost
+      : t.cost *
+          math.min(
+            maxSupplyPremium,
+            math.pow(1 + t.priceGrowth, grid.counts[t.id] ?? 0).toDouble(),
+          );
+
+  /// Supply-crunch premium on the next [t] as a fraction (0.3 = +30%).
+  double tilePremium(TileDef t) => tilePrice(t) / t.cost - 1;
+
   /// Power one tile draws (GPU tiles get upgrade savings like liquid cooling).
   double tilePowerKw(TileDef t) => t.isGpu ? t.powerKw * powerMult : t.powerKw;
 
@@ -225,12 +260,25 @@ class Game {
       revenueScale * math.pow(servedUsers, revenueExponent) * arpuMult;
   double get arr => revenuePerSecond * secondsPerYear;
 
+  /// Time compression of the running run, or of a run started now.
+  double get runTimeScale => s.run?.timeScale ?? s.era.computeTimeScale;
+
+  /// Run lengths the UI offers right now (real seconds).
+  List<double> get runDurations => s.era.runDurations;
+
   /// Raw FLOPs per second a run at [fraction] gets from the training cluster.
   double trainingFlopsPerSecond(double fraction) =>
-      trainingClusterTflops * fraction * 1e12 * computeTimeScale;
+      trainingClusterTflops * fraction * 1e12 * runTimeScale;
 
+  /// Rating of a run started now at [fraction] for [durationSeconds].
   double predictRating(double fraction, double durationSeconds) => ratingOf(
-    effectiveComputeOf(trainingFlopsPerSecond(fraction) * durationSeconds),
+    effectiveComputeOf(
+      trainingClusterTflops *
+          fraction *
+          1e12 *
+          s.era.computeTimeScale *
+          durationSeconds,
+    ),
   );
 
   bool get dataLimited {
@@ -251,6 +299,24 @@ class Game {
       math.max(500, hardwareValue * cloudRentCostFactor);
 
   bool isUnlocked(Era era) => era.index <= s.era.index;
+
+  /// The next era and how close you are to it; null in the last era.
+  EraGoal? get nextEraGoal {
+    if (s.era.index + 1 >= Era.values.length) return null;
+    final next = Era.values[s.era.index + 1];
+    return switch (next) {
+      Era.garage => null,
+      Era.startup => EraGoal(next, 'users', startupUnlockUsers, s.users),
+      Era.smallLab => EraGoal(next, 'rating', smallLabUnlockRating, rating),
+      Era.mediumLab => EraGoal(next, 'rating', mediumLabUnlockRating, rating),
+      Era.bigLab => EraGoal(next, 'rating', bigLabUnlockRating, rating),
+      Era.globalLab => EraGoal(next, 'rating', globalLabUnlockRating, rating),
+    };
+  }
+
+  /// Can [r] be beaten now (its era reached, rating and users matched)?
+  bool canBeat(RivalSnapshot r) =>
+      isUnlocked(r.era) && rating >= r.rating && s.users >= r.users;
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -335,7 +401,7 @@ class Game {
 
   bool placeTile(String roomId, int x, int y, String tileId) {
     if (!canPlace(roomId, x, y, tileId)) return false;
-    s.money -= tileById(tileId)!.cost;
+    s.money -= tilePrice(tileById(tileId)!);
     s.setTile(roomId, x, y, tileId);
     return true;
   }
@@ -368,7 +434,7 @@ class Game {
   bool replaceTile(String roomId, int x, int y, String tileId) {
     if (replaceBlockReason(roomId, x, y, tileId) != null) return false;
     final old = tileById(tileAt(roomId, x, y)!)!;
-    s.money += sellValue(old.id) - tileById(tileId)!.cost;
+    s.money += sellValue(old.id) - tilePrice(tileById(tileId)!);
     s.setTile(roomId, x, y, tileId);
     return true;
   }
@@ -412,7 +478,8 @@ class Game {
       return 'Not enough power: needs ${_kw(needKw)}, ${_kw(math.max(0, freeKw))} '
           'free. Upgrade your power supply.';
     }
-    final price = tile.cost - (oldDef == null ? 0 : sellValue(oldDef.id));
+    final price =
+        tilePrice(tile) - (oldDef == null ? 0 : sellValue(oldDef.id));
     if (!ignoreMoney && s.money < price) {
       return 'Costs ${_money(price)}. You have ${_money(s.money)}.';
     }
@@ -438,7 +505,8 @@ class Game {
     return true;
   }
 
-  /// Selling refunds half the price.
+  /// Selling refunds half the list price (the supply-crunch premium is
+  /// gone once you've paid it).
   double sellValue(String tileId) => (tileById(tileId)?.cost ?? 0) * 0.5;
 
   /// Why the tile at (x, y) can't be sold, or null.
@@ -507,6 +575,7 @@ class Game {
     s.run = TrainingRun(
       fraction: fraction.clamp(0.05, 1.0),
       durationSeconds: durationSeconds,
+      timeScale: s.era.computeTimeScale,
     );
     return true;
   }
@@ -530,6 +599,7 @@ class Game {
     final effC = s.pendingEffectiveCompute;
     if (effC == null) return false;
     final stunt = launchStunts.firstWhere((l) => l.id == stuntId);
+    if (!isUnlocked(stunt.era)) return false;
 
     final oldRating = rating;
     s.money -= s.money * stunt.costFraction;
@@ -630,41 +700,55 @@ class Game {
       events.add(const ViralSpikeStarted());
     }
 
-    // Era unlocks.
-    if (s.era == Era.garage && s.users >= startupUnlockUsers) {
-      s.era = Era.startup;
-      events.add(const EraUnlocked(Era.startup));
-    }
-    if (s.era == Era.startup && rating >= labUnlockRating) {
-      s.era = Era.lab;
-      events.add(const EraUnlocked(Era.lab));
+    // Era unlocks (one per tick at most).
+    final goal = nextEraGoal;
+    if (goal != null && goal.met) {
+      s.era = goal.era;
+      events.add(EraUnlocked(goal.era));
     }
 
     // Rival ladder.
-    while (nextRival != null &&
-        rating >= nextRival!.rating &&
-        s.users >= nextRival!.users) {
+    while (nextRival != null && canBeat(nextRival!)) {
       events.add(RivalBeaten(nextRival!));
       s.rivalIndex++;
     }
   }
 
-  /// Advance by [seconds] in 1-second steps.
-  void advance(double seconds, {bool offline = false}) {
+  /// Advance by [seconds] in steps of at most [step] seconds.
+  void advance(
+    double seconds, {
+    bool offline = false,
+    double step = 1,
+    void Function()? onStep,
+  }) {
     var left = seconds;
     while (left > 0) {
-      final dt = math.min(1.0, left);
+      final dt = math.min(step, left);
       tick(dt, offline: offline);
+      onStep?.call();
       left -= dt;
     }
   }
 
-  OfflineReport applyOffline(double seconds) {
+  /// Step size for offline catch-up: 1 s for short absences, up to 10 s for
+  /// the full 8 h (≤ ~3k ticks). Deterministic: it depends only on [seconds].
+  static double offlineStep(double seconds) =>
+      (seconds / 3000).clamp(1.0, 10.0).floorToDouble();
+
+  /// Catch up [seconds] of absence (capped at [offlineCapSeconds]): money,
+  /// users and a running training run keep going; no viral spikes. A run
+  /// that ends mid-step finishes on that step. [onStep] is for tools.
+  OfflineReport applyOffline(double seconds, {void Function()? onStep}) {
     final capped = seconds.clamp(0.0, offlineCapSeconds);
     final moneyBefore = s.money;
     final usersBefore = s.users;
     final hadRun = s.run != null;
-    advance(capped, offline: true);
+    advance(
+      capped,
+      offline: true,
+      step: offlineStep(capped),
+      onStep: onStep,
+    );
     return OfflineReport(
       seconds: capped,
       moneyEarned: s.money - moneyBefore,

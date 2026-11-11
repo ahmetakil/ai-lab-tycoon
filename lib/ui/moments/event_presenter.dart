@@ -768,7 +768,13 @@ String eraTagline(Era era) =>
       Era.garage: 'One GPU, one dream, one very warm room.',
       Era.startup:
           '${formatNumber(startupUnlockUsers, decimals: 0)} users. Investors are suddenly returning your emails.',
-      Era.lab: 'Your model writes passable poetry. Time for a real datacenter.',
+      Era.smallLab: 'Your model writes passable poetry. Time to rent a cage in a real datacenter.',
+      Era.mediumLab:
+          'A GPT-ish-3-class model, built by you. Your own datacenter hall is next.',
+      Era.bigLab:
+          'Chatbots are a product category now, and you\'re in the big leagues. Pour the concrete.',
+      Era.globalLab:
+          'A reasoning model at the frontier. Now it\'s gigawatts, power plants and the last few rungs.',
     }[era] ??
     'A bigger room, a bigger cluster, a bigger model.';
 

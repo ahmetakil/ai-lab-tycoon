@@ -120,7 +120,7 @@ void main() {
     });
 
     test('upgrade count stays reasonable and blurbs are one-liners', () {
-      expect(upgrades.length, inInclusiveRange(25, 32));
+      expect(upgrades.length, inInclusiveRange(25, 36));
       for (final u in upgrades) {
         expect(u.blurb.length, lessThanOrEqualTo(140), reason: u.id);
         expect(u.blurb, isNot(contains('\n')), reason: u.id);
@@ -192,7 +192,60 @@ void main() {
     });
   });
 
+  group('eras', () {
+    test('every era unlocks a room, GPU, cooling and network tiles, a power tier and 3-6 upgrades', () {
+      for (final era in Era.values) {
+        expect(rooms.where((r) => r.era == era), hasLength(1), reason: era.name);
+        for (final kind in TileKind.values) {
+          expect(tiles.where((t) => t.era == era && t.kind == kind), isNotEmpty, reason: '${era.name} ${kind.name}');
+        }
+        expect(powerTiers.where((p) => p.era == era), isNotEmpty, reason: era.name);
+        expect(upgrades.where((u) => u.era == era).length, inInclusiveRange(3, 6), reason: era.name);
+      }
+    });
+
+    test('nothing requires an upgrade from a later era', () {
+      final byId = {for (final u in upgrades) u.id: u};
+      for (final u in upgrades) {
+        for (final r in u.requires) {
+          expect(byId[r]!.era.index, lessThanOrEqualTo(u.era.index), reason: '${u.id} needs $r');
+        }
+      }
+      for (final t in tiles) {
+        for (final r in t.requires) {
+          expect(byId[r]!.era.index, lessThanOrEqualTo(t.era.index), reason: '${t.id} needs $r');
+        }
+        expect(powerTiers[t.minPowerTier].era.index, lessThanOrEqualTo(t.era.index), reason: t.id);
+      }
+      for (final r in rooms) {
+        expect(powerTiers[r.minPowerTier].era.index, lessThanOrEqualTo(r.era.index), reason: r.id);
+      }
+    });
+
+    test('labels and durations exist for every era', () {
+      for (final era in Era.values) {
+        expect(era.label, isNotEmpty);
+        expect(era.runDurations, hasLength(3));
+        expect(era.computeTimeScale, greaterThan(0));
+      }
+    });
+  });
+
   group('rival ladder', () {
+    test('rivals are spread over the eras in order; the big labs meet in Big lab', () {
+      for (var i = 1; i < rivalLadder.length; i++) {
+        expect(rivalLadder[i].era.index, greaterThanOrEqualTo(rivalLadder[i - 1].era.index));
+      }
+      for (final era in Era.values) {
+        expect(rivalLadder.where((r) => r.era == era), isNotEmpty, reason: era.name);
+      }
+      final big = rivalLadder.where((r) => r.era == Era.bigLab).map((r) => r.lab).toSet();
+      expect(big, containsAll(['ClosedAI', 'Anthropomorphic']));
+      final frontier = rivalLadder.where((r) => r.era == Era.globalLab).map((r) => r.lab).toSet();
+      expect(frontier, containsAll(['ClosedAI', 'Anthropomorphic', 'Gogol DeepThought']));
+      expect(rivalLadder.last.era, Era.globalLab);
+    });
+
     test('has 16-22 snapshots from 2017 to 2026', () {
       expect(rivalLadder.length, inInclusiveRange(16, 22));
       expect(rivalLadder.first.lab, 'Hugging Hands Collective');

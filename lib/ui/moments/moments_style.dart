@@ -110,7 +110,10 @@ class EraBackdrop extends StatelessWidget {
   static const _colors = <Era, List<Color>>{
     Era.garage: [Color(0xFF1B1209), Color(0xFF3A2410), Color(0xFF0A0F14)],
     Era.startup: [Color(0xFF071A24), Color(0xFF0E3B4A), Color(0xFF0A0F14)],
-    Era.lab: [Color(0xFF0D0820), Color(0xFF26124A), Color(0xFF0A0F14)],
+    Era.smallLab: [Color(0xFF06180F), Color(0xFF0E3A26), Color(0xFF0A0F14)],
+    Era.mediumLab: [Color(0xFF070F24), Color(0xFF12265A), Color(0xFF0A0F14)],
+    Era.bigLab: [Color(0xFF0D0820), Color(0xFF26124A), Color(0xFF0A0F14)],
+    Era.globalLab: [Color(0xFF1A0718), Color(0xFF4A1240), Color(0xFF0A0F14)],
   };
 
   static List<Color> colorsFor(Era era) =>

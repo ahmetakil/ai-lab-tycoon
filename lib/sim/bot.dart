@@ -187,11 +187,33 @@ class Bot {
   /// Seconds between "looks at the screen".
   final double thinkEvery;
 
-  /// Longest the bot will save up for one purchase.
-  static const maxSaveSeconds = 480.0;
+  /// Longest the bot will save up for one purchase. Later eras have bigger
+  /// one-off purchases (power tiers, frontier research), so a sensible
+  /// player saves longer for them.
+  /// On a play schedule the big one-offs come out of offline earnings, so
+  /// in a session it never saves longer than 8 minutes.
+  double get maxSaveSeconds =>
+      sessionLeft.isInfinite ? _eraSaveSeconds : math.min(480.0, _eraSaveSeconds);
+
+  double get _eraSaveSeconds => switch (g.s.era) {
+    Era.garage => 240.0,
+    Era.startup => 480.0,
+    Era.smallLab => 900.0,
+    Era.mediumLab => 1800.0,
+    Era.bigLab => 2700.0,
+    Era.globalLab => 3600.0,
+  };
+
+  /// Seconds of active play left in the current session (infinite =
+  /// continuous play) and the offline gap after it. Set by [runPlaythrough].
+  double sessionLeft = double.infinity;
+  double nextGap = 0;
 
   /// Stats for balance reports.
   int purchases = 0;
+
+  /// Purchases + releases + training runs started.
+  int decisions = 0;
   double lastMeaningfulAction = 0;
   double longestIdle = 0;
   double longestIdleStart = 0;
@@ -225,8 +247,26 @@ class Bot {
   }
 
   void _meaningful() {
+    decisions++;
     finish();
     lastMeaningfulAction = g.s.time;
+  }
+
+  /// Starts an idle-stretch measurement fresh (e.g. at a session start).
+  void resetIdleClock() => lastMeaningfulAction = g.s.time;
+
+  /// What a player does right before closing the app for [gap] seconds:
+  /// ship a finished model, resume a paused run and start the longest run
+  /// that will finish while they're away.
+  void leave(double gap) {
+    sessionLeft = 0;
+    nextGap = gap;
+    _release();
+    if (_pausedForCrisis && g.s.run != null && g.s.run!.paused) {
+      g.togglePauseTraining();
+    }
+    _pausedForCrisis = false;
+    _train();
   }
 
   /// Call at the end of a playthrough so a trailing idle stretch counts.
@@ -261,7 +301,19 @@ class Bot {
   void _crisis() {
     final s = g.s;
     if (s.viralSecondsLeft > 0 && g.overloaded) {
-      if (s.cloudSecondsLeft == 0 && g.cloudRentCost < 0.25 * s.money) {
+      // Cloud GPUs are pricey: rent only when the extra users would pass the
+      // next rival (and it's cheap relative to cash). Otherwise pause
+      // training until the spike ends (serving the crowd pays better).
+      final rival = g.nextRival;
+      final worthIt =
+          rival != null &&
+          g.canBeat(rival) == false &&
+          g.rating >= rival.rating &&
+          s.users < rival.users &&
+          rival.users < 2 * overflowAllowance * g.capacity;
+      if (worthIt &&
+          s.cloudSecondsLeft == 0 &&
+          g.cloudRentCost < 0.25 * s.money) {
         g.rentCloud();
       } else if (g.training && !_pausedForCrisis) {
         g.togglePauseTraining();
@@ -274,12 +326,49 @@ class Bot {
   }
 
   // --- Training --------------------------------------------------------------
-  /// Uses only the choices the UI offers (1m / 3m / 10m).
-  double get runSeconds => switch (g.s.era) {
-    Era.garage => 60.0,
-    Era.startup => 180.0,
-    Era.lab => g.rating < 1300 ? 180.0 : 600.0,
-  };
+  /// Uses only the run lengths the UI offers in this era. Continuous play
+  /// takes the middle one early and the longest from the Small lab on. On a
+  /// schedule it takes the middle one while the session has time for it, and
+  /// otherwise the longest run that finishes before it comes back (so a run
+  /// completes while it's away).
+  double get runSeconds {
+    final opts = g.runDurations;
+    if (sessionLeft.isInfinite) {
+      // Continuous play: quick runs while they're minutes long, the longest
+      // once a lab has hours of work to do between releases anyway.
+      return g.s.era.index >= Era.smallLab.index ? opts.last : opts[1];
+    }
+    if (sessionLeft >= opts[1]) return opts[1];
+    final away = sessionLeft + math.min(nextGap, offlineCapSeconds);
+    return opts.lastWhere((d) => d <= away, orElse: () => opts.first);
+  }
+
+  /// The default run length, unless a shorter one already crosses the next
+  /// rating gate or the next rival (the UI shows the predicted rating): then
+  /// the shortest such run, so the unlock happens while you're playing. In a
+  /// session it may also go longer (up to what fits) to cross it.
+  double _runFor(double fraction) {
+    final def = runSeconds;
+    var target = double.infinity;
+    final goal = g.nextEraGoal;
+    if (goal != null && goal.metric == 'rating' && !goal.met) {
+      target = goal.target;
+    }
+    final rival = g.nextRival;
+    if (rival != null &&
+        g.isUnlocked(rival.era) &&
+        g.s.users >= rival.users &&
+        rival.rating > g.rating) {
+      target = math.min(target, rival.rating);
+    }
+    if (target.isInfinite) return def;
+    final limit = math.max(def, sessionLeft.isInfinite ? def : sessionLeft);
+    for (final d in g.runDurations) {
+      if (d > limit) break;
+      if (g.predictRating(fraction, d) >= target + 0.5) return d;
+    }
+    return def;
+  }
 
   void _train() {
     if (!g.canStartTraining) return;
@@ -291,10 +380,13 @@ class Bot {
     final cluster = g.trainingCluster?.effectiveTflops ?? 0;
     final spare = (g.effectiveTflops - need) / math.max(1e-9, cluster);
     // UI choices: 25% / 50% / 75%.
-    g.startTraining(
-      fraction: spare >= 0.75 ? 0.75 : 0.5,
-      durationSeconds: runSeconds,
-    );
+    final fraction = spare >= 0.75 ? 0.75 : 0.5;
+    if (g.startTraining(
+      fraction: fraction,
+      durationSeconds: _runFor(fraction),
+    )) {
+      _meaningful();
+    }
   }
 
   // --- Layout helpers ----------------------------------------------------------
@@ -340,13 +432,18 @@ class Bot {
     (t) => t.kind == kind && t.rooms.contains(roomId) && g.isTileUnlocked(t),
   );
 
-  /// Best GPU tile for a room by TFLOPS per dollar.
-  TileDef? _bestGpu(String roomId) {
+  /// Power is nearly used up: adding GPUs needs a better tier or better
+  /// GPUs per kW.
+  bool get _powerTight => g.powerCapKw - g.powerUsedKw < 0.25 * g.powerCapKw;
+
+  /// Best GPU tile for a room by TFLOPS per dollar, or per kW when power is
+  /// the bottleneck.
+  TileDef? _bestGpu(String roomId, {bool perKw = false}) {
+    double score(TileDef t) =>
+        perKw ? t.tflopsPerKw : t.tflops / g.tilePrice(t);
     TileDef? best;
     for (final t in _unlocked(roomId, TileKind.gpu)) {
-      if (best == null || t.tflops / t.cost > best.tflops / best.cost) {
-        best = t;
-      }
+      if (best == null || score(t) > score(best)) best = t;
     }
     return best;
   }
@@ -392,7 +489,7 @@ class Bot {
   double _opsCost(List<_Op> ops) => ops.fold(0.0, (a, op) {
     final old = g.s.tileAt(op.room, op.x, op.y);
     return a +
-        tileById(op.tile)!.cost -
+        g.tilePrice(tileById(op.tile)!) -
         (op.replace && old != null ? g.sellValue(old) : 0);
   });
 
@@ -548,9 +645,10 @@ class Bot {
     return ops;
   }
 
-  /// Replace a room's weakest GPU tile with its best one (when it's full).
+  /// Replace a room's weakest GPU tile with its best one (when it's full, or
+  /// when power is the limit: then the best per kW).
   List<_Op>? _replaceWorstGpu(String roomId) {
-    final best = _bestGpu(roomId);
+    final best = _bestGpu(roomId, perKw: _powerTight);
     if (best == null) return null;
     final cells = g.s.grids[roomId]!;
     var worst = -1;
@@ -625,7 +723,8 @@ class Bot {
   /// add hypothetical effective TFLOPS (to the training cluster / overall).
   double _value({double extraTrain = 0, double extraTotal = 0}) {
     final train = g.trainingClusterTflops + extraTrain;
-    final flops = train * 0.5 * 1e12 * computeTimeScale * runSeconds;
+    final flops =
+        train * 0.5 * 1e12 * g.s.era.computeTimeScale * runSeconds;
     final effC = g.effectiveComputeOf(flops);
     final r = g.ratingOf(effC);
     final demand = math.min(
@@ -721,7 +820,7 @@ class Bot {
               : _randomBundle(room.id);
       if (bundle != null) roomsFull = false;
       addOps(bundle);
-      if (bundle == null) addOps(_replaceWorstGpu(room.id));
+      if (bundle == null || _powerTight) addOps(_replaceWorstGpu(room.id));
       if (layout != BotLayout.naive) addOps(_switchUpgrade(room.id));
       if (layout == BotLayout.template) addOps(_heatFix(room.id));
     }
@@ -748,7 +847,7 @@ class Bot {
           _plans[nextRoom.id]!.gpuOrder.length.toDouble(),
           (headroom / g.tilePowerKw(t)).floorToDouble(),
         ),
-        math.max(1.0, (nextRoom.cost / t.cost).floorToDouble()),
+        math.max(1.0, (nextRoom.cost / g.tilePrice(t)).floorToDouble()),
       );
       if (k >= 1 && g.isTileUnlocked(t)) {
         cands.add(
@@ -756,6 +855,7 @@ class Bot {
             nextRoom.cost,
             _virtualDv(t, k, v0),
             () => g.buyRoom(nextRoom.id),
+            essential: roomsFull,
           ),
         );
       }
@@ -776,12 +876,23 @@ class Bot {
                 1.0,
                 math.min(
                   (next.capacityKw - g.powerUsedKw) / unitKw,
-                  next.cost / bestGpu.cost,
+                  next.cost / g.tilePrice(bestGpu),
                 ),
               )
               .floorToDouble();
+      // Out of power: no GPU bundle fits in the headroom any more.
+      final blocked = !cands.any((c) => c.label.contains('gpu_') ||
+          c.label.contains('srv_') ||
+          c.label.contains('rack_') ||
+          c.label.contains('pod_') ||
+          c.label.contains('bldg_'));
       cands.add(
-        _Cand(next.cost, _virtualDv(bestGpu, k, v0), g.buyNextPowerTier),
+        _Cand(
+          next.cost,
+          _virtualDv(bestGpu, k, v0),
+          g.buyNextPowerTier,
+          essential: blocked,
+        ),
       );
     }
 
@@ -827,9 +938,12 @@ class Bot {
           affordable == null
               ? 8.0
               : (c.dv / c.cost) / (affordable.dv / affordable.cost);
-      final patience = (60 + 150 * (math.log(math.max(1.0, ratio)) / math.ln2))
-          .clamp(60.0, maxSaveSeconds);
-      if (wait < patience) return false;
+      final patience =
+          ((60 + 150 * (math.log(math.max(1.0, ratio)) / math.ln2)) *
+                  maxSaveSeconds /
+                  480)
+              .clamp(60.0, maxSaveSeconds);
+      if (wait < patience || c.essential) return false;
     }
     return false;
   }
@@ -841,7 +955,19 @@ class _Cand {
   final bool Function() buy;
   final bool upgrade;
   final String label;
-  _Cand(this.cost, this.dv, this.buy, {this.upgrade = false, this.label = ''});
+
+  /// The obvious next step when growth is blocked (power tier when out of
+  /// power, next room when out of floor space): saved for however long it
+  /// takes.
+  final bool essential;
+  _Cand(
+    this.cost,
+    this.dv,
+    this.buy, {
+    this.upgrade = false,
+    this.label = '',
+    this.essential = false,
+  });
 }
 
 /// Summary of a headless playthrough.
@@ -863,6 +989,12 @@ class PlaythroughResult {
   double arrAtFinish = 0;
   double h100eAtFinish = 0;
   double powerKwAtFinish = 0;
+
+  /// Scheduled runs only: the sessions, wall-clock length and the simulated
+  /// (in-game) time at the final rival.
+  final List<SessionStats> sessions = [];
+  double? wallSeconds;
+  double? simFinishTime;
 
   PlaythroughResult(
     this.strategy,
@@ -898,9 +1030,16 @@ PlaythroughResult runPlaythrough({
   void Function(Game g, GameEvent e)? onEvent,
   void Function(Game g)? onTick,
   int seed = 12345,
+  double thinkEvery = 3,
 }) {
   final g = Game(GameState(rngState: seed));
-  final bot = Bot(g, strategy: strategy, layout: layout, seed: seed);
+  final bot = Bot(
+    g,
+    strategy: strategy,
+    layout: layout,
+    seed: seed,
+    thinkEvery: thinkEvery,
+  );
   final r = PlaythroughResult(strategy, g, layout: layout);
   r.eraTimes[Era.garage] = 0;
   var idleFrozen = false;
@@ -948,6 +1087,183 @@ PlaythroughResult runPlaythrough({
     r.longestIdle = bot.longestIdle;
     r.longestIdleStart = bot.longestIdleStart;
   }
+  return r;
+}
+
+/// A repeating day of play sessions: (active seconds, offline gap after it).
+class PlaySchedule {
+  final String name;
+  final List<(double, double)> day;
+  const PlaySchedule(this.name, this.day);
+
+  /// A casual player on a 24 h day: four sessions (60, 45, 30 and 60 min)
+  /// with 2.5–3 h breaks, then a 12 h night (offline progress stops at 8 h).
+  static const casual = PlaySchedule('casual', [
+    (60 * 60, 2.5 * 3600),
+    (45 * 60, 3 * 3600),
+    (30 * 60, 3 * 3600),
+    (60 * 60, 12.25 * 3600),
+  ]);
+
+  static PlaySchedule? byName(String name) => switch (name) {
+    'casual' => casual,
+    'continuous' || 'none' => null,
+    _ => throw ArgumentError('unknown schedule $name'),
+  };
+}
+
+/// One active session of a scheduled playthrough.
+class SessionStats {
+  final int index;
+  final double wallStart;
+  final double simStart;
+  final double length;
+  final Era eraAtStart;
+
+  /// A training run ended during the offline gap before this session.
+  final bool runFinishedAway;
+  int decisions = 0;
+  int purchases = 0;
+  int releases = 0;
+  double longestIdle = 0;
+
+  /// Seconds from the session start to the first decision (∞ = none).
+  double firstDecisionAfter = double.infinity;
+  int rivalsBeaten = 0;
+  final List<Era> erasUnlocked = [];
+
+  SessionStats(
+    this.index,
+    this.wallStart,
+    this.simStart,
+    this.length,
+    this.eraAtStart, {
+    this.runFinishedAway = false,
+  });
+}
+
+/// Plays [schedule] for [maxWallSeconds] of wall-clock time (sessions plus
+/// offline gaps). Active play ticks at [dt]; each gap goes through the real
+/// offline path ([Game.applyOffline], capped at 8 h). The result's era and
+/// rival times are wall-clock (an offline unlock counts when it happens).
+PlaythroughResult runSchedule({
+  PlaySchedule schedule = PlaySchedule.casual,
+  BotStrategy strategy = BotStrategy.balanced,
+  BotLayout layout = BotLayout.template,
+  double maxWallSeconds = 96 * 3600,
+  double dt = 1,
+  bool stopWhenDone = true,
+  void Function(Game g, GameEvent e, double wall)? onEvent,
+  void Function(Game g, SessionStats s)? onSession,
+  int seed = 12345,
+  double thinkEvery = 3,
+}) {
+  final g = Game(GameState(rngState: seed));
+  final bot = Bot(
+    g,
+    strategy: strategy,
+    layout: layout,
+    seed: seed,
+    thinkEvery: thinkEvery,
+  );
+  final r = PlaythroughResult(strategy, g, layout: layout);
+  r.eraTimes[Era.garage] = 0;
+  var wall = 0.0;
+  SessionStats? cur;
+
+  void collect(double wallNow) {
+    for (final e in g.events) {
+      switch (e) {
+        case EraUnlocked(:final era):
+          r.eraTimes[era] = wallNow;
+          cur?.erasUnlocked.add(era);
+        case RivalBeaten(:final rival):
+          r.rivalTimes.add((rival, wallNow));
+          if (cur != null) cur.rivalsBeaten++;
+        case ViralSpikeStarted():
+          r.viralSpikes++;
+        case ModelReleased():
+          r.releases++;
+        case TrainingFinished():
+          break;
+      }
+      onEvent?.call(g, e, wallNow);
+    }
+    g.events.clear();
+    r.maxUsersSeen = math.max(r.maxUsersSeen, g.s.users);
+    r.minMoney = math.min(r.minMoney, g.s.money);
+    if (r.ladderDone && r.simFinishTime == null) {
+      r.simFinishTime = g.s.time;
+      r.usersAtFinish = g.s.users;
+      r.arrAtFinish = g.arr;
+      r.h100eAtFinish = g.peakTflops / 990;
+      r.powerKwAtFinish = g.powerUsedKw;
+    }
+  }
+
+  var runFinishedAway = false;
+  var i = 0;
+  while (wall < maxWallSeconds && !(stopWhenDone && r.ladderDone)) {
+    final (active, gap) = schedule.day[i % schedule.day.length];
+    final session = SessionStats(
+      i,
+      wall,
+      g.s.time,
+      active,
+      g.s.era,
+      runFinishedAway: runFinishedAway,
+    );
+    cur = session;
+    final ladderWasDone = r.ladderDone;
+    final d0 = bot.decisions, p0 = bot.purchases, rel0 = r.releases;
+    bot.longestIdle = 0;
+    bot.resetIdleClock();
+    final t0 = g.s.time;
+    while (g.s.time - t0 < active - 1e-9) {
+      bot.sessionLeft = active - (g.s.time - t0);
+      bot.nextGap = gap;
+      final before = bot.decisions;
+      bot.act();
+      if (bot.decisions > before &&
+          session.firstDecisionAfter.isInfinite) {
+        session.firstDecisionAfter = g.s.time - t0;
+      }
+      final step = math.min(dt, active - (g.s.time - t0));
+      g.tick(step);
+      wall += step;
+      if (g.overloaded) {
+        r.overloadedSeconds += step;
+        if (g.s.viralSecondsLeft > 0) r.overloadedViralSeconds += step;
+      }
+      collect(wall);
+      if (stopWhenDone && r.ladderDone) break;
+    }
+    bot.finish();
+    session.longestIdle = bot.longestIdle;
+    // Bot.decisions also counts what leave() does below; that belongs to the
+    // session too (the last thing you do before closing the app).
+    bot.leave(gap);
+    collect(wall);
+    session.decisions = bot.decisions - d0;
+    session.purchases = bot.purchases - p0;
+    session.releases = r.releases - rel0;
+    r.sessions.add(session);
+    onSession?.call(g, session);
+    if (!ladderWasDone && session.longestIdle > r.longestIdle) {
+      r.longestIdle = session.longestIdle;
+      r.longestIdleStart = session.wallStart;
+    }
+    if (stopWhenDone && r.ladderDone) break;
+    // Offline gap.
+    final simStart = g.s.time, wallStart = wall;
+    final hadRun = g.s.run != null;
+    g.applyOffline(gap, onStep: () => collect(wallStart + g.s.time - simStart));
+    runFinishedAway = hadRun && g.s.run == null;
+    wall = wallStart + gap;
+    cur = null;
+    i++;
+  }
+  r.wallSeconds = wall;
   return r;
 }
 

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:ai_lab_tycoon/sim/balance.dart';
 import 'package:ai_lab_tycoon/sim/bot.dart';
@@ -136,6 +137,24 @@ void main() {
       expect(report.moneyEarned, greaterThan(0));
     });
 
+    test('offline catch-up is deterministic and matches 1-second steps', () {
+      final r = runPlaythrough(maxSeconds: 1800, stopWhenDone: false);
+      r.game.startTraining(fraction: 0.5, durationSeconds: 3 * 3600);
+      final saved = snapshot(r.game);
+      Game load() => Game(GameState.fromJson(jsonDecode(saved) as Map<String, dynamic>));
+      final a = load(), b = load(), fine = load();
+      final ra = a.applyOffline(6 * 3600);
+      b.applyOffline(6 * 3600);
+      expect(snapshot(a), snapshot(b));
+      expect(Game.offlineStep(6 * 3600), greaterThan(1));
+      fine.advance(6 * 3600, offline: true);
+      expect(a.s.money, closeTo(fine.s.money, fine.s.money * 0.01));
+      expect(a.s.users, closeTo(fine.s.users, fine.s.users * 0.01));
+      // The 3 h run finished while away and waits to be released.
+      expect(ra.trainingFinished, isTrue);
+      expect(a.s.pendingEffectiveCompute, closeTo(fine.s.pendingEffectiveCompute!, fine.s.pendingEffectiveCompute! * 0.01));
+    });
+
     test('negative offline time does nothing', () {
       final g = Game();
       final report = g.applyOffline(-50);
@@ -156,7 +175,7 @@ void main() {
     test('rack-scale GPUs need liquid cooling and a big enough site', () {
       final g = gameWith({
         'garage': ['G...', '....', '....', '....'],
-        'hall': List.filled(10, '..........'),
+        'hall': List.filled(12, '............'),
       }, powerTier: 4);
       expect(g.placeBlockReason('hall', 0, 0, 'rack_b_class'), contains('Liquid cooling'));
       g.s.ownedUpgrades.add('liquid_cooling');
@@ -170,7 +189,7 @@ void main() {
   });
 
   group('era unlocks', () {
-    test('Startup at the users threshold, Lab at the rating threshold', () {
+    test('Startup at the users threshold, then one rating gate after another', () {
       // Four gaming GPUs can serve the users the unlock needs.
       final g = gameWith(
         {
@@ -181,6 +200,8 @@ void main() {
       );
       expect(g.capacity, greaterThan(startupUnlockUsers));
       expect(g.roomBlockReason('closet'), contains('Startup era'));
+      expect(g.nextEraGoal!.era, Era.startup);
+      expect(g.nextEraGoal!.metric, 'users');
 
       g.s.users = startupUnlockUsers;
       g.s.hype = 1e6; // keep demand above users so they don't churn
@@ -188,25 +209,116 @@ void main() {
       expect(g.s.era, Era.startup);
       expect(g.events.whereType<EraUnlocked>().single.era, Era.startup);
       expect(g.isUnlocked(Era.startup), isTrue);
-      expect(g.isUnlocked(Era.lab), isFalse);
+      expect(g.isUnlocked(Era.smallLab), isFalse);
 
-      g.events.clear();
-      g.s.releases.add(
-        ModelRelease(name: 'big', effectiveCompute: 1e24, rating: 0, open: false, time: g.s.time),
-      );
-      expect(g.rating, greaterThanOrEqualTo(labUnlockRating));
-      g.tick(0.01);
-      expect(g.s.era, Era.lab);
-      expect(g.events.whereType<EraUnlocked>().single.era, Era.lab);
+      // Each later gate is a model rating; ship a model that clears it.
+      for (final (era, gate) in [
+        (Era.smallLab, smallLabUnlockRating),
+        (Era.mediumLab, mediumLabUnlockRating),
+        (Era.bigLab, bigLabUnlockRating),
+        (Era.globalLab, globalLabUnlockRating),
+      ]) {
+        g.events.clear();
+        expect(g.nextEraGoal!.era, era);
+        expect(g.nextEraGoal!.target, gate);
+        final effC = startEffectiveCompute *
+            math.pow(2, (gate + 1 - ratingBase - g.ratingBonus) / ratingPerDoubling);
+        g.s.releases.add(
+          ModelRelease(name: era.name, effectiveCompute: effC.toDouble(), rating: 0, open: false, time: g.s.time),
+        );
+        expect(g.rating, greaterThanOrEqualTo(gate));
+        g.tick(0.01);
+        expect(g.s.era, era);
+        expect(g.events.whereType<EraUnlocked>().single.era, era);
+      }
+      expect(g.nextEraGoal, isNull);
+      expect(Era.values.last, Era.globalLab);
     });
 
-    test('eras never skip: Lab rating in the Garage only unlocks Startup', () {
+    test('eras never skip: a frontier rating in the Garage unlocks one era per tick', () {
       final g = Game();
       g.s.releases.add(
-        const ModelRelease(name: 'x', effectiveCompute: 1e24, rating: 0, open: false, time: 0),
+        const ModelRelease(name: 'x', effectiveCompute: 1e30, rating: 0, open: false, time: 0),
       );
+      g.s.users = 1e9;
       g.tick(1);
-      expect(g.s.era, Era.garage);
+      expect(g.s.era, Era.startup);
+      g.tick(1);
+      expect(g.s.era, Era.smallLab);
+    });
+
+    test('rivals wait for their era', () {
+      final g = Game();
+      g.s.releases.add(
+        const ModelRelease(name: 'x', effectiveCompute: 1e33, rating: 0, open: false, time: 0),
+      );
+      g.s.users = 5e9;
+      g.s.hype = 1e6;
+      g.tick(0.01);
+      // One tick: Startup unlocks, so only the Garage and Startup rivals fall.
+      expect(rivalLadder.take(g.s.rivalIndex).map((r) => r.era).toSet(), {Era.garage, Era.startup});
+      for (var i = 0; i < 10; i++) {
+        g.tick(0.01);
+      }
+      expect(g.s.era, Era.globalLab);
+      expect(g.s.rivalIndex, rivalLadder.length);
+    });
+
+    test('launch stunts are era-gated', () {
+      final g = Game();
+      g.s.pendingEffectiveCompute = 1e19;
+      expect(g.release(open: false, stuntId: 'keynote'), isFalse);
+      expect(g.s.pendingEffectiveCompute, isNotNull);
+      expect(g.release(open: false, stuntId: 'cryptic_tweet'), isTrue);
+    });
+  });
+
+  group('run lengths and time compression', () {
+    test('runs get longer and time compression gentler era by era', () {
+      for (var i = 1; i < Era.values.length; i++) {
+        final a = Era.values[i - 1], b = Era.values[i];
+        expect(b.runDurations.last, greaterThanOrEqualTo(a.runDurations.last));
+        expect(b.computeTimeScale, lessThanOrEqualTo(a.computeTimeScale));
+      }
+      expect(Era.garage.runDurations.first, 60);
+      // A late run lasts hours, so it finishes while you're away, but never
+      // longer than the offline cap.
+      expect(Era.globalLab.runDurations.last, greaterThanOrEqualTo(4 * 3600));
+      expect(Era.globalLab.runDurations.last, lessThanOrEqualTo(offlineCapSeconds));
+    });
+
+    test('a run keeps the time compression it started with', () {
+      final g = gameWith({'garage': ['G...', '....', '....', '....']}, era: Era.garage, powerTier: 1);
+      final before = g.trainingFlopsPerSecond(1);
+      expect(g.startTraining(fraction: 1, durationSeconds: 600), isTrue);
+      expect(g.s.run!.timeScale, Era.garage.computeTimeScale);
+      g.s.era = Era.globalLab; // e.g. an unlock mid-run
+      expect(g.trainingFlopsPerSecond(1), closeTo(before, before * 1e-9));
+      final s = GameState.fromJson(jsonDecode(jsonEncode(g.s.toJson())) as Map<String, dynamic>);
+      expect(s.run!.timeScale, Era.garage.computeTimeScale);
+    });
+  });
+
+  group('GPU supply crunch', () {
+    test('each GPU of a type makes the next pricier, capped, and selling refunds list', () {
+      final g = gameWith({
+        'garage': ['G...', '....', '....', '....'],
+        'closet': List.filled(6, '......'),
+      }, era: Era.startup);
+      final a = tileById('srv_a_class')!;
+      expect(g.tilePrice(a), a.cost);
+      expect(g.placeTile('closet', 0, 0, 'srv_a_class'), isTrue);
+      expect(g.tilePrice(a), closeTo(a.cost * (1 + a.priceGrowth), 1e-6));
+      for (var x = 1; x < 6; x++) {
+        for (var y = 0; y < 6; y++) {
+          g.s.setTile('closet', x, y, 'srv_a_class');
+        }
+      }
+      expect(g.tilePrice(a), a.cost * maxSupplyPremium);
+      expect(g.sellValue('srv_a_class'), a.cost * 0.5);
+      // Garage GPUs and non-GPU gear have no crunch.
+      expect(g.tilePrice(tileById('gpu_gamer')!), tileById('gpu_gamer')!.cost);
+      expect(g.tilePrice(tileById('net_100g')!), tileById('net_100g')!.cost);
     });
   });
 

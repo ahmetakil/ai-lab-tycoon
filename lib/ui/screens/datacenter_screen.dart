@@ -301,7 +301,7 @@ class _DatacenterScreenState extends State<DatacenterScreen> {
       leading = const Icon(Icons.open_with, color: AppColors.cyan, size: 16);
     } else {
       final t = tileById(_placing!)!;
-      text = 'Placing ${t.name} · ${formatMoney(t.cost)} · tap glowing cells';
+      text = 'Placing ${t.name} · ${formatMoney(g.tilePrice(t))} · tap glowing cells';
       color = kindColor(t.kind);
       leading = Image.asset(GameArt.tile(t.id), width: 20, height: 20);
     }
@@ -1470,7 +1470,8 @@ class _PartCard extends StatelessWidget {
     final g = game;
     final t = tile;
     final locked = g.tileLockReason(t);
-    final affordable = g.s.money >= t.cost;
+    final price = g.tilePrice(t);
+    final affordable = g.s.money >= price;
     final color = kindColor(t.kind);
     final border =
         selected
@@ -1541,7 +1542,7 @@ class _PartCard extends StatelessWidget {
                                 fit: BoxFit.scaleDown,
                                 alignment: Alignment.centerLeft,
                                 child: Text(
-                                  formatMoney(t.cost),
+                                  formatMoney(price),
                                   style: numStyle(
                                     size: 12.5,
                                     weight: FontWeight.w800,
@@ -1834,7 +1835,7 @@ class _ReplaceRow extends StatelessWidget {
     final g = game;
     final old = tileById(g.tileAt(roomId, x, y)!)!;
     final reason = g.replaceBlockReason(roomId, x, y, to.id);
-    final price = to.cost - g.sellValue(old.id);
+    final price = g.tilePrice(to) - g.sellValue(old.id);
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
       decoration: BoxDecoration(

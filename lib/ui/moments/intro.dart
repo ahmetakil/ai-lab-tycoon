@@ -89,8 +89,9 @@ class _IntroFlowState extends State<IntroFlow> {
                             kicker: 'AI LAB TYCOON',
                             title: 'One GPU.\nOne garage.\nOne dream.',
                             body:
-                                'Grow an AI lab from a gaming GPU to a frontier datacenter, '
-                                'and race the big labs through history.',
+                                'Grow an AI lab from a gaming GPU in your parents\' garage to '
+                                'gigawatt datacenters: six eras, racing the big labs from 2017 '
+                                'to 2026.',
                           ),
                           const _IntroCard(
                             art: _LoopDiagram(),

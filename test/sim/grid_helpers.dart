@@ -34,7 +34,7 @@ Game gameWith(
   Map<String, List<String>> layouts, {
   double money = 1e12,
   int powerTier = 9,
-  Era era = Era.lab,
+  Era era = Era.globalLab,
   Set<String>? ownedUpgrades,
 }) => Game(
   GameState(

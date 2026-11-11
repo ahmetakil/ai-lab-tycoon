@@ -191,7 +191,7 @@ class _ReleaseSheetState extends State<ReleaseSheet> {
             const SizedBox(height: 18),
             Text('Launch stunt', style: display(context, 18)),
             const SizedBox(height: 8),
-            for (final s in launchStunts) ...[
+            for (final s in launchStunts.where((s) => g.isUnlocked(s.era))) ...[
               _StuntTile(
                 stunt: s,
                 money: g.s.money,

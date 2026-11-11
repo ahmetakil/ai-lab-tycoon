@@ -5,6 +5,10 @@ class TrainingRun {
   /// Fraction of effective compute committed to training (0..1).
   final double fraction;
   final double durationSeconds;
+
+  /// Seconds of GPU work per real second, fixed when the run starts (its
+  /// era's EraInfo.computeTimeScale).
+  final double timeScale;
   double elapsedSeconds;
   double computeFlops; // raw accumulated FLOPs (before algorithmic multipliers)
   bool paused;
@@ -12,6 +16,7 @@ class TrainingRun {
   TrainingRun({
     required this.fraction,
     required this.durationSeconds,
+    this.timeScale = computeTimeScale,
     this.elapsedSeconds = 0,
     this.computeFlops = 0,
     this.paused = false,
@@ -23,6 +28,7 @@ class TrainingRun {
   Map<String, dynamic> toJson() => {
     'fraction': fraction,
     'duration': durationSeconds,
+    'scale': timeScale,
     'elapsed': elapsedSeconds,
     'flops': computeFlops,
     'paused': paused,
@@ -31,6 +37,7 @@ class TrainingRun {
   factory TrainingRun.fromJson(Map<String, dynamic> j) => TrainingRun(
     fraction: (j['fraction'] as num).toDouble(),
     durationSeconds: (j['duration'] as num).toDouble(),
+    timeScale: (j['scale'] as num?)?.toDouble() ?? computeTimeScale,
     elapsedSeconds: (j['elapsed'] as num).toDouble(),
     computeFlops: (j['flops'] as num).toDouble(),
     paused: j['paused'] as bool? ?? false,
@@ -70,7 +77,8 @@ class ModelRelease {
 }
 
 /// Current save format. Older saves load as a fresh game (see fromJson).
-const saveVersion = 2;
+/// v3: six eras (v2 had three) and per-run time compression.
+const saveVersion = 3;
 
 /// Where the starting RTX 4090 (gpu_gamer) sits in the garage.
 const startGpuCell = (1, 1);
@@ -216,8 +224,8 @@ class GameState {
     'labName': labName,
   };
 
-  /// v2 saves load tolerantly (unknown ids dropped, missing fields default).
-  /// Anything older (the v1 menu-shop format) becomes a fresh game with
+  /// v3 saves load tolerantly (unknown ids dropped, missing fields default).
+  /// Anything older (v1 menu shop, v2 three-era grid) becomes a fresh game with
   /// [startedFromOldSave] set.
   factory GameState.fromJson(Map<String, dynamic> j) {
     if ((j['v'] as num?)?.toInt() != saveVersion) {

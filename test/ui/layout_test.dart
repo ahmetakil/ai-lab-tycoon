@@ -1,6 +1,7 @@
 // Renders every tab at real phone sizes with early/mid/late-game saves and
 // fails on any layout exception (overflows etc.).
 // Set LAYOUT_PREVIEW_DIR=/some/dir to also write PNG screenshots.
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -38,17 +39,35 @@ Future<void> _loadFonts() async {
   ]);
 }
 
-GameState _stateAt(double seconds) {
+final _saves = <String, String>{};
+
+/// A save from a bot playthrough: continuous play for early stages, the
+/// casual schedule (coarse steps, real offline path) for the long ones.
+GameState _stateAt(String stage, double seconds, {bool casual = false}) {
   if (seconds == 0) return GameState();
-  final r = runPlaythrough(maxSeconds: seconds, stopWhenDone: false);
-  r.game.events.clear();
+  final json = _saves.putIfAbsent(stage, () {
+    final r =
+        casual
+            ? runSchedule(maxWallSeconds: seconds, stopWhenDone: false, dt: 3, thinkEvery: 6)
+            : runPlaythrough(maxSeconds: seconds, stopWhenDone: false);
+    r.game.events.clear();
+    return jsonEncode(r.game.s.toJson());
+  });
   // Round-trip through JSON like a real save.
-  return GameState.fromJson(r.game.s.toJson());
+  return GameState.fromJson(jsonDecode(json) as Map<String, dynamic>);
 }
 
 void main() {
   const sizes = [Size(360, 740), Size(390, 844)];
-  const stages = {'start': 0.0, 'startup': 20 * 60.0, 'lab': 100 * 60.0};
+  // (seconds, casual schedule?): Garage, Startup, Small lab, Medium lab
+  // (casual, day 1 evening), Frontier lab (casual, day 2 evening).
+  const stages = {
+    'start': (0.0, false),
+    'startup': (20 * 60.0, false),
+    'smalllab': (100 * 60.0, false),
+    'mediumlab': (12 * 3600.0, true),
+    'frontier': (36 * 3600.0, true),
+  };
   const tabs = ['Lab', 'Datacenter', 'Research', 'Rivals'];
 
   for (final size in sizes) {
@@ -58,7 +77,7 @@ void main() {
         SharedPreferences.setMockInitialValues({'intro_seen_v1': true});
         await tester.binding.setSurfaceSize(size);
         final c = await GameController.load();
-        c.game = Game(_stateAt(stage.value));
+        c.game = Game(_stateAt(stage.key, stage.value.$1, casual: stage.value.$2));
         final key = GlobalKey();
         await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
         await tester.pump(const Duration(milliseconds: 500));

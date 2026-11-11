@@ -169,6 +169,9 @@ class GridStats {
   double gpuValue = 0;
   double tileValue = 0;
 
+  /// Placed tiles per tile id, across all rooms.
+  final Map<String, int> counts = {};
+
   Cluster? get training => trainingIndex < 0 ? null : clusters[trainingIndex];
 }
 
@@ -187,6 +190,7 @@ GridStats computeGridStats(GameState s) {
       final def = id == null ? null : tileById(id);
       rs.defs[i] = def;
       if (def == null) continue;
+      out.counts[def.id] = (out.counts[def.id] ?? 0) + 1;
       out.tileValue += def.cost;
       if (def.isGpu) {
         rs.gpuTiles++;

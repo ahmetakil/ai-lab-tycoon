@@ -32,7 +32,17 @@ class OverviewScreen extends StatefulWidget {
 
 class _OverviewScreenState extends State<OverviewScreen> {
   double _fraction = 0.5;
-  double _duration = 180;
+  double? _duration;
+
+  /// The picked run length if this era offers it, else the era's middle one.
+  double _dur(Game g) {
+    final opts = g.runDurations;
+    final d = _duration;
+    return d != null && opts.contains(d) ? d : opts[opts.length ~/ 2];
+  }
+
+  static String _short(double seconds) =>
+      seconds < 3600 ? '${(seconds / 60).round()}m' : '${(seconds / 3600).round()}h';
 
   GameController get c => widget.controller;
 
@@ -83,9 +93,10 @@ class _OverviewScreenState extends State<OverviewScreen> {
   }
 
   Widget _setupCard(Game g) {
-    final predicted = g.predictRating(_fraction, _duration);
+    final duration = _dur(g);
+    final predicted = g.predictRating(_fraction, duration);
     final current = g.rating;
-    final rawCompute = g.trainingFlopsPerSecond(_fraction) * _duration;
+    final rawCompute = g.trainingFlopsPerSecond(_fraction) * duration;
     final dataLimited = rawCompute * g.trainEffMult > g.dataOptimalCompute;
     final delta = predicted - current;
     final canStart = g.effectiveTflops > 0;
@@ -115,12 +126,11 @@ class _OverviewScreenState extends State<OverviewScreen> {
             label: 'Duration',
             child: SegmentedButton<double>(
               showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: 60, label: Text('1m')),
-                ButtonSegment(value: 180, label: Text('3m')),
-                ButtonSegment(value: 600, label: Text('10m')),
+              segments: [
+                for (final d in g.runDurations)
+                  ButtonSegment(value: d, label: Text(_short(d))),
               ],
-              selected: {_duration},
+              selected: {duration},
               onSelectionChanged: (v) {
                 Sound.play(Sfx.click);
                 setState(() => _duration = v.first);
@@ -213,7 +223,7 @@ class _OverviewScreenState extends State<OverviewScreen> {
                 canStart
                     ? () {
                       final ok = c.act(
-                        (g) => g.startTraining(fraction: _fraction, durationSeconds: _duration),
+                        (g) => g.startTraining(fraction: _fraction, durationSeconds: duration),
                       );
                       Sound.play(ok ? Sfx.trainingStart : Sfx.error);
                     }
@@ -385,9 +395,13 @@ class _OverviewScreenState extends State<OverviewScreen> {
                 style: numStyle(size: 34, weight: FontWeight.w800, color: AppColors.neon),
               ),
               const SizedBox(width: 10),
-              Text(
-                '${delta >= 0 ? '+' : '−'}${_rating(delta.abs())} vs current',
-                style: numStyle(size: 14, color: delta >= 0 ? AppColors.cyan : AppColors.red),
+              Flexible(
+                child: Text(
+                  '${delta >= 0 ? '+' : '−'}${_rating(delta.abs())} vs current',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: numStyle(size: 14, color: delta >= 0 ? AppColors.cyan : AppColors.red),
+                ),
               ),
             ],
           ),

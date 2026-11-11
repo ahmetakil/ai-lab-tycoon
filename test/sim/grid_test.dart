@@ -176,7 +176,7 @@ void main() {
       expect(g.trainingTflops, closeTo(t.trainingTflops * 0.5, 1e-9));
       expect(g.servingTflops, closeTo(g.effectiveTflops - t.effectiveTflops * 0.5, 1e-9));
       expect(
-        g.trainingFlopsPerSecond(0.5) / (t.trainingTflops * 0.5 * 1e12 * 1440),
+        g.trainingFlopsPerSecond(0.5) / (t.trainingTflops * 0.5 * 1e12 * g.s.era.computeTimeScale),
         closeTo(1, 1e-12),
       );
     });
@@ -240,7 +240,7 @@ void main() {
     test('era, upgrade and power-tier locks', () {
       final g = gameWith(
         {'garage': empty4, 'closet': List.filled(6, '......')},
-        era: Era.startup,
+        era: Era.smallLab,
         powerTier: 2,
       );
       expect(
@@ -254,6 +254,8 @@ void main() {
         contains('Colocation cage power tier'),
       );
       expect(g.placeBlockReason('closet', 0, 0, 'cool_rear_door'), contains('Liquid cooling'));
+      g.s.era = Era.startup;
+      expect(g.placeBlockReason('closet', 0, 0, 'srv_h_class'), contains('Small lab era'));
       g.s.era = Era.garage;
       expect(g.placeBlockReason('closet', 0, 0, 'srv_a_class'), contains('Startup era'));
     });
