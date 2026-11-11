@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../sim/content.dart';
 import '../../sim/game.dart';
@@ -74,6 +75,7 @@ class _GameShellState extends State<GameShell> {
   void initState() {
     super.initState();
     _sub = c.events.listen(_onEvent);
+    _loadTutorialFlag();
   }
 
   @override
@@ -201,19 +203,128 @@ class _GameShellState extends State<GameShell> {
     }
   }
 
-  String? _coachText() {
-    if (_placing != null || _moveFrom != null) return null;
-    final counts = g.s.tileCounts;
+  // --- Tutorial -------------------------------------------------------------
+  // A short guided path, derived from game state: train → add a GPU → link
+  // with a switch → release. Each step says why and has a "do it" button.
+
+  static const _tutorialKey = 'tutorial_done_v1';
+  bool _tutorialDone = false;
+
+  void _loadTutorialFlag() {
+    SharedPreferences.getInstance().then((p) {
+      if (mounted && (p.getBool(_tutorialKey) ?? false)) {
+        setState(() => _tutorialDone = true);
+      }
+    });
+  }
+
+  void _finishTutorial() {
+    if (_tutorialDone) return;
+    _tutorialDone = true;
+    SharedPreferences.getInstance().then((p) => p.setBool(_tutorialKey, true));
+  }
+
+  void _skipTutorial() {
+    Sound.play(Sfx.click);
+    setState(_finishTutorial);
+  }
+
+  /// Opens build mode on [kind] and selects [tileId] (if unlocked & affordable).
+  void _guideToPart(TileKind kind, String tileId) {
+    final t = tileById(tileId)!;
+    setState(() {
+      _build = true;
+      _moveFrom = null;
+      _trayKind = kind;
+    });
+    if (_placing != t.id) _selectPart(t);
+  }
+
+  _TutorialStep? _tutorialStep() {
+    if (_tutorialDone || _moveFrom != null) return null;
+    final s = g.s;
+    final counts = s.tileCounts;
     final hasSwitch = counts.keys.any((id) => tileById(id)?.isNetwork ?? false);
-    if (hasSwitch) return null;
-    if (g.ownedRooms.length > 1) return null;
     final gpus = counts.entries
         .where((e) => tileById(e.key)?.isGpu ?? false)
         .fold(0, (a, e) => a + e.value);
-    if (!_build) return 'Place a GPU, then a switch next to it.';
-    return gpus < 2
-        ? 'Place a GPU, then a switch next to it.'
-        : 'Now put a switch between your GPUs to link them into one training cluster.';
+    final released = s.releases.length > 1;
+    if (released || g.ownedRooms.length > 1) {
+      // Finished (or clearly past the basics): never show again.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _finishTutorial());
+      return null;
+    }
+    final run = s.run;
+
+    if (s.pendingEffectiveCompute != null) {
+      return _TutorialStep(
+        step: 4,
+        title: 'Your model is trained!',
+        body: 'Release it: a better model raises your rating, which brings more users and money.',
+        action: 'Release',
+        onAction: () => showReleaseSheet(context, c),
+      );
+    }
+    if (run == null) {
+      return _TutorialStep(
+        step: 1,
+        title: 'Train your first model',
+        body:
+            'Your GPU is already serving a few users. Training a model raises your '
+            'rating, and better models attract more users.',
+        action: 'Set up a training run',
+        onAction: _openTrain,
+      );
+    }
+    final pct = formatPercent(run.progress);
+    if (gpus < 2) {
+      final gpu = tileById('gpu_old')!;
+      if (_placing != null && tileById(_placing!)!.isGpu) {
+        return _TutorialStep(
+          step: 2,
+          title: 'Tap a glowing floor cell',
+          body: 'Put it right next to your first GPU; you\'ll link them in the next step.',
+        );
+      }
+      final short = gpu.cost - s.money;
+      return _TutorialStep(
+        step: 2,
+        title: 'Training… $pct. Add a second GPU',
+        body:
+            short > 0
+                ? 'More GPUs train faster. A ${gpu.name} costs ${formatMoney(gpu.cost)}; '
+                    'you\'ll have it in about ${formatDuration(short / g.revenuePerSecond.clamp(1e-6, double.infinity))}.'
+                : 'More GPUs train faster, and you can afford a ${gpu.name} now.',
+        action: short > 0 ? null : 'Pick ${gpu.name}',
+        onAction: short > 0 ? null : () => _guideToPart(TileKind.gpu, gpu.id),
+      );
+    }
+    if (!hasSwitch) {
+      final sw = tileById('net_home')!;
+      if (_placing != null && tileById(_placing!)!.isNetwork) {
+        return _TutorialStep(
+          step: 3,
+          title: 'Place it touching both GPUs',
+          body: 'A switch links every GPU next to it (up, down, left, right) into one cluster.',
+        );
+      }
+      return _TutorialStep(
+        step: 3,
+        title: 'Link your GPUs with a switch',
+        body:
+            'Side by side isn\'t enough: GPUs only train together through a network '
+            'switch. Unlinked GPUs just serve users.',
+        action: s.money >= sw.cost ? 'Pick ${sw.name}' : null,
+        onAction: s.money >= sw.cost ? () => _guideToPart(TileKind.network, sw.id) : null,
+      );
+    }
+    return _TutorialStep(
+      step: 4,
+      title: 'Linked! Training… $pct',
+      body:
+          'Your cluster trains faster now. When the run finishes, release the model. '
+          'Tap any tile to learn what it does.',
+    );
   }
 
   // --- Modals -----------------------------------------------------------------
@@ -438,6 +549,7 @@ class _GameShellState extends State<GameShell> {
         icon: Icons.construction_rounded,
         color: AppColors.neon,
         active: _build,
+        pulse: !_build && (_tutorialStep()?.pulseBuild ?? false),
         onTap: _toggleBuild,
       ),
       ToolSpec(
@@ -636,8 +748,10 @@ class _GameShellState extends State<GameShell> {
           child: GameBuilder(
             controller: c,
             builder: (context) {
-              final coach = _coachText();
-              return coach == null ? const SizedBox.shrink() : _CoachMark(text: coach);
+              final step = _tutorialStep();
+              return step == null
+                  ? const SizedBox.shrink()
+                  : _CoachMark(step: step, onSkip: _skipTutorial);
             },
           ),
         ),
@@ -819,46 +933,99 @@ class _Toast extends StatelessWidget {
   );
 }
 
+class _TutorialStep {
+  final int step;
+  final String title;
+  final String body;
+  final String? action;
+  final VoidCallback? onAction;
+  const _TutorialStep({
+    required this.step,
+    required this.title,
+    required this.body,
+    this.action,
+    this.onAction,
+  });
+
+  bool get pulseBuild => action != null && (step == 2 || step == 3);
+}
+
 class _CoachMark extends StatelessWidget {
-  final String text;
-  const _CoachMark({required this.text});
+  final _TutorialStep step;
+  final VoidCallback onSkip;
+  const _CoachMark({required this.step, required this.onSkip});
 
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-    child: Center(
-      child: Pulse(
-        scale: 1.03,
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 420),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: AppColors.neon,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              const BoxShadow(color: Color(0xFF000000), offset: Offset(0, 4)),
-              BoxShadow(color: AppColors.neon.withValues(alpha: 0.4), blurRadius: 18),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      key: const ValueKey('tutorial'),
+      constraints: const BoxConstraints(maxWidth: 440),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xF20C1322),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.neon, width: 2),
+        boxShadow: [
+          const BoxShadow(color: Color(0xFF000000), offset: Offset(0, 4)),
+          BoxShadow(color: AppColors.neon.withValues(alpha: 0.3), blurRadius: 18),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              const Icon(Icons.touch_app, size: 18, color: AppColors.bg),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.bg,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    height: 1.25,
-                  ),
+              Text('TUTORIAL ${step.step}/4', style: labelStyle(size: 10, color: AppColors.neon)),
+              const Spacer(),
+              TextButton(
+                key: const ValueKey('tutorial-skip'),
+                onPressed: onSkip,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.muted,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
+                child: const Text('Skip', style: TextStyle(fontSize: 12)),
               ),
             ],
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Text(
+              step.title,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, height: 1.2),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Text(
+              step.body,
+              style: const TextStyle(color: AppColors.muted, fontSize: 13, height: 1.3),
+            ),
+          ),
+          if (step.action != null) ...[
+            const SizedBox(height: 10),
+            Pulse(
+              scale: 1.04,
+              child: FilledButton.icon(
+                key: const ValueKey('tutorial-action'),
+                onPressed: () {
+                  Sound.play(Sfx.click);
+                  step.onAction?.call();
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.neon,
+                  foregroundColor: AppColors.bg,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                label: Text(step.action!),
+              ),
+            ),
+          ],
+        ],
       ),
     ),
   );

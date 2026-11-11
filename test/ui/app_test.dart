@@ -4,6 +4,7 @@ import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/ui/app.dart';
 import 'package:ai_lab_tycoon/ui/format.dart';
 import 'package:ai_lab_tycoon/ui/game_controller.dart';
+import 'package:ai_lab_tycoon/ui/screens/overview_screen.dart';
 import 'package:ai_lab_tycoon/ui/screens/research_screen.dart';
 import 'package:ai_lab_tycoon/ui/shell/game_modal.dart';
 import 'package:ai_lab_tycoon/ui/world/world_layout.dart';
@@ -20,9 +21,14 @@ Future<void> withApp(
   WidgetTester tester,
   Future<void> Function(GameController c) body, {
   GameState? state,
+  bool tutorial = false,
 }) async {
-  // Skip the first-launch intro (owned by the moments layer).
-  SharedPreferences.setMockInitialValues({'intro_seen_v1': true});
+  // Skip the first-launch intro (owned by the moments layer) and, unless a
+  // test is about it, the tutorial card.
+  SharedPreferences.setMockInitialValues({
+    'intro_seen_v1': true,
+    if (!tutorial) 'tutorial_done_v1': true,
+  });
   tester.view.physicalSize = const Size(430, 932);
   tester.view.devicePixelRatio = 1;
   await tester.binding.setSurfaceSize(const Size(430, 932));
@@ -140,9 +146,49 @@ void main() {
     });
   });
 
+  testWidgets('tutorial walks through train, second GPU, switch', (tester) async {
+    await withApp(tester, (c) async {
+      Future<void> settle() async {
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+
+      expect(find.text('Train your first model'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tutorial-action')));
+      await settle();
+      expect(find.byType(TrainingPanel), findsOneWidget);
+      await tester.tapAt(const Offset(5, 925)); // dismiss the modal
+      await settle();
+
+      c.act((g) => g.startTraining(fraction: 0.5, durationSeconds: 600));
+      c.game.s.money = 5000;
+      await settle();
+      expect(find.textContaining('Add a second GPU'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tutorial-action')));
+      await settle();
+      expect(find.text('Tap a glowing floor cell'), findsOneWidget);
+      await tapCell(tester, 'garage', 3, 1);
+      await settle();
+      expect(c.game.tileAt('garage', 3, 1), 'gpu_old');
+
+      expect(find.text('Link your GPUs with a switch'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tutorial-action')));
+      await settle();
+      expect(find.text('Place it touching both GPUs'), findsOneWidget);
+      await tapCell(tester, 'garage', 2, 1);
+      await settle();
+      expect(c.game.tileAt('garage', 2, 1), 'net_home');
+      expect(c.game.trainingCluster!.gpus, 2);
+      expect(find.textContaining('Linked!'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('tutorial-skip')));
+      await settle();
+      expect(find.byKey(const ValueKey('tutorial')), findsNothing);
+    }, tutorial: true);
+  });
+
   testWidgets('build: place a GPU and a switch by tapping floor cells', (tester) async {
     await withApp(tester, (c) async {
-      expect(find.text('Place a GPU, then a switch next to it.'), findsOneWidget);
       await openTool(tester, 'build');
       final before = c.game.s.money;
       final gpu = tileById('gpu_gamer')!;
@@ -172,7 +218,6 @@ void main() {
       expect(cluster.networked, isTrue);
       expect(cluster.gpus, 2);
       expect(find.textContaining('Training cluster: 2 GPUs on 5 Gbit switch'), findsWidgets);
-      expect(find.text('Place a GPU, then a switch next to it.'), findsNothing);
 
       // Done leaves build mode; tapping a tile then opens its info card.
       await tester.tap(find.byKey(const ValueKey('cancel-mode')));
@@ -263,6 +308,10 @@ void main() {
       await tester.tap(buy);
       await tester.pump(const Duration(milliseconds: 600));
       expect(c.game.s.ownedUpgrades, {'mixed_precision'});
+      // A "what changed" card explains the effect in real numbers.
+      expect(find.text('Researched: ${mp.name}'), findsOneWidget);
+      expect(find.text('WHAT CHANGED'), findsOneWidget);
+      expect(find.text('Training compute'), findsOneWidget);
     }, state: GameState(money: 2e6));
   });
 

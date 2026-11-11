@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../../sim/content.dart';
 import '../../sim/game.dart';
 import '../format.dart';
+import '../research_impact.dart';
+import '../shell/game_modal.dart';
 import '../game_assets.dart';
 import '../game_controller.dart';
 import '../sound.dart';
@@ -143,12 +145,12 @@ class UpgradeCard extends StatelessWidget {
       alignment: Alignment.topCenter,
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
-        child: owned ? _OwnedRow(key: const ValueKey('owned'), u: u) : _full(g),
+        child: owned ? _OwnedRow(key: const ValueKey('owned'), u: u) : _full(context, g),
       ),
     );
   }
 
-  Widget _full(Game g) {
+  Widget _full(BuildContext context, Game g) {
     final eraOk = g.isUnlocked(u.era);
     final missing = u.requires.where((r) => !g.s.ownedUpgrades.contains(r)).toList();
     final affordable = g.s.money >= u.cost;
@@ -213,8 +215,19 @@ class UpgradeCard extends StatelessWidget {
                 icon: Icons.science_outlined,
                 enabled: affordable,
                 onBuy: () {
+                  final before = ImpactSnapshot.of(controller.game);
                   final ok = controller.act((g) => g.buyUpgrade(u.id));
                   Sound.play(ok ? Sfx.upgrade : Sfx.error);
+                  if (!ok) return;
+                  final lines = describeImpact(before, ImpactSnapshot.of(controller.game));
+                  showGameModal<void>(
+                    context,
+                    title: 'Researched: ${u.name}',
+                    icon: Icons.science_rounded,
+                    color: AppColors.violet,
+                    maxWidth: 480,
+                    child: ImpactSummary(blurb: u.blurb, lines: lines),
+                  );
                 },
               ),
             ],
