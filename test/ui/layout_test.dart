@@ -31,8 +31,7 @@ Future<void> _loadFonts() async {
   final sdk = '${Platform.environment['FLUTTER_ROOT']}/bin/cache/artifacts/material_fonts';
   await _font('MaterialIcons', ['$sdk/MaterialIcons-Regular.otf']);
   await _font('SpaceGrotesk', [
-    for (final w in ['Regular', 'Medium', 'Bold'])
-      'assets/fonts/SpaceGrotesk/SpaceGrotesk-$w.ttf',
+    for (final w in ['Regular', 'Medium', 'Bold']) 'assets/fonts/SpaceGrotesk/SpaceGrotesk-$w.ttf',
   ]);
   await _font('JetBrainsMono', [
     for (final w in ['Regular', 'Bold']) 'assets/fonts/JetBrainsMono/JetBrainsMono-$w.ttf',
@@ -50,7 +49,7 @@ GameState _stateAt(double seconds) {
 void main() {
   const sizes = [Size(360, 740), Size(390, 844)];
   const stages = {'start': 0.0, 'startup': 20 * 60.0, 'lab': 100 * 60.0};
-  const tabs = ['Lab', 'Hardware', 'Research', 'Rivals'];
+  const tabs = ['Lab', 'Datacenter', 'Research', 'Rivals'];
 
   for (final size in sizes) {
     for (final stage in stages.entries) {
@@ -65,8 +64,9 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         for (final tab in tabs) {
-          await tester.tap(find.descendant(
-              of: find.byType(NavigationBar), matching: find.text(tab)));
+          await tester.tap(
+            find.descendant(of: find.byType(NavigationBar), matching: find.text(tab)),
+          );
           await tester.pump(const Duration(milliseconds: 500));
           expect(tester.takeException(), isNull, reason: '$tab tab');
           if (_out != null) {
@@ -74,8 +74,9 @@ void main() {
               final b = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
               final img = await b.toImage(pixelRatio: 1);
               final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-              File('$_out/${size.width.toInt()}_${stage.key}_$tab.png')
-                  .writeAsBytesSync(bytes!.buffer.asUint8List());
+              File(
+                '$_out/${size.width.toInt()}_${stage.key}_$tab.png',
+              ).writeAsBytesSync(bytes!.buffer.asUint8List());
             });
           }
           // Scroll the whole tab to surface overflows further down.
@@ -95,5 +96,66 @@ void main() {
         await tester.binding.setSurfaceSize(null);
       });
     }
+  }
+
+  // A crowded garage: throttling GPUs (heat tint + badges), a too-slow switch
+  // (bottleneck hint) and placement mode with its valid-cell highlights.
+  for (final size in sizes) {
+    testWidgets('datacenter scenarios at ${size.width.toInt()}w', (tester) async {
+      if (_out != null) await tester.runAsync(_loadFonts);
+      SharedPreferences.setMockInitialValues({'intro_seen_v1': true});
+      await tester.binding.setSurfaceSize(size);
+      final c = await GameController.load();
+      final garage = <String?>[
+        'gpu_v_class', 'gpu_v_class', 'gpu_gamer', null, //
+        'gpu_gamer', 'net_home', 'gpu_old', null,
+        'gpu_gamer', 'net_home', 'gpu_v_class', null,
+        null, 'cool_fan', null, null,
+      ];
+      c.game = Game(GameState(money: 4000, powerTier: 1, grids: {'garage': garage}));
+      final key = GlobalKey();
+      await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(
+        find.descendant(of: find.byType(NavigationBar), matching: find.text('Datacenter')),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(tester.takeException(), isNull);
+      Future<void> shot(String name) async {
+        if (_out == null) return;
+        await tester.runAsync(() async {
+          final b = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+          final img = await b.toImage(pixelRatio: 1);
+          final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+          File(
+            '$_out/${size.width.toInt()}_grid_$name.png',
+          ).writeAsBytesSync(bytes!.buffer.asUint8List());
+        });
+      }
+
+      await shot('crowded');
+      await tester.tap(find.byKey(const ValueKey('kind-cooling')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('part-cool_fan')));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(tester.takeException(), isNull);
+      await shot('placing');
+      await tester.tap(find.byKey(const ValueKey('cell-1-1')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull);
+      await shot('blocked');
+      await tester.tap(find.byKey(const ValueKey('cancel-mode')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('cell-1-1')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull);
+      await shot('switch_sheet');
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 15));
+      c.dispose();
+      await tester.binding.setSurfaceSize(null);
+    });
   }
 }

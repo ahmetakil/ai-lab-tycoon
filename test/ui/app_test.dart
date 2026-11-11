@@ -53,35 +53,100 @@ void main() {
     });
   });
 
-  testWidgets('buying hardware updates owned count and money', (tester) async {
+  testWidgets('datacenter: place a GPU and a switch by tapping cells', (tester) async {
     await withApp(tester, (c) async {
-      await openTab(tester, 'Hardware');
+      await openTab(tester, 'Datacenter');
+      expect(find.text('Place a GPU, then a switch next to it.'), findsOneWidget);
       final before = c.game.s.money;
-      expect(c.game.s.hardwareCounts['gamer'], 1);
-      // First "Buy" is the Gaming GPU ($1.6k ≤ $5k).
-      final buy = find.widgetWithText(NeonButton, 'Buy').first;
-      await tester.scrollUntilVisible(buy, 200);
+      final gpu = tileById('gpu_gamer')!;
+      final sw = tileById('net_5g')!;
+
+      // Pick the RTX 4090, tap an empty cell: placed.
+      await tester.tap(find.byKey(const ValueKey('part-gpu_gamer')));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.byKey(const ValueKey('cell-3-1')));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(c.game.tileAt('garage', 3, 1), 'gpu_gamer');
+
+      // Tapping a taken cell explains why instead of placing.
+      await tester.tap(find.byKey(const ValueKey('cell-1-1')));
       await tester.pump(const Duration(milliseconds: 300));
-      await tester.tap(buy);
-      await tester.pump(const Duration(milliseconds: 600));
-      expect(c.game.s.hardwareCounts['gamer'], 2);
-      expect(c.game.s.money, lessThan(before));
-      expect(find.text('×2'), findsWidgets);
-      // The HUD tweens money; let it settle.
-      for (var i = 0; i < 10; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      expect(find.text(formatMoney(c.game.s.money)), findsWidgets);
-    }, state: GameState(money: 5000));
+      expect(find.textContaining('That spot is taken'), findsOneWidget);
+
+      // Network tab, 5 Gbit switch between the two GPUs.
+      await tester.tap(find.byKey(const ValueKey('kind-network')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('part-net_5g')));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.byKey(const ValueKey('cell-2-1')));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(c.game.tileAt('garage', 2, 1), 'net_5g');
+      // Revenue keeps ticking during pumps, so allow a little drift.
+      expect(c.game.s.money, closeTo(before - gpu.cost - sw.cost, 5));
+
+      final cluster = c.game.trainingCluster!;
+      expect(cluster.networked, isTrue);
+      expect(cluster.gpus, 2);
+      expect(find.textContaining('Training cluster: 2 GPUs on 5 Gbit switch'), findsWidgets);
+      expect(find.text('Place a GPU, then a switch next to it.'), findsNothing);
+
+      // Done leaves placement mode; tapping a tile then opens its info sheet.
+      await tester.tap(find.byKey(const ValueKey('cancel-mode')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('cell-3-1')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text(gpu.blurb), findsOneWidget);
+      expect(find.textContaining('Part of your training cluster'), findsOneWidget);
+
+      // Sell it from the sheet: refunds half.
+      final mid = c.game.s.money;
+      await tester.tap(find.byKey(const ValueKey('tile-sell')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(c.game.tileAt('garage', 3, 1), isNull);
+      expect(c.game.s.money, closeTo(mid + gpu.cost / 2, 5));
+      expect(tester.takeException(), isNull);
+    }, state: GameState(money: 10000));
+  });
+
+  testWidgets('datacenter: move swaps tiles', (tester) async {
+    await withApp(tester, (c) async {
+      await openTab(tester, 'Datacenter');
+      await tester.tap(find.byKey(const ValueKey('cell-1-1')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byKey(const ValueKey('tile-move')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byKey(const ValueKey('cell-0-3')));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(c.game.tileAt('garage', 1, 1), isNull);
+      expect(c.game.tileAt('garage', 0, 3), 'gpu_gamer');
+    });
   });
 
   testWidgets('power-blocked GPUs explain themselves', (tester) async {
+    final garage = List<String?>.filled(16, null);
+    for (var i = 0; i < 4; i++) {
+      garage[i] = 'gpu_gamer'; // 4 × 0.45 kW fills the 1.8 kW outlet
+    }
     await withApp(tester, (c) async {
-      await openTab(tester, 'Hardware');
-      await tester.scrollUntilVisible(find.text('Used V-class Datacenter GPU'), 200);
-      expect(find.text('Needs more power'), findsWidgets);
-      await tester.scrollUntilVisible(find.text('Unlocks in Startup'), 200);
-    }, state: GameState(money: 1e6, hardwareCounts: {'gamer': 4}));
+      await openTab(tester, 'Datacenter');
+      expect(find.text('Used V100'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('part-gpu_v_class')));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.byKey(const ValueKey('cell-0-2')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.textContaining('Not enough power'), findsOneWidget);
+      expect(c.game.tileAt('garage', 0, 2), isNull);
+
+      // The next room says why it's locked.
+      await tester.tap(find.byKey(const ValueKey('room-closet')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text(c.game.roomBlockReason('closet')!), findsOneWidget);
+    }, state: GameState(money: 1e6, grids: {'garage': garage}));
   });
 
   testWidgets('research shows blurbs and buys an upgrade', (tester) async {

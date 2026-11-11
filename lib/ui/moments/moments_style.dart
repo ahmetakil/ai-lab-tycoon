@@ -107,11 +107,14 @@ class EraBackdrop extends StatelessWidget {
   final Era era;
   const EraBackdrop(this.era, {super.key});
 
-  static List<Color> colorsFor(Era era) => switch (era) {
-    Era.garage => const [Color(0xFF1B1209), Color(0xFF3A2410), Color(0xFF0A0F14)],
-    Era.startup => const [Color(0xFF071A24), Color(0xFF0E3B4A), Color(0xFF0A0F14)],
-    Era.lab => const [Color(0xFF0D0820), Color(0xFF26124A), Color(0xFF0A0F14)],
+  static const _colors = <Era, List<Color>>{
+    Era.garage: [Color(0xFF1B1209), Color(0xFF3A2410), Color(0xFF0A0F14)],
+    Era.startup: [Color(0xFF071A24), Color(0xFF0E3B4A), Color(0xFF0A0F14)],
+    Era.lab: [Color(0xFF0D0820), Color(0xFF26124A), Color(0xFF0A0F14)],
   };
+
+  static List<Color> colorsFor(Era era) =>
+      _colors[era] ?? const [Color(0xFF0D0820), Color(0xFF26124A), Color(0xFF0A0F14)];
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +135,8 @@ class EraBackdrop extends StatelessWidget {
 
 /// What a newly unlocked era brings, for the era overlay.
 List<String> unlocksFor(Era era) => [
-  for (final h in hardware.where((h) => h.era == era)) h.name,
+  for (final r in rooms.where((r) => r.era == era)) r.name,
+  for (final t in tiles.where((t) => t.era == era)) t.name,
   for (final p in powerTiers.where((p) => p.era == era)) p.name,
   for (final u in upgrades.where((u) => u.era == era)) u.name,
 ];

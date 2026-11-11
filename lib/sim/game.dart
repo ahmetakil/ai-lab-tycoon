@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import 'balance.dart';
 import 'content.dart';
 import 'game_state.dart';
+import 'grid.dart';
+
+export 'grid.dart' show TileStatus, Cluster;
 
 /// Transient notifications for the UI (not saved).
 sealed class GameEvent {
@@ -62,13 +65,14 @@ class Game {
   // Derived values
   // ---------------------------------------------------------------------------
 
-  Iterable<Effects> get _effects =>
-      upgrades.where((u) => s.ownedUpgrades.contains(u.id)).map((u) => u.effects);
+  Iterable<Effects> get _effects => upgrades
+      .where((u) => s.ownedUpgrades.contains(u.id))
+      .map((u) => u.effects);
 
   double get utilization => math.min(
-      maxUtilization,
-      baseUtilization +
-          _effects.fold(0.0, (a, e) => a + e.utilizationAdd));
+    maxUtilization,
+    baseUtilization + _effects.fold(0.0, (a, e) => a + e.utilizationAdd),
+  );
 
   double get trainEffMult =>
       _effects.fold(1.0, (a, e) => a * e.trainEffMult) *
@@ -83,21 +87,95 @@ class Game {
       (s.currentModel.open ? openSourceArpuMult : 1);
   double get powerMult => _effects.fold(1.0, (a, e) => a * e.powerMult);
 
-  double get rawTflops => hardware.fold(
-      0.0, (a, h) => a + (s.hardwareCounts[h.id] ?? 0) * h.tflops);
+  // --- Grid ------------------------------------------------------------------
+
+  GridStats? _grid;
+  int _gridRevision = -1;
+
+  /// Derived grid data, recomputed only when the grid changes
+  /// (GameState.gridRevision). Utilization is applied on top, so upgrades
+  /// don't invalidate it.
+  GridStats get grid {
+    if (_grid == null || _gridRevision != s.gridRevision) {
+      _grid = computeGridStats(s);
+      _gridRevision = s.gridRevision;
+    }
+    return _grid!;
+  }
+
+  /// Sum of GPU tile TFLOPS ignoring heat.
+  double get peakTflops => grid.peakTflops;
+
+  /// Sum of GPU tile TFLOPS after heat throttling (before utilization).
+  double get rawTflops => grid.rawTflops;
   double get effectiveTflops => rawTflops * utilization;
 
-  double get powerUsedKw =>
-      hardware.fold(0.0, (a, h) => a + (s.hardwareCounts[h.id] ?? 0) * h.powerKw) *
-      powerMult;
+  /// GPUs across all rooms (a server tile counts 8, a rack 32–72...).
+  double get totalGpus => grid.totalGpus;
+
+  /// The cluster that trains: the best effective TFLOPS × scaling efficiency
+  /// across all rooms. Null only with no GPUs at all.
+  Cluster? get trainingCluster => grid.training?.withUtilization(utilization);
+
+  /// Clusters in one room (lone unnetworked GPU tiles are clusters of one).
+  List<Cluster> clusters(String roomId) => [
+    for (final c in grid.clusters)
+      if (c.roomId == roomId) c.withUtilization(utilization),
+  ];
+
+  /// Compute the training cluster delivers at 100% of a run (after its
+  /// scaling efficiency).
+  double get trainingClusterTflops {
+    final c = grid.training;
+    return c == null ? 0 : c.rawTflops * c.scalingEfficiency * utilization;
+  }
+
+  double get _trainingClusterEffective =>
+      (grid.training?.rawTflops ?? 0) * utilization;
+
+  TileStatus? tileStatus(String roomId, int x, int y) {
+    final rs = grid.rooms[roomId];
+    if (rs == null) return null;
+    final room = rs.room;
+    if (x < 0 || y < 0 || x >= room.width || y >= room.height) return null;
+    final i = y * room.width + x;
+    final def = rs.defs[i];
+    if (def == null) return null;
+    final ci = rs.cluster[i];
+    return TileStatus(
+      def: def,
+      netHeat: rs.netHeat[i],
+      speed: rs.speed[i],
+      clusterId: ci < 0 ? null : ci,
+      inTrainingCluster: ci >= 0 && ci == grid.trainingIndex,
+      effectiveTflops: def.tflops * rs.speed[i] * utilization,
+      ambientCooling: rs.ambient[i],
+      adjacentCooling: rs.adjCooling[i],
+      adjacentGpus: rs.coolerGpus[i],
+    );
+  }
+
+  /// Power one tile draws (GPU tiles get upgrade savings like liquid cooling).
+  double tilePowerKw(TileDef t) => t.isGpu ? t.powerKw * powerMult : t.powerKw;
+
+  /// GPU tiles (× upgrade savings) plus cooling and network gear.
+  double get powerUsedKw => grid.gpuPowerKw * powerMult + grid.otherPowerKw;
   double get powerCapKw => powerTiers[s.powerTier].capacityKw;
   PowerDef? get nextPowerTier =>
       s.powerTier + 1 < powerTiers.length ? powerTiers[s.powerTier + 1] : null;
 
   bool get training => s.run != null && !s.run!.paused;
-  double get trainingTflops => training ? effectiveTflops * s.run!.fraction : 0;
+
+  /// Training compute actually delivered (after the cluster's scaling
+  /// efficiency).
+  double get trainingTflops =>
+      training ? trainingClusterTflops * s.run!.fraction : 0;
+
+  /// Every GPU not committed to training serves users: other clusters, lone
+  /// GPUs and the training cluster's unused fraction.
   double get servingTflops =>
-      (effectiveTflops - trainingTflops) +
+      effectiveTflops -
+      (training ? _trainingClusterEffective * s.run!.fraction : 0) +
       (s.cloudSecondsLeft > 0 ? effectiveTflops : 0);
 
   double perUserTflops(double effectiveCompute) =>
@@ -105,7 +183,8 @@ class Game {
       math.pow(effectiveCompute / startEffectiveCompute, servingExponent) /
       serveEffMult;
 
-  double get capacity => servingTflops / perUserTflops(s.currentModel.effectiveCompute);
+  double get capacity =>
+      servingTflops / perUserTflops(s.currentModel.effectiveCompute);
 
   /// FLOPs that a data budget can use before returns diminish (Chinchilla-ish).
   double get dataOptimalCompute => chinchillaK * dataTokens * dataTokens;
@@ -128,11 +207,12 @@ class Game {
   double get rating => ratingOf(s.currentModel.effectiveCompute);
 
   double get demand => math.min(
-      maxUsers,
-      demandBase *
-      math.pow(10, (rating - ratingBase) / demandRatingScale) *
-      s.hype *
-      (s.viralSecondsLeft > 0 ? viralDemandMult : 1));
+    maxUsers,
+    demandBase *
+        math.pow(10, (rating - ratingBase) / demandRatingScale) *
+        s.hype *
+        (s.viralSecondsLeft > 0 ? viralDemandMult : 1),
+  );
 
   /// People who want in but can't get capacity yet ("join the waitlist").
   double get waitlistUsers => math.max(0, demand - s.users);
@@ -145,27 +225,30 @@ class Game {
       revenueScale * math.pow(servedUsers, revenueExponent) * arpuMult;
   double get arr => revenuePerSecond * secondsPerYear;
 
-  /// Raw FLOPs per second committed to training at a given fraction.
+  /// Raw FLOPs per second a run at [fraction] gets from the training cluster.
   double trainingFlopsPerSecond(double fraction) =>
-      effectiveTflops * fraction * 1e12 * computeTimeScale;
+      trainingClusterTflops * fraction * 1e12 * computeTimeScale;
 
   double predictRating(double fraction, double durationSeconds) => ratingOf(
-      effectiveComputeOf(trainingFlopsPerSecond(fraction) * durationSeconds));
+    effectiveComputeOf(trainingFlopsPerSecond(fraction) * durationSeconds),
+  );
 
   bool get dataLimited {
     final run = s.run;
     if (run == null) return false;
-    final projected = trainingFlopsPerSecond(run.fraction) * run.durationSeconds;
+    final projected =
+        trainingFlopsPerSecond(run.fraction) * run.durationSeconds;
     return projected * trainEffMult > dataOptimalCompute;
   }
 
   RivalSnapshot? get nextRival =>
       s.rivalIndex < rivalLadder.length ? rivalLadder[s.rivalIndex] : null;
 
-  double get hardwareValue => hardware.fold(
-      0.0, (a, h) => a + (s.hardwareCounts[h.id] ?? 0) * h.cost);
+  /// What the placed GPU tiles cost.
+  double get hardwareValue => grid.gpuValue;
 
-  double get cloudRentCost => math.max(500, hardwareValue * cloudRentCostFactor);
+  double get cloudRentCost =>
+      math.max(500, hardwareValue * cloudRentCostFactor);
 
   bool isUnlocked(Era era) => era.index <= s.era.index;
 
@@ -173,27 +256,220 @@ class Game {
   // Actions
   // ---------------------------------------------------------------------------
 
-  /// Era unlocked, required upgrades owned and the site is big enough.
-  bool isHardwareAvailable(HardwareDef h) =>
-      isUnlocked(h.era) &&
-      s.powerTier >= h.minPowerTier &&
-      h.requires.every(s.ownedUpgrades.contains);
+  // --- Rooms -----------------------------------------------------------------
 
-  /// Max units of [h] you can buy right now (limited by money and power).
-  int maxBuyable(HardwareDef h) {
-    if (!isHardwareAvailable(h)) return 0;
-    final byMoney = (s.money / h.cost).floor();
-    final headroom = powerCapKw - powerUsedKw;
-    final byPower = (headroom / (h.powerKw * powerMult) + 1e-9).floor();
-    return math.max(0, math.min(byMoney, byPower));
+  bool isRoomOwned(String roomId) => s.ownsRoom(roomId);
+
+  List<RoomDef> get ownedRooms => [
+    for (final r in rooms)
+      if (s.ownsRoom(r.id)) r,
+  ];
+
+  /// Why [roomId] can't be bought right now, or null if it can.
+  String? roomBlockReason(String roomId) {
+    final room = roomById(roomId);
+    if (room == null) return 'Unknown room.';
+    if (s.ownsRoom(roomId)) return 'You already have the ${room.name}.';
+    if (!isUnlocked(room.era)) return 'Unlocks in the ${room.era.label} era.';
+    if (s.powerTier < room.minPowerTier) {
+      return 'Needs the ${powerTiers[room.minPowerTier].name} power tier.';
+    }
+    if (s.money < room.cost) {
+      return 'Costs ${_money(room.cost)}. You have ${_money(s.money)}.';
+    }
+    return null;
   }
 
-  bool buyHardware(String id, [int count = 1]) {
-    final h = hardware.firstWhere((h) => h.id == id);
-    if (count <= 0 || maxBuyable(h) < count) return false;
-    s.money -= h.cost * count;
-    s.hardwareCounts[id] = (s.hardwareCounts[id] ?? 0) + count;
+  bool canBuyRoom(String roomId) => roomBlockReason(roomId) == null;
+
+  bool buyRoom(String roomId) {
+    if (!canBuyRoom(roomId)) return false;
+    final room = roomById(roomId)!;
+    s.money -= room.cost;
+    s.grids[roomId] = GameState.emptyGrid(room);
+    s.touchGrid();
     return true;
+  }
+
+  // --- Tiles -----------------------------------------------------------------
+
+  String? tileAt(String roomId, int x, int y) => s.tileAt(roomId, x, y);
+
+  /// Era reached, required upgrades owned and power tier high enough.
+  bool isTileUnlocked(TileDef t) => tileLockReason(t) == null;
+
+  /// Why [t] is locked (era / upgrade / power tier), or null.
+  String? tileLockReason(TileDef t) {
+    if (!isUnlocked(t.era)) return 'Unlocks in the ${t.era.label} era.';
+    final missing = [
+      for (final id in t.requires)
+        if (!s.ownedUpgrades.contains(id))
+          upgrades.firstWhere((u) => u.id == id).name,
+    ];
+    if (missing.isNotEmpty) return 'Requires ${missing.join(' + ')}.';
+    if (s.powerTier < t.minPowerTier) {
+      return 'Needs the ${powerTiers[t.minPowerTier].name} power tier.';
+    }
+    return null;
+  }
+
+  /// Tiles that can go in [roomId] (locked or not), in content order.
+  List<TileDef> tilesForRoom(String roomId) => [
+    for (final t in tiles)
+      if (t.rooms.contains(roomId)) t,
+  ];
+
+  /// Human-readable reason [tileId] can't be placed at (x, y), or null.
+  /// Checks, in order: room owned, bounds, empty cell, allowed room, era /
+  /// upgrades / power tier, power headroom, money ([ignoreMoney] skips it).
+  String? placeBlockReason(
+    String roomId,
+    int x,
+    int y,
+    String tileId, {
+    bool ignoreMoney = false,
+  }) => _blockReason(roomId, x, y, tileId, ignoreMoney: ignoreMoney);
+
+  bool canPlace(String roomId, int x, int y, String tileId) =>
+      placeBlockReason(roomId, x, y, tileId) == null;
+
+  bool placeTile(String roomId, int x, int y, String tileId) {
+    if (!canPlace(roomId, x, y, tileId)) return false;
+    s.money -= tileById(tileId)!.cost;
+    s.setTile(roomId, x, y, tileId);
+    return true;
+  }
+
+  /// Like [placeBlockReason] for swapping the tile at (x, y) for [tileId]:
+  /// the old tile is sold for [sellValue] towards the price, and only the
+  /// extra power is needed.
+  String? replaceBlockReason(
+    String roomId,
+    int x,
+    int y,
+    String tileId, {
+    bool ignoreMoney = false,
+  }) {
+    final old = tileAt(roomId, x, y);
+    if (old == null) return 'There is nothing there to replace.';
+    if (old == tileId) return 'That tile is already there.';
+    return _blockReason(
+      roomId,
+      x,
+      y,
+      tileId,
+      replacing: old,
+      ignoreMoney: ignoreMoney,
+    );
+  }
+
+  /// Sell the tile at (x, y) and put [tileId] in its place (e.g. a faster
+  /// switch). Pays the difference.
+  bool replaceTile(String roomId, int x, int y, String tileId) {
+    if (replaceBlockReason(roomId, x, y, tileId) != null) return false;
+    final old = tileById(tileAt(roomId, x, y)!)!;
+    s.money += sellValue(old.id) - tileById(tileId)!.cost;
+    s.setTile(roomId, x, y, tileId);
+    return true;
+  }
+
+  String? _blockReason(
+    String roomId,
+    int x,
+    int y,
+    String tileId, {
+    String? replacing,
+    bool ignoreMoney = false,
+  }) {
+    final tile = tileById(tileId);
+    if (tile == null) return 'Unknown tile.';
+    final room = roomById(roomId);
+    if (room == null) return 'Unknown room.';
+    if (!s.ownsRoom(roomId)) return 'Buy the ${room.name} first.';
+    if (x < 0 || y < 0 || x >= room.width || y >= room.height) {
+      return 'That spot is outside the ${room.name}.';
+    }
+    final here = tileAt(roomId, x, y);
+    if (replacing == null && here != null) {
+      return 'That spot is taken. Move or sell the '
+          '${tileById(here)?.name ?? here} first.';
+    }
+    if (!tile.rooms.contains(roomId)) {
+      final where = [
+        for (final r in rooms)
+          if (tile.rooms.contains(r.id)) r.name,
+      ].join(' or ');
+      return '${tile.name} doesn\'t fit in the ${room.name}. It goes in the '
+          '$where.';
+    }
+    final locked = tileLockReason(tile);
+    if (locked != null) return locked;
+    final oldDef = replacing == null ? null : tileById(replacing);
+    final needKw =
+        tilePowerKw(tile) - (oldDef == null ? 0 : tilePowerKw(oldDef));
+    final freeKw = powerCapKw - powerUsedKw;
+    if (needKw > freeKw + 1e-9) {
+      return 'Not enough power: needs ${_kw(needKw)}, ${_kw(math.max(0, freeKw))} '
+          'free. Upgrade your power supply.';
+    }
+    final price = tile.cost - (oldDef == null ? 0 : sellValue(oldDef.id));
+    if (!ignoreMoney && s.money < price) {
+      return 'Costs ${_money(price)}. You have ${_money(s.money)}.';
+    }
+    return null;
+  }
+
+  /// Moving is free. Moving onto an occupied cell swaps the two tiles.
+  bool moveTile(String roomId, int fx, int fy, int tx, int ty) {
+    final room = roomById(roomId);
+    if (room == null || !s.ownsRoom(roomId)) return false;
+    bool inside(int x, int y) =>
+        x >= 0 && y >= 0 && x < room.width && y < room.height;
+    if (!inside(fx, fy) || !inside(tx, ty) || (fx == tx && fy == ty)) {
+      return false;
+    }
+    final a = tileAt(roomId, fx, fy);
+    if (a == null) return false;
+    final b = tileAt(roomId, tx, ty);
+    final cells = s.grids[roomId]!;
+    cells[ty * room.width + tx] = a;
+    cells[fy * room.width + fx] = b;
+    s.touchGrid();
+    return true;
+  }
+
+  /// Selling refunds half the price.
+  double sellValue(String tileId) => (tileById(tileId)?.cost ?? 0) * 0.5;
+
+  /// Why the tile at (x, y) can't be sold, or null.
+  String? sellBlockReason(String roomId, int x, int y) {
+    final id = tileAt(roomId, x, y);
+    if (id == null) return 'There is nothing there to sell.';
+    final def = tileById(id)!;
+    if (def.isGpu && grid.rooms.values.fold(0, (a, r) => a + r.gpuTiles) <= 1) {
+      return 'You can\'t sell your last GPU.';
+    }
+    return null;
+  }
+
+  bool sellTile(String roomId, int x, int y) {
+    if (sellBlockReason(roomId, x, y) != null) return false;
+    s.money += sellValue(tileAt(roomId, x, y)!);
+    s.setTile(roomId, x, y, null);
+    return true;
+  }
+
+  static String _kw(double kw) =>
+      kw >= 1000
+          ? '${(kw / 1000).toStringAsFixed(kw >= 1e5 ? 0 : 1)} MW'
+          : '${kw.toStringAsFixed(kw >= 10 ? 0 : 2)} kW';
+
+  static String _money(double v) {
+    final a = v.abs();
+    if (a >= 1e9) return '\$${(v / 1e9).toStringAsFixed(2)}B';
+    if (a >= 1e6) return '\$${(v / 1e6).toStringAsFixed(2)}M';
+    if (a >= 1e3) return '\$${(v / 1e3).toStringAsFixed(1)}k';
+    return '\$${v.toStringAsFixed(0)}';
   }
 
   bool buyNextPowerTier() {
@@ -220,9 +496,13 @@ class Game {
     return true;
   }
 
-  bool get canStartTraining => s.run == null && s.pendingEffectiveCompute == null;
+  bool get canStartTraining =>
+      s.run == null && s.pendingEffectiveCompute == null;
 
-  bool startTraining({required double fraction, required double durationSeconds}) {
+  bool startTraining({
+    required double fraction,
+    required double durationSeconds,
+  }) {
     if (!canStartTraining) return false;
     s.run = TrainingRun(
       fraction: fraction.clamp(0.05, 1.0),
@@ -267,7 +547,8 @@ class Game {
     if (open) s.openReleases++;
 
     final improvement = math.max(0.0, release.rating - oldRating);
-    final hypeBoost = (1 + improvement / hypePerRating) *
+    final hypeBoost =
+        (1 + improvement / hypePerRating) *
         (success ? stunt.hypeOnSuccess : stunt.hypeOnFail) *
         (open ? openSourceHypeMult : 1);
     // Hype doesn't compound release after release: a launch sets it to at
@@ -307,7 +588,9 @@ class Game {
     final cap = capacity;
     final d = demand;
     final growthTarget = math.min(
-        d, cap * (s.viralSecondsLeft > 0 ? overflowAllowance : 1.0));
+      d,
+      cap * (s.viralSecondsLeft > 0 ? overflowAllowance : 1.0),
+    );
     if (s.users < growthTarget) {
       s.users += (growthTarget - s.users) * math.min(1.0, userGrowthRate * dt);
     } else if (s.users > d) {

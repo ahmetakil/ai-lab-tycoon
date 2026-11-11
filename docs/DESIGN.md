@@ -26,7 +26,7 @@ beat rival labs.
 - Release: open vs closed choice, plus a launch stunt (cryptic tweet / risky live demo).
 - Viral spike: demand x4 for 90s. Fix: pause training, rent cloud, quantize.
 - Rival ladder: parody labs at historical snapshots; beat rating AND users to pass.
-- Eras: Garage → Startup (5k users) → Lab (rating 1100).
+- Eras: Garage → Startup (3k users) → Lab (rating 1100).
 - Offline progress capped at 8h, with a "while you were away" summary.
 - Shareable release card (the marketing engine).
 

@@ -7,7 +7,11 @@ import '../sim/content.dart';
 /// UI never breaks while art is in progress.
 abstract final class GameArt {
   static String eraBackground(Era era) => 'assets/images/bg_${era.name}.png';
-  static String hardware(String id) => 'assets/images/hw_$id.png';
+  static String tile(String tileId) => 'assets/images/tile_$tileId.png';
+  static String floor(String roomId) => 'assets/images/floor_$roomId.png';
+  static String roomBanner(String roomId) => 'assets/images/room_$roomId.png';
+  static const tileHeatOverlay = 'assets/images/tile_overlay_heat.png';
+  static const tileLinkOverlay = 'assets/images/tile_overlay_link.png';
   static String power(String id) => 'assets/images/power_$id.png';
   static String upgrade(String id) => 'assets/images/up_$id.png';
   static String upgradeCategory(UpgradeCategory c) => 'assets/images/cat_${c.name}.png';

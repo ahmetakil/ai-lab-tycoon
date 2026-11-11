@@ -8,4 +8,4 @@ Personal side project (Flutter idle tycoon game). Unrelated to Routely — never
 - Balance: `dart run tool/balance_sim.dart 240` plays headlessly; check pacing after any balance change.
 - Checks: `flutter analyze` and `flutter test` must pass. Web build: `flutter build web`.
 - Design: docs/DESIGN.md. Rival data and sources: docs/research/rival_labs.md.
-- Parody names only for labs, GPUs and models. Upgrade blurbs must be technically accurate.
+- Parody names only for labs, companies and AI models. Real hardware product names (H100, RTX 4090, InfiniBand) are fine; tile ids keep their class names. Upgrade blurbs must be technically accurate.

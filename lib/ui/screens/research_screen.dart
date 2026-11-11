@@ -160,8 +160,17 @@ class UpgradeCard extends StatelessWidget {
       footer = Row(
         children: [
           Text(formatMoney(u.cost), style: numStyle(size: 13, color: AppColors.muted)),
-          const Spacer(),
-          Tag('Unlocks in ${u.era.label}', color: eraColor(u.era), icon: Icons.lock_outline),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Tag(
+                'Unlocks in ${u.era.label}',
+                color: eraColor(u.era),
+                icon: Icons.lock_outline,
+              ),
+            ),
+          ),
         ],
       );
     } else if (missing.isNotEmpty) {

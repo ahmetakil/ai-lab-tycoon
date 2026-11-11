@@ -4,10 +4,11 @@
 //
 //   dart run tool/balance_sim.dart [minutes=360] [--log-every=10]
 //       [--strategy=balanced|hardware-only|software-first|no-upgrades]
-//       [--seed=12345]
+//       [--layout=template|naive|random] [--seed=12345]
 //       [--compare]
 //
-// --compare runs all three strategies and prints a summary table only.
+// --compare runs every strategy (template layout) plus the naive and random
+// layouts, and prints a summary table only.
 import 'dart:math' as math;
 
 import 'package:ai_lab_tycoon/sim/balance.dart';
@@ -16,15 +17,18 @@ import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 
 void main(List<String> args) {
-  final minutes = args.isNotEmpty && !args.first.startsWith('--')
-      ? double.parse(args.first)
-      : 360.0;
-  String? opt(String name) => args
-      .where((a) => a.startsWith('--$name='))
-      .map((a) => a.split('=').last)
-      .firstOrNull;
+  final minutes =
+      args.isNotEmpty && !args.first.startsWith('--')
+          ? double.parse(args.first)
+          : 360.0;
+  String? opt(String name) =>
+      args
+          .where((a) => a.startsWith('--$name='))
+          .map((a) => a.split('=').last)
+          .firstOrNull;
   final logEvery = double.parse(opt('log-every') ?? '10');
   final strategy = parseStrategy(opt('strategy') ?? 'balanced');
+  final layout = BotLayout.values.byName(opt('layout') ?? 'template');
   final seed = int.parse(opt('seed') ?? '12345');
 
   if (args.contains('--compare')) {
@@ -33,10 +37,13 @@ void main(List<String> args) {
   }
 
   var nextLog = 0.0;
-  print('strategy: ${strategy.name}\n');
-  print('time  | money      | rev/s     | ARR        | users      | rating | GPUs    | power kW        | util | era');
+  print('strategy: ${strategy.name}, layout: ${layout.name}\n');
+  print(
+    'time  | money      | rev/s     | ARR        | users      | rating | GPUs    | power kW        | util | train cluster          | rooms | era',
+  );
   final r = runPlaythrough(
     strategy: strategy,
+    layout: layout,
     maxSeconds: minutes * 60,
     stopWhenDone: false,
     seed: seed,
@@ -48,7 +55,9 @@ void main(List<String> args) {
         case RivalBeaten(:final rival):
           print('$t  >>> BEAT ${rival.lab} ${rival.model} (${rival.year})');
         case ViralSpikeStarted():
-          print('$t  !!! viral spike (capacity ${fmt(g.capacity)}, users ${fmt(g.s.users)})');
+          print(
+            '$t  !!! viral spike (capacity ${fmt(g.capacity)}, users ${fmt(g.s.users)})',
+          );
         case ModelReleased():
         case TrainingFinished():
           break;
@@ -57,69 +66,92 @@ void main(List<String> args) {
     onTick: (g) {
       if (g.s.time < nextLog) return;
       nextLog += logEvery * 60;
-      final gpus = g.s.hardwareCounts.values.fold(0, (a, b) => a + b);
-      print('${fmtTime(g.s.time)} | ${fmt(g.s.money, 10)} | ${fmt(g.revenuePerSecond, 9)} | '
-          '${fmt(g.arr, 10)} | ${fmt(g.s.users, 10)} | ${g.rating.toStringAsFixed(0).padLeft(6)} | '
-          '${fmt(gpus.toDouble(), 7)} | ${fmt(g.powerUsedKw, 7)}/${fmt(g.powerCapKw, 7)} | '
-          '${g.utilization.toStringAsFixed(2)} | ${g.s.era.label}'
-          '${g.overloaded ? ' OVERLOADED' : ''}${g.dataLimited ? ' data-limited' : ''}');
+      final gpus = g.totalGpus;
+      final c = g.trainingCluster;
+      final cluster =
+          c == null
+              ? '—'
+              : '${fmt(c.gpus)} GPU ${c.roomId} ${(c.scalingEfficiency * 100).toStringAsFixed(0)}%';
+      print(
+        '${fmtTime(g.s.time)} | ${fmt(g.s.money, 10)} | ${fmt(g.revenuePerSecond, 9)} | '
+        '${fmt(g.arr, 10)} | ${fmt(g.s.users, 10)} | ${g.rating.toStringAsFixed(0).padLeft(6)} | '
+        '${fmt(gpus, 7)} | ${fmt(g.powerUsedKw, 7)}/${fmt(g.powerCapKw, 7)} | '
+        '${g.utilization.toStringAsFixed(2)} | ${cluster.padRight(22)} | '
+        '${g.ownedRooms.length.toString().padLeft(5)} | ${g.s.era.label}'
+        '${g.overloaded ? ' OVERLOADED' : ''}${g.dataLimited ? ' data-limited' : ''}',
+      );
     },
   );
   printSummary(r);
 }
 
 BotStrategy parseStrategy(String s) => switch (s) {
-      'balanced' => BotStrategy.balanced,
-      'hardware-only' => BotStrategy.hardwareOnly,
-      'software-first' => BotStrategy.softwareFirst,
-      'no-upgrades' => BotStrategy.noUpgrades,
-      _ => throw ArgumentError('unknown strategy $s'),
-    };
+  'balanced' => BotStrategy.balanced,
+  'hardware-only' => BotStrategy.hardwareOnly,
+  'software-first' => BotStrategy.softwareFirst,
+  'no-upgrades' => BotStrategy.noUpgrades,
+  _ => throw ArgumentError('unknown strategy $s'),
+};
 
 void printSummary(PlaythroughResult r) {
   final g = r.game;
-  print('\n=== summary (${r.strategy.name}) ===');
+  print('\n=== summary (${r.strategy.name}, ${r.layout.name}) ===');
   for (final e in r.eraTimes.entries) {
     print('era ${e.key.label.padRight(8)} ${fmtTime(e.value)}');
   }
   for (final (rival, t) in r.rivalTimes) {
     print('rival ${fmtTime(t)}  ${rival.lab} ${rival.model} (${rival.year})');
   }
-  print('rivals beaten: ${g.s.rivalIndex}/${rivalLadder.length}; '
-      'upgrades: ${g.s.ownedUpgrades.length}/${upgrades.length}; '
-      'releases: ${r.releases}; viral spikes: ${r.viralSpikes}');
-  print('overloaded ${(r.overloadedFraction * 100).toStringAsFixed(1)}% of the time '
-      '(${(100 * r.overloadedViralSeconds / r.seconds).toStringAsFixed(1)}% during viral spikes); '
-      'longest stretch without a purchase/release: ${(r.longestIdle / 60).toStringAsFixed(1)} min '
-      '(from ${fmtTime(r.longestIdleStart)})');
+  print(
+    'rivals beaten: ${g.s.rivalIndex}/${rivalLadder.length}; '
+    'upgrades: ${g.s.ownedUpgrades.length}/${upgrades.length}; '
+    'releases: ${r.releases}; viral spikes: ${r.viralSpikes}',
+  );
+  print(
+    'overloaded ${(r.overloadedFraction * 100).toStringAsFixed(1)}% of the time '
+    '(${(100 * r.overloadedViralSeconds / r.seconds).toStringAsFixed(1)}% during viral spikes); '
+    'longest stretch without a purchase/release: ${(r.longestIdle / 60).toStringAsFixed(1)} min '
+    '(from ${fmtTime(r.longestIdleStart)})',
+  );
   if (r.ladderDone) {
-    print('at the final rival: ${fmt(r.usersAtFinish)} users, ARR ${fmt(r.arrAtFinish)}, '
-        '${fmt(r.h100eAtFinish)} H100-equivalents, ${fmt(r.powerKwAtFinish / 1000)} MW');
+    print(
+      'at the final rival: ${fmt(r.usersAtFinish)} users, ARR ${fmt(r.arrAtFinish)}, '
+      '${fmt(r.h100eAtFinish)} H100-equivalents, ${fmt(r.powerKwAtFinish / 1000)} MW',
+    );
   }
-  print('longest gap between rival wins: ${(r.longestRivalGap / 60).toStringAsFixed(0)} min');
-  print('max users ${fmt(r.maxUsersSeen)} (cap ${fmt(maxUsers)}); '
-      'final money ${fmt(g.s.money)}, ARR ${fmt(g.arr)}; '
-      'power ${fmt(g.powerUsedKw)} kW; H100e ${fmt(h100e(g))}');
+  print(
+    'longest gap between rival wins: ${(r.longestRivalGap / 60).toStringAsFixed(0)} min',
+  );
+  print(
+    'max users ${fmt(r.maxUsersSeen)} (cap ${fmt(maxUsers)}); '
+    'final money ${fmt(g.s.money)}, ARR ${fmt(g.arr)}; '
+    'power ${fmt(g.powerUsedKw)} kW; H100e ${fmt(h100e(g))}',
+  );
 }
 
-double h100e(Game g) => hardware.fold(
-    0.0, (a, h) => a + (g.s.hardwareCounts[h.id] ?? 0) * h.tflops / 990);
+double h100e(Game g) => g.peakTflops / 990;
 
 void compare(double minutes, int seed) {
   final results = [
     for (final s in BotStrategy.values)
       runPlaythrough(strategy: s, maxSeconds: minutes * 60, seed: seed),
+    for (final l in [BotLayout.naive, BotLayout.random])
+      runPlaythrough(layout: l, maxSeconds: minutes * 60, seed: seed),
   ];
   String t(double? s) => s == null ? '   —  ' : fmtTime(s);
   double? rivalAt(PlaythroughResult r, int n) =>
       r.rivalTimes.length >= n ? r.rivalTimes[n - 1].$2 : null;
-  print('strategy        | Startup | Lab    | rival 5 | rival 10 | rival 15 | final  | rivals | overload');
+  print(
+    'strategy / layout        | Startup | Lab    | rival 5 | rival 10 | rival 15 | final  | rivals | overload',
+  );
   for (final r in results) {
-    print('${r.strategy.name.padRight(15)} | ${t(r.eraTimes[Era.startup])}  | '
-        '${t(r.eraTimes[Era.lab])} | ${t(rivalAt(r, 5))}  | ${t(rivalAt(r, 10))}   | '
-        '${t(rivalAt(r, 15))}   | ${t(r.finishTime)} | '
-        '${r.game.s.rivalIndex.toString().padLeft(2)}/${rivalLadder.length}  | '
-        '${(r.overloadedFraction * 100).toStringAsFixed(1)}%');
+    print(
+      '${'${r.strategy.name} / ${r.layout.name}'.padRight(23)} | ${t(r.eraTimes[Era.startup])}  | '
+      '${t(r.eraTimes[Era.lab])} | ${t(rivalAt(r, 5))}  | ${t(rivalAt(r, 10))}   | '
+      '${t(rivalAt(r, 15))}   | ${t(r.finishTime)} | '
+      '${r.game.s.rivalIndex.toString().padLeft(2)}/${rivalLadder.length}  | '
+      '${(r.overloadedFraction * 100).toStringAsFixed(1)}%',
+    );
   }
 }
 

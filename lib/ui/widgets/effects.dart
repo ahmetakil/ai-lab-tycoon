@@ -23,11 +23,14 @@ class Pulse extends StatefulWidget {
 }
 
 class _PulseState extends State<Pulse> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: widget.period);
+  // Created eagerly: a lazy controller would first be built in dispose() when
+  // the pulse was never active, which looks up an unmounted ancestor.
+  late final AnimationController _c;
 
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(vsync: this, duration: widget.period);
     if (widget.active) _c.repeat(reverse: true);
   }
 

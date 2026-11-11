@@ -9,6 +9,7 @@ import '../../sim/game.dart';
 import '../format.dart';
 import '../game_assets.dart';
 import '../game_controller.dart';
+import '../grid/grid_hints.dart';
 import '../moments/release_sheet.dart';
 import '../sound.dart';
 import '../theme.dart';
@@ -61,6 +62,8 @@ class _OverviewScreenState extends State<OverviewScreen> {
             ],
             gap12,
             _ComputeCard(game: g),
+            gap8,
+            ClusterSummaryCard(game: g),
             gap12,
             _ModelCard(game: g),
             gap12,
@@ -140,27 +143,32 @@ class _OverviewScreenState extends State<OverviewScreen> {
                     children: [
                       Text('PREDICTED RATING', style: labelStyle(size: 10)),
                       const SizedBox(height: 4),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            _rating(predicted),
-                            style: numStyle(
-                              size: 26,
-                              weight: FontWeight.w800,
-                              color: AppColors.cyan,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(
+                              _rating(predicted),
+                              style: numStyle(
+                                size: 26,
+                                weight: FontWeight.w800,
+                                color: AppColors.cyan,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${delta >= 0 ? '+' : '−'}${_rating(delta.abs())}',
-                            style: numStyle(
-                              size: 14,
-                              color: delta > 0 ? AppColors.neon : AppColors.red,
+                            const SizedBox(width: 8),
+                            Text(
+                              '${delta >= 0 ? '+' : '−'}${_rating(delta.abs())}',
+                              style: numStyle(
+                                size: 14,
+                                color: delta > 0 ? AppColors.neon : AppColors.red,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                       Text(
                         'current ${_rating(current)}',
@@ -456,7 +464,7 @@ class _Hero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = game.s;
-    final gpus = s.hardwareCounts.values.fold(0, (a, b) => a + b);
+    final gpus = game.totalGpus.round();
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: SizedBox(
@@ -682,22 +690,46 @@ class _CapacityCard extends StatelessWidget {
           trailing: Text('load ${formatPercent(load)}', style: numStyle(size: 12, color: color)),
         ),
         Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
           children: [
-            Text(
-              formatNumber(s.users),
-              style: numStyle(
-                size: 22,
-                weight: FontWeight.w800,
-                color: over ? AppColors.red : AppColors.text,
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      formatNumber(s.users),
+                      style: numStyle(
+                        size: 22,
+                        weight: FontWeight.w800,
+                        color: over ? AppColors.red : AppColors.text,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text('users', style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(width: 6),
-            Text('users', style: const TextStyle(color: AppColors.muted, fontSize: 13)),
-            const Spacer(),
-            Text('capacity ', style: const TextStyle(color: AppColors.muted, fontSize: 13)),
-            Text(formatNumber(cap), style: numStyle(size: 15)),
+            const SizedBox(width: 8),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    const Text('capacity ', style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                    Text(formatNumber(cap), style: numStyle(size: 15)),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
         gap8,

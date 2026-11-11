@@ -12,11 +12,14 @@ import 'game_builder.dart';
 import 'meters.dart';
 import 'panel.dart';
 
-Color eraColor(Era e) => switch (e) {
-  Era.garage => AppColors.amber,
-  Era.startup => AppColors.cyan,
-  Era.lab => AppColors.violet,
+const _eraColors = <Era, Color>{
+  Era.garage: AppColors.amber,
+  Era.startup: AppColors.cyan,
+  Era.lab: AppColors.violet,
 };
+
+/// Accent colour per era (falls back for eras without a colour yet).
+Color eraColor(Era e) => _eraColors[e] ?? AppColors.neon;
 
 /// Always-visible header: lab, era, money, users, rating, power.
 class Hud extends StatelessWidget {

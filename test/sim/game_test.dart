@@ -7,6 +7,8 @@ import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'grid_helpers.dart';
+
 String snapshot(Game g) => jsonEncode(g.s.toJson());
 
 /// A fixed, scripted sequence of player actions.
@@ -18,7 +20,17 @@ void scripted(Game g) {
       g.release(open: i.isEven, stuntId: i % 3 == 0 ? 'live_demo' : 'cryptic_tweet');
       g.startTraining(fraction: 0.75, durationSeconds: 60);
     }
-    if (i % 30 == 0) g.buyHardware('gamer');
+    if (i % 30 == 0) {
+      final cell = (i ~/ 30) % 16;
+      g.placeTile(
+        'garage',
+        cell % 4,
+        cell ~/ 4,
+        i % 90 == 0 ? 'net_5g' : (i % 60 == 0 ? 'cool_fan' : 'gpu_gamer'),
+      );
+    }
+    if (i == 700) g.moveTile('garage', 1, 1, 0, 0);
+    if (i == 900) g.sellTile('garage', 0, 0);
     if (i % 200 == 0) g.buyNextPowerTier();
     g.tick(1);
   }
@@ -54,8 +66,7 @@ void main() {
       final g = r.game;
       g.startTraining(fraction: 0.5, durationSeconds: 600); // may be running
       final json = jsonEncode(g.s.toJson());
-      final restored =
-          GameState.fromJson(jsonDecode(json) as Map<String, dynamic>);
+      final restored = GameState.fromJson(jsonDecode(json) as Map<String, dynamic>);
       expect(jsonEncode(restored.toJson()), json);
 
       // And it keeps simulating identically.
@@ -65,9 +76,7 @@ void main() {
       expect(snapshot(g2), snapshot(g));
     });
 
-    test('old v1 save without newer fields loads with defaults', () {
-      // Shape written by the original v1 code: no viralCd, no labName, no
-      // run.paused, and content ids that no longer exist.
+    test('a v1 save (menu-shop format) starts a fresh game, no crash', () {
       const old = '''
       {"v":1,"time":1234.5,"money":9000,"users":4200,"hype":1.3,
        "powerTier":1,"hardware":{"gamer":3,"v_class":2,"quantum_toaster":9},
@@ -76,30 +85,43 @@ void main() {
        "run":{"fraction":0.5,"duration":120,"elapsed":30,"flops":1e18},
        "pending":null,
        "releases":[{"name":"Fine-tuned open model","effC":1e18,"rating":700,
-                    "open":true,"time":0},
-                   {"name":"Model 1","effC":4e18,"rating":746,"open":true,
-                    "time":600}],
+                    "open":true,"time":0}],
        "rivalIndex":1,"viral":0,"cloud":0,"rng":999,"era":"garage"}''';
       final s = GameState.fromJson(jsonDecode(old) as Map<String, dynamic>);
-      expect(s.money, 9000);
-      expect(s.labName, 'Garage Labs');
-      expect(s.viralCooldownLeft, 0);
-      expect(s.run!.paused, isFalse);
-      expect(s.hardwareCounts, {'gamer': 3, 'v_class': 2});
-      expect(s.ownedUpgrades, {'mixed_precision', 'batching'});
-      expect(s.currentModel.name, 'Model 1');
-      // Loads into a working game.
-      final g = Game(s)..advance(120);
-      expect(g.s.time, closeTo(1354.5, 1e-9));
-      expect(g.s.money, greaterThan(9000));
+      expect(s.startedFromOldSave, isTrue);
+      expect(jsonEncode(s.toJson()), jsonEncode(GameState().toJson()));
+      // No version at all counts as old too.
+      expect(GameState.fromJson({'money': 1}).startedFromOldSave, isTrue);
+      Game(s).advance(60);
     });
 
-    test('minimal save with almost nothing in it still loads', () {
-      final s = GameState.fromJson({'money': 1, 'era': 'not_an_era'});
+    test('v2 save drops unknown ids and misplaced tiles, keeps the rest', () {
+      final s = GameState.fromJson({
+        'v': saveVersion,
+        'money': 1,
+        'era': 'not_an_era',
+        'upgrades': ['batching', 'made_up'],
+        'grids': {
+          'garage': ['gpu_gamer', 'quantum_toaster', 'srv_a_class', null],
+          'moon_base': ['gpu_gamer'],
+          'closet': List.filled(36, 'srv_a_class'),
+        },
+      });
+      expect(s.startedFromOldSave, isFalse);
       expect(s.era, Era.garage);
-      expect(s.hardwareCounts, {'gamer': 1});
+      expect(s.ownedUpgrades, {'batching'});
+      expect(s.grids.keys, unorderedEquals(['garage', 'closet']));
+      expect(s.grids['garage'], hasLength(16));
+      expect(s.grids['garage']!.whereType<String>(), ['gpu_gamer']);
+      expect(s.tileCounts['srv_a_class'], 36);
       expect(s.releases, hasLength(1));
       Game(s).advance(10);
+    });
+
+    test('a v2 save without grids gets the starting garage', () {
+      final s = GameState.fromJson({'v': saveVersion});
+      expect(s.grids.keys, ['garage']);
+      expect(s.tileAt('garage', 1, 1), 'gpu_gamer');
     });
   });
 
@@ -123,24 +145,6 @@ void main() {
   });
 
   group('power limits', () {
-    test('cannot buy past the power cap', () {
-      final g = Game(GameState(money: 1e6));
-      final gamer = hardware.firstWhere((h) => h.id == 'gamer');
-      // Outlet: 1.8 kW, one gamer already draws 0.45 kW → room for 3 more.
-      expect(g.maxBuyable(gamer), 3);
-      expect(g.buyHardware('gamer', 4), isFalse);
-      expect(g.buyHardware('gamer', 3), isTrue);
-      expect(g.buyHardware('gamer'), isFalse);
-      expect(g.powerUsedKw, lessThanOrEqualTo(g.powerCapKw + 1e-9));
-      expect(g.buyNextPowerTier(), isTrue);
-      expect(g.buyHardware('gamer'), isTrue);
-    });
-
-    test('money limits buying too', () {
-      final g = Game(GameState(money: 2500));
-      expect(g.maxBuyable(hardware.first), 1);
-    });
-
     test('next power tier is era-gated', () {
       final g = Game(GameState(money: 1e9, powerTier: 1));
       expect(g.nextPowerTier!.era, Era.startup);
@@ -150,33 +154,33 @@ void main() {
     });
 
     test('rack-scale GPUs need liquid cooling and a big enough site', () {
-      final b = hardware.firstWhere((h) => h.id == 'b_class');
-      final g = Game(GameState(money: 1e12, era: Era.lab, powerTier: 4));
-      expect(g.isHardwareAvailable(b), isFalse);
-      expect(g.maxBuyable(b), 0);
-      g.s.powerTier = b.minPowerTier;
-      expect(g.isHardwareAvailable(b), isFalse); // still no liquid cooling
+      final g = gameWith({
+        'garage': ['G...', '....', '....', '....'],
+        'hall': List.filled(10, '..........'),
+      }, powerTier: 4);
+      expect(g.placeBlockReason('hall', 0, 0, 'rack_b_class'), contains('Liquid cooling'));
       g.s.ownedUpgrades.add('liquid_cooling');
-      expect(g.isHardwareAvailable(b), isTrue);
-      expect(g.buyHardware('b_class', 10), isTrue);
-    });
-
-    test('liquid cooling lowers power draw', () {
-      final g = Game(GameState(hardwareCounts: {'gamer': 4}));
-      final before = g.powerUsedKw;
-      g.s.ownedUpgrades.add('liquid_cooling');
-      expect(g.powerUsedKw, closeTo(before * 0.85, 1e-9));
+      expect(
+        g.placeBlockReason('hall', 0, 0, 'rack_b_class'),
+        contains('Datacenter campus power tier'),
+      );
+      g.s.powerTier = 5;
+      expect(g.placeTile('hall', 0, 0, 'rack_b_class'), isTrue);
     });
   });
 
   group('era unlocks', () {
     test('Startup at the users threshold, Lab at the rating threshold', () {
-      // Four gaming GPUs can serve the 5k users the unlock needs.
-      final g = Game(GameState(hardwareCounts: {'gamer': 4}));
+      // Four gaming GPUs can serve the users the unlock needs.
+      final g = gameWith(
+        {
+          'garage': ['G.G.', '....', 'G.G.', '....'],
+        },
+        era: Era.garage,
+        powerTier: 0,
+      );
       expect(g.capacity, greaterThan(startupUnlockUsers));
-      final a = hardware.firstWhere((h) => h.id == 'a_class');
-      g.s.money = 1e9;
-      expect(g.maxBuyable(a), 0); // Startup hardware locked in the Garage
+      expect(g.roomBlockReason('closet'), contains('Startup era'));
 
       g.s.users = startupUnlockUsers;
       g.s.hype = 1e6; // keep demand above users so they don't churn
@@ -187,13 +191,9 @@ void main() {
       expect(g.isUnlocked(Era.lab), isFalse);
 
       g.events.clear();
-      g.s.releases.add(ModelRelease(
-        name: 'big',
-        effectiveCompute: 1e24,
-        rating: 0,
-        open: false,
-        time: g.s.time,
-      ));
+      g.s.releases.add(
+        ModelRelease(name: 'big', effectiveCompute: 1e24, rating: 0, open: false, time: g.s.time),
+      );
       expect(g.rating, greaterThanOrEqualTo(labUnlockRating));
       g.tick(0.01);
       expect(g.s.era, Era.lab);
@@ -202,8 +202,9 @@ void main() {
 
     test('eras never skip: Lab rating in the Garage only unlocks Startup', () {
       final g = Game();
-      g.s.releases.add(const ModelRelease(
-          name: 'x', effectiveCompute: 1e24, rating: 0, open: false, time: 0));
+      g.s.releases.add(
+        const ModelRelease(name: 'x', effectiveCompute: 1e24, rating: 0, open: false, time: 0),
+      );
       g.tick(1);
       expect(g.s.era, Era.garage);
     });
@@ -221,8 +222,9 @@ void main() {
 
     test('a viral spike overloads, then a cooldown keeps them rare', () {
       final g = Game(GameState(users: 100, hype: 1e6));
-      g.s.releases.add(const ModelRelease(
-          name: 'm', effectiveCompute: 2e18, rating: 0, open: false, time: 0));
+      g.s.releases.add(
+        const ModelRelease(name: 'm', effectiveCompute: 2e18, rating: 0, open: false, time: 0),
+      );
       final spikes = <double>[];
       for (var i = 0; i < 6 * 3600; i++) {
         g.tick(1);
@@ -233,8 +235,10 @@ void main() {
       }
       expect(spikes, isNotEmpty);
       for (var i = 1; i < spikes.length; i++) {
-        expect(spikes[i] - spikes[i - 1],
-            greaterThanOrEqualTo(viralDurationSeconds + viralCooldownSeconds));
+        expect(
+          spikes[i] - spikes[i - 1],
+          greaterThanOrEqualTo(viralDurationSeconds + viralCooldownSeconds),
+        );
       }
     });
 

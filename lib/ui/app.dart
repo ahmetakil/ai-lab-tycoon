@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'game_controller.dart';
 import 'moments/event_presenter.dart';
 import 'moments/rivals_screen.dart';
-import 'screens/hardware_screen.dart';
+import 'screens/datacenter_screen.dart';
 import 'screens/overview_screen.dart';
 import 'screens/research_screen.dart';
 import 'sound.dart';
@@ -46,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final c = widget.controller;
     final pages = [
       OverviewScreen(controller: c),
-      HardwareScreen(controller: c),
+      DatacenterScreen(controller: c),
       ResearchScreen(controller: c),
       RivalsScreen(controller: c),
     ];
@@ -94,9 +94,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     label: 'Lab',
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.memory_outlined),
-                    selectedIcon: Icon(Icons.memory),
-                    label: 'Hardware',
+                    icon: Icon(Icons.grid_view_outlined),
+                    selectedIcon: Icon(Icons.grid_view_rounded),
+                    label: 'Datacenter',
                   ),
                   NavigationDestination(
                     icon: Icon(Icons.science_outlined),

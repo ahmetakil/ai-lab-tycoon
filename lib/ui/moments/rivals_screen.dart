@@ -60,8 +60,14 @@ class RivalsScreen extends StatelessWidget {
                     const SizedBox(height: 22),
                     Row(
                       children: [
-                        Text('The race', style: display(context, 24)),
-                        const Spacer(),
+                        Expanded(
+                          child: Text(
+                            'The race',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: display(context, 24),
+                          ),
+                        ),
                         Text(
                           '${g.s.rivalIndex}/${rivalLadder.length} passed',
                           style: mono(context, 13, color: Theme.of(context).colorScheme.primary),
@@ -511,10 +517,28 @@ class _VersusBar extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text(label, style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+              ),
+            ),
             if (done) ...[const SizedBox(width: 6), Icon(Icons.check_rounded, size: 16, color: accent)],
             const Spacer(),
-            Text('${format(mine)} / ${format(theirs)}', style: mono(context, 12.5, weight: FontWeight.w600)),
+            const SizedBox(width: 8),
+            Flexible(
+              flex: 3,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '${format(mine)} / ${format(theirs)}',
+                  style: mono(context, 12.5, weight: FontWeight.w600),
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 4),

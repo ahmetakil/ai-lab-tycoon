@@ -16,16 +16,16 @@ void main() {
     }
 
     test('every content id is unique', () {
-      expectUnique('hardware', hardware.map((h) => h.id));
+      expectUnique('tile', tiles.map((t) => t.id));
+      expectUnique('room', rooms.map((r) => r.id));
       expectUnique('power tier', powerTiers.map((p) => p.id));
       expectUnique('upgrade', upgrades.map((u) => u.id));
       expectUnique('launch stunt', launchStunts.map((l) => l.id));
-      expectUnique('rival snapshot',
-          rivalLadder.map((r) => '${r.labId}/${r.model}'));
+      expectUnique('rival snapshot', rivalLadder.map((r) => '${r.labId}/${r.model}'));
       // One namespace across hardware/power/upgrades too (icon file names
       // are prefixed, but a shared id would still be confusing).
       expectUnique('content', [
-        ...hardware.map((h) => h.id),
+        ...tiles.map((t) => t.id),
         ...powerTiers.map((p) => p.id),
         ...upgrades.map((u) => u.id),
       ]);
@@ -38,25 +38,82 @@ void main() {
           expect(ids, contains(r), reason: '${u.id} requires unknown $r');
         }
       }
-      for (final h in hardware) {
-        for (final r in h.requires) {
-          expect(ids, contains(r), reason: '${h.id} requires unknown $r');
+      final roomIds = rooms.map((r) => r.id).toSet();
+      for (final t in tiles) {
+        for (final r in t.requires) {
+          expect(ids, contains(r), reason: '${t.id} requires unknown $r');
         }
-        expect(h.minPowerTier, inInclusiveRange(0, powerTiers.length - 1));
+        expect(t.minPowerTier, inInclusiveRange(0, powerTiers.length - 1));
+        expect(t.rooms, isNotEmpty, reason: t.id);
+        expect(roomIds, containsAll(t.rooms), reason: t.id);
+        // A tile never unlocks before every room it fits in could.
+        expect(
+          t.rooms.map((r) => roomById(r)!.era.index).reduce(math.min),
+          lessThanOrEqualTo(t.era.index),
+          reason: t.id,
+        );
       }
     });
 
+    test('tile and room ids from docs/GRID.md are all present (art uses them)', () {
+      const gridTiles = [
+        'gpu_old',
+        'gpu_gamer',
+        'gpu_v_class',
+        'srv_a_class',
+        'srv_h_class',
+        'rack_h_class',
+        'rack_b_class',
+        'rack_r_class',
+        'pod_b_class',
+        'bldg_r_class',
+        'cool_fan',
+        'cool_window_ac',
+        'cool_crac',
+        'cool_rear_door',
+        'cool_liquid',
+        'cool_chiller',
+        'cool_tower',
+        'net_home',
+        'net_5g',
+        'net_10g',
+        'net_100g',
+        'net_ib',
+        'net_ib_spine',
+        'net_nvlink',
+        'net_optical',
+      ];
+      const gridRooms = ['garage', 'closet', 'colo', 'hall', 'campus', 'gigasite'];
+      expect(tiles.map((t) => t.id), containsAll(gridTiles));
+      expect(rooms.map((r) => r.id), gridRooms);
+    });
+
     test('ids existing saves rely on are still present', () {
-      const v1Hardware = ['gamer', 'v_class', 'a_class', 'h_class', 'b_class'];
-      const v1Power = ['outlet', 'panel', 'office', 'colo', 'hall', 'campus',
-          'plant'];
-      const v1Upgrades = ['mixed_precision', 'batching', 'kv_cache', 'lora',
-          'common_crawl', 'cuda_kernels', 'flash_attention', 'quantization',
-          'interconnect', 'liquid_cooling', 'code_data', 'dedup',
-          'instruction_tuning', 'rlhf', 'moe', 'fp8', 'parallelism',
-          'distillation', 'speculative', 'synthetic_data', 'rlaif',
-          'reasoning'];
-      expect(hardware.map((h) => h.id), containsAll(v1Hardware));
+      const v1Power = ['outlet', 'panel', 'office', 'colo', 'hall', 'campus', 'plant'];
+      const v1Upgrades = [
+        'mixed_precision',
+        'batching',
+        'kv_cache',
+        'lora',
+        'common_crawl',
+        'cuda_kernels',
+        'flash_attention',
+        'quantization',
+        'interconnect',
+        'liquid_cooling',
+        'code_data',
+        'dedup',
+        'instruction_tuning',
+        'rlhf',
+        'moe',
+        'fp8',
+        'parallelism',
+        'distillation',
+        'speculative',
+        'synthetic_data',
+        'rlaif',
+        'reasoning',
+      ];
       // Power tiers are saved by index: the v1 tiers must keep their slots.
       expect(powerTiers.take(v1Power.length).map((p) => p.id), v1Power);
       expect(upgrades.map((u) => u.id), containsAll(v1Upgrades));
@@ -68,23 +125,70 @@ void main() {
         expect(u.blurb.length, lessThanOrEqualTo(140), reason: u.id);
         expect(u.blurb, isNot(contains('\n')), reason: u.id);
       }
+      for (final t in tiles) {
+        expect(t.blurb.length, inInclusiveRange(20, 140), reason: t.id);
+        expect(t.blurb, isNot(contains('\n')), reason: t.id);
+      }
+    });
+
+    test('tile numbers are consistent with their kind', () {
+      for (final t in tiles) {
+        expect(t.cost, greaterThan(0), reason: t.id);
+        expect(t.powerKw, greaterThan(0), reason: t.id);
+        switch (t.kind) {
+          case TileKind.gpu:
+            expect(t.tflops, greaterThan(0), reason: t.id);
+            expect(t.heat, greaterThan(0), reason: t.id);
+            expect(t.gpusPerTile, greaterThanOrEqualTo(1), reason: t.id);
+            // Per-GPU numbers stay in real-world ranges.
+            expect(t.tflops / t.gpusPerTile, inInclusiveRange(20, 4000), reason: t.id);
+            expect(t.powerKw / t.gpusPerTile, inInclusiveRange(0.2, 4), reason: t.id);
+          case TileKind.cooling:
+            expect(t.cooling, greaterThan(0), reason: t.id);
+          case TileKind.network:
+            expect(t.gpuCap, greaterThan(0), reason: t.id);
+            expect(t.linkGbps, greaterThan(0), reason: t.id);
+        }
+      }
+      // Network tiers grow: home router 2–4 GPUs ... optical in the millions.
+      final caps = [
+        for (final t in tiles)
+          if (t.isNetwork) t.gpuCap,
+      ];
+      for (var i = 1; i < caps.length; i++) {
+        expect(caps[i], greaterThan(caps[i - 1]));
+      }
+      expect(tileById('net_home')!.gpuCap, inInclusiveRange(2, 4));
+      expect(tileById('net_optical')!.gpuCap, greaterThanOrEqualTo(1e6));
     });
 
     test('power tiers grow and newer GPUs dominate older ones', () {
       for (var i = 1; i < powerTiers.length; i++) {
-        expect(powerTiers[i].capacityKw,
-            greaterThan(powerTiers[i - 1].capacityKw));
-        expect(powerTiers[i].era.index,
-            greaterThanOrEqualTo(powerTiers[i - 1].era.index));
+        expect(powerTiers[i].capacityKw, greaterThan(powerTiers[i - 1].capacityKw));
+        expect(powerTiers[i].era.index, greaterThanOrEqualTo(powerTiers[i - 1].era.index));
       }
       expect(powerTiers.last.capacityKw, greaterThanOrEqualTo(3e6)); // GW era
-      for (var i = 1; i < hardware.length; i++) {
-        final a = hardware[i - 1], b = hardware[i];
-        expect(b.tflops / b.cost, greaterThan(a.tflops / a.cost),
-            reason: '${b.id} should beat ${a.id} per dollar');
-        expect(b.tflopsPerKw, greaterThan(a.tflopsPerKw),
-            reason: '${b.id} should beat ${a.id} per kW');
+      // The old gaming GPU is the deliberate trap: cheap but worse on
+      // everything. Every other GPU tile beats all earlier ones.
+      final gpus = tiles.where((t) => t.isGpu).toList();
+      for (var i = 1; i < gpus.length; i++) {
+        final a = gpus[i - 1], b = gpus[i];
+        if (a.id != 'gpu_old') {
+          expect(
+            b.tflops / b.cost,
+            greaterThan(a.tflops / a.cost),
+            reason: '${b.id} should beat ${a.id} per dollar',
+          );
+        }
+        expect(
+          b.tflopsPerKw,
+          greaterThan(a.tflopsPerKw),
+          reason: '${b.id} should beat ${a.id} per kW',
+        );
       }
+      final old = tileById('gpu_old')!, gamer = tileById('gpu_gamer')!;
+      expect(old.cost, lessThan(gamer.cost));
+      expect(old.heat, greaterThan(gamer.heat));
     });
   });
 
@@ -102,14 +206,16 @@ void main() {
         final r = rivalLadder[i];
         if (i > 0) {
           final prev = rivalLadder[i - 1];
-          expect(r.rating, greaterThan(prev.rating),
-              reason: '${r.model} must be harder than ${prev.model}');
+          expect(
+            r.rating,
+            greaterThan(prev.rating),
+            reason: '${r.model} must be harder than ${prev.model}',
+          );
           expect(r.year, greaterThanOrEqualTo(prev.year), reason: r.model);
         }
         // Users mostly climb; real dips (small consumer apps) are allowed but
         // never absurd.
-        expect(r.users, greaterThanOrEqualTo(0.1 * maxUsersSoFar),
-            reason: r.model);
+        expect(r.users, greaterThanOrEqualTo(0.1 * maxUsersSoFar), reason: r.model);
         maxUsersSoFar = math.max(maxUsersSoFar, r.users);
         expect(r.users, lessThanOrEqualTo(maxUsers));
         expect(r.quip, isNotEmpty, reason: r.model);
@@ -122,9 +228,9 @@ void main() {
     test('ratings come from training FLOPs through the game formula', () {
       for (final r in rivalLadder) {
         expect(r.trainingFlops, greaterThan(0), reason: r.model);
-        final expected = ratingBase +
-            ratingPerDoubling *
-                (math.log(r.trainingFlops / startEffectiveCompute) / math.ln2) +
+        final expected =
+            ratingBase +
+            ratingPerDoubling * (math.log(r.trainingFlops / startEffectiveCompute) / math.ln2) +
             r.postTrainingBonus;
         expect(r.rating, closeTo(expected, 1.0), reason: r.model);
       }

@@ -763,12 +763,14 @@ class RivalBeatenOverlay extends StatelessWidget {
   }
 }
 
-String eraTagline(Era era) => switch (era) {
-  Era.garage => 'One GPU, one dream, one very warm room.',
-  Era.startup =>
-    '${formatNumber(startupUnlockUsers, decimals: 0)} users. Investors are suddenly returning your emails.',
-  Era.lab => 'Your model writes passable poetry. Time for a real datacenter.',
-};
+String eraTagline(Era era) =>
+    {
+      Era.garage: 'One GPU, one dream, one very warm room.',
+      Era.startup:
+          '${formatNumber(startupUnlockUsers, decimals: 0)} users. Investors are suddenly returning your emails.',
+      Era.lab: 'Your model writes passable poetry. Time for a real datacenter.',
+    }[era] ??
+    'A bigger room, a bigger cluster, a bigger model.';
 
 class EraOverlay extends StatelessWidget {
   final Era era;

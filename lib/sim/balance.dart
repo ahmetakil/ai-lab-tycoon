@@ -62,7 +62,7 @@ const maxUsers = 5e9;
 /// perUser = servingBase * (effectiveCompute / 1e18)^servingExponent
 /// (÷ serving upgrades). Late-game users are capacity-limited, so servingBase
 /// is the main knob for the users side of the rival ladder and final ARR.
-const servingBase = 0.0135;
+const servingBase = 0.015;
 const servingExponent = 0.3;
 
 /// revenue/s = revenueScale * servedUsers^revenueExponent * arpuMult
@@ -80,7 +80,8 @@ const maxHype = 8.0;
 
 const openSourceArpuMult = 0.6;
 const openSourceHypeMult = 1.6;
-const openSourceCommunityTrainBonus = 1.05; // permanent, stacks per open release
+const openSourceCommunityTrainBonus =
+    1.05; // permanent, stacks per open release
 
 // --- Events --------------------------------------------------------------------
 /// Chance per second of a viral spike while users ≥ 70% of capacity and
@@ -101,7 +102,8 @@ const cloudRentCostFactor = 0.08;
 const offlineCapSeconds = 8 * 3600.0;
 
 // --- Era unlocks -----------------------------------------------------------------
-const startupUnlockUsers = 5e3;
+const startupUnlockUsers = 3e3;
+
 /// Lab unlocks on model quality (between Meenie and GPT-3 on the ladder), not
 /// users: users are power-capped in the Startup era, so a users gate would
 /// deadlock. A full colo cage + basic software reaches it; pure hardware
