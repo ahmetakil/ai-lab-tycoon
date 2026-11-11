@@ -125,12 +125,20 @@ class RivalSnapshot {
   final double rating;
   final double users;
 
+  /// Estimated GPUs (H100-equivalents) for display; 0 = unknown.
+  final double gpus;
+
+  /// One-line parody flavour shown on the rival card.
+  final String quip;
+
   const RivalSnapshot({
     required this.lab,
     required this.year,
     required this.model,
     required this.rating,
     required this.users,
+    this.gpus = 0,
+    this.quip = '',
   });
 }
 

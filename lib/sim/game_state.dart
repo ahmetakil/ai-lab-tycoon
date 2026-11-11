@@ -90,6 +90,7 @@ class GameState {
   double cloudSecondsLeft;
   int rngState;
   Era era;
+  String labName;
 
   GameState({
     this.time = 0,
@@ -108,6 +109,7 @@ class GameState {
     this.cloudSecondsLeft = 0,
     this.rngState = 12345,
     this.era = Era.garage,
+    this.labName = 'Garage Labs',
   })  : hardwareCounts = hardwareCounts ?? {'gamer': 1},
         ownedUpgrades = ownedUpgrades ?? {},
         releases = releases ??
@@ -141,6 +143,7 @@ class GameState {
         'cloud': cloudSecondsLeft,
         'rng': rngState,
         'era': era.name,
+        'labName': labName,
       };
 
   factory GameState.fromJson(Map<String, dynamic> j) => GameState(
@@ -165,5 +168,6 @@ class GameState {
         cloudSecondsLeft: (j['cloud'] as num).toDouble(),
         rngState: j['rng'] as int,
         era: Era.values.byName(j['era'] as String),
+        labName: j['labName'] as String? ?? 'Garage Labs',
       );
 }
