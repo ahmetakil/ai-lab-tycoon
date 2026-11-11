@@ -12,6 +12,7 @@ String formatNumber(double v, {int decimals = 1}) {
   for (final (scale, suffix) in units) {
     if (a >= scale) return '${(v / scale).toStringAsFixed(decimals)}$suffix';
   }
+  if (a > 0 && a < 1) return v.toStringAsPrecision(2); // e.g. 0.034
   return a < 10 && a != a.roundToDouble()
       ? v.toStringAsFixed(1)
       : v.toStringAsFixed(0);
@@ -33,3 +34,6 @@ String formatDuration(double seconds) {
 }
 
 String formatPercent(double fraction) => '${(fraction * 100).round()}%';
+
+/// Ratings live around 700–1500; never abbreviate them ("1.1k" reads wrong).
+String formatRating(double rating) => rating.round().toString();

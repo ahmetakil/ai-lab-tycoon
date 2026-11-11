@@ -134,6 +134,9 @@ class Game {
       s.hype *
       (s.viralSecondsLeft > 0 ? viralDemandMult : 1));
 
+  /// People who want in but can't get capacity yet ("join the waitlist").
+  double get waitlistUsers => math.max(0, demand - s.users);
+
   double get servedUsers => math.min(s.users, capacity);
   double get unservedUsers => math.max(0, s.users - capacity);
   bool get overloaded => s.users > capacity * 1.001;
@@ -170,9 +173,15 @@ class Game {
   // Actions
   // ---------------------------------------------------------------------------
 
+  /// Era unlocked, required upgrades owned and the site is big enough.
+  bool isHardwareAvailable(HardwareDef h) =>
+      isUnlocked(h.era) &&
+      s.powerTier >= h.minPowerTier &&
+      h.requires.every(s.ownedUpgrades.contains);
+
   /// Max units of [h] you can buy right now (limited by money and power).
   int maxBuyable(HardwareDef h) {
-    if (!isUnlocked(h.era)) return 0;
+    if (!isHardwareAvailable(h)) return 0;
     final byMoney = (s.money / h.cost).floor();
     final headroom = powerCapKw - powerUsedKw;
     final byPower = (headroom / (h.powerKw * powerMult) + 1e-9).floor();
@@ -261,7 +270,9 @@ class Game {
     final hypeBoost = (1 + improvement / hypePerRating) *
         (success ? stunt.hypeOnSuccess : stunt.hypeOnFail) *
         (open ? openSourceHypeMult : 1);
-    s.hype = math.max(1.0, s.hype * hypeBoost);
+    // Hype doesn't compound release after release: a launch sets it to at
+    // least its own boost (so spamming tiny releases doesn't run away).
+    s.hype = math.min(maxHype, math.max(s.hype, hypeBoost));
 
     events.add(ModelReleased(release, stunt, success));
     return true;
@@ -290,11 +301,13 @@ class Game {
     }
 
     // Users drift toward demand; overload churns the unserved.
-    // Signups are throttled once you're far over capacity: people hit errors
-    // and stop arriving, so users settle at most overflowAllowance × capacity.
+    // Normally signups stop at capacity (a waitlist). A viral spike breaks
+    // through it: users pile up to overflowAllowance × capacity, the service
+    // falls over (OVERLOADED) and the unserved churn until you add capacity.
     final cap = capacity;
     final d = demand;
-    final growthTarget = math.min(d, cap * overflowAllowance);
+    final growthTarget = math.min(
+        d, cap * (s.viralSecondsLeft > 0 ? overflowAllowance : 1.0));
     if (s.users < growthTarget) {
       s.users += (growthTarget - s.users) * math.min(1.0, userGrowthRate * dt);
     } else if (s.users > d) {
@@ -302,6 +315,12 @@ class Game {
     }
     if (s.users > cap) {
       s.users -= (s.users - cap) * math.min(1.0, overloadChurnRate * dt);
+      // Outside a spike the last stragglers give up too: settle exactly at
+      // capacity so OVERLOADED ends cleanly.
+      if (s.viralSecondsLeft == 0 &&
+          s.users - cap < overloadSettleFraction * cap) {
+        s.users = cap;
+      }
     }
 
     s.money += revenuePerSecond * dt;
@@ -310,14 +329,21 @@ class Game {
     s.hype = 1 + (s.hype - 1) * math.pow(0.5, dt / hypeHalfLifeSeconds);
     s.viralSecondsLeft = math.max(0, s.viralSecondsLeft - dt);
     s.cloudSecondsLeft = math.max(0, s.cloudSecondsLeft - dt);
+    if (s.viralSecondsLeft == 0) {
+      s.viralCooldownLeft = math.max(0, s.viralCooldownLeft - dt);
+    }
 
-    // Viral spike: only online, only once you've shipped something.
+    // Viral spike: only online, only once you've shipped something, not
+    // right after the last one, and only when people are actually waiting.
     if (!offline &&
         s.viralSecondsLeft == 0 &&
+        s.viralCooldownLeft == 0 &&
+        demand > cap &&
         s.releases.length > 1 &&
         s.users >= 0.7 * cap &&
         _random() < viralChancePerSecond * dt) {
       s.viralSecondsLeft = viralDurationSeconds;
+      s.viralCooldownLeft = viralCooldownSeconds;
       events.add(const ViralSpikeStarted());
     }
 

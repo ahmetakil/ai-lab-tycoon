@@ -88,6 +88,9 @@ class GameState {
   int rivalIndex; // first unbeaten rival in rivalLadder
   double viralSecondsLeft;
   double cloudSecondsLeft;
+
+  /// Seconds until another viral spike may start (added after v1; default 0).
+  double viralCooldownLeft;
   int rngState;
   Era era;
   String labName;
@@ -107,6 +110,7 @@ class GameState {
     this.rivalIndex = 0,
     this.viralSecondsLeft = 0,
     this.cloudSecondsLeft = 0,
+    this.viralCooldownLeft = 0,
     this.rngState = 12345,
     this.era = Era.garage,
     this.labName = 'Garage Labs',
@@ -141,33 +145,51 @@ class GameState {
         'rivalIndex': rivalIndex,
         'viral': viralSecondsLeft,
         'cloud': cloudSecondsLeft,
+        'viralCd': viralCooldownLeft,
         'rng': rngState,
         'era': era.name,
         'labName': labName,
       };
 
-  factory GameState.fromJson(Map<String, dynamic> j) => GameState(
-        time: (j['time'] as num).toDouble(),
-        money: (j['money'] as num).toDouble(),
-        users: (j['users'] as num).toDouble(),
-        hype: (j['hype'] as num).toDouble(),
-        powerTier: j['powerTier'] as int,
-        hardwareCounts: (j['hardware'] as Map)
-            .map((k, v) => MapEntry(k as String, v as int)),
-        ownedUpgrades: (j['upgrades'] as List).cast<String>().toSet(),
-        openReleases: j['openReleases'] as int,
-        run: j['run'] == null
-            ? null
-            : TrainingRun.fromJson(j['run'] as Map<String, dynamic>),
-        pendingEffectiveCompute: (j['pending'] as num?)?.toDouble(),
-        releases: (j['releases'] as List)
-            .map((r) => ModelRelease.fromJson(r as Map<String, dynamic>))
-            .toList(),
-        rivalIndex: j['rivalIndex'] as int,
-        viralSecondsLeft: (j['viral'] as num).toDouble(),
-        cloudSecondsLeft: (j['cloud'] as num).toDouble(),
-        rngState: j['rng'] as int,
-        era: Era.values.byName(j['era'] as String),
-        labName: j['labName'] as String? ?? 'Garage Labs',
-      );
+  /// Tolerant of older saves: every field added after v1 (and most others)
+  /// falls back to a default, and unknown hardware/upgrade ids are dropped.
+  factory GameState.fromJson(Map<String, dynamic> j) {
+    double num_(String k, double d) => (j[k] as num?)?.toDouble() ?? d;
+    final hw = (j['hardware'] as Map?)
+        ?.map((k, v) => MapEntry(k as String, (v as num).toInt()));
+    final hardwareIds = hardware.map((h) => h.id).toSet();
+    final upgradeIds = upgrades.map((u) => u.id).toSet();
+    final eraName = j['era'] as String?;
+    return GameState(
+      time: num_('time', 0),
+      money: num_('money', startMoney),
+      users: num_('users', 0),
+      hype: num_('hype', 1),
+      powerTier: ((j['powerTier'] as num?)?.toInt() ?? 0)
+          .clamp(0, powerTiers.length - 1),
+      hardwareCounts: hw == null
+          ? null
+          : (Map.of(hw)..removeWhere((k, _) => !hardwareIds.contains(k))),
+      ownedUpgrades: (j['upgrades'] as List?)
+          ?.cast<String>()
+          .where(upgradeIds.contains)
+          .toSet(),
+      openReleases: (j['openReleases'] as num?)?.toInt() ?? 0,
+      run: j['run'] == null
+          ? null
+          : TrainingRun.fromJson(j['run'] as Map<String, dynamic>),
+      pendingEffectiveCompute: (j['pending'] as num?)?.toDouble(),
+      releases: (j['releases'] as List?)
+          ?.map((r) => ModelRelease.fromJson(r as Map<String, dynamic>))
+          .toList(),
+      rivalIndex: ((j['rivalIndex'] as num?)?.toInt() ?? 0)
+          .clamp(0, rivalLadder.length),
+      viralSecondsLeft: num_('viral', 0),
+      cloudSecondsLeft: num_('cloud', 0),
+      viralCooldownLeft: num_('viralCd', 0),
+      rngState: (j['rng'] as num?)?.toInt() ?? 12345,
+      era: Era.values.asNameMap()[eraName] ?? Era.garage,
+      labName: j['labName'] as String? ?? 'Garage Labs',
+    );
+  }
 }

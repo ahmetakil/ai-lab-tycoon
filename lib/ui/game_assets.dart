@@ -14,6 +14,7 @@ abstract final class GameArt {
   static String rivalLogo(String lab) =>
       'assets/images/rival_${lab.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}.png';
   static const logo = 'assets/images/logo.png';
+  static const logoIcon = 'assets/images/logo_icon.png'; // icon-only, for small sizes
   static const playerLab = 'assets/images/player_lab.png';
 }
 
