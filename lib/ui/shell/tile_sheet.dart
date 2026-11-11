@@ -75,16 +75,6 @@ class TileSheet extends StatelessWidget {
         ),
         _Stat(label: 'POWER', value: formatPower(t.powerKw), color: AppColors.amber),
       ]);
-    } else {
-      chips.addAll([
-        _Stat(label: 'FEEDS', value: '${formatNumber(t.gpuCap)} GPUs', color: AppColors.amber),
-        _Stat(label: 'LINK', value: '${formatNumber(t.linkGbps)} Gbps', color: AppColors.text),
-        _Stat(
-          label: 'CLUSTER',
-          value: cluster == null ? '—' : '${formatNumber(cluster.gpus)} GPUs',
-          color: AppColors.cyan,
-        ),
-      ]);
     }
 
     final String clusterText;
@@ -96,23 +86,18 @@ class TileSheet extends StatelessWidget {
               : 'Splits ${formatNumber(t.cooling)} cooling between ${st.adjacentGpus} adjacent GPU tile${st.adjacentGpus == 1 ? '' : 's'}.';
       clusterColor = st.adjacentGpus == 0 ? AppColors.red : AppColors.cyan;
     } else if (cluster == null) {
-      clusterText = 'Not connected to any GPU yet. Put GPUs next to it.';
+      clusterText = 'Not part of the cluster.';
       clusterColor = AppColors.muted;
     } else {
-      final role =
-          st.inTrainingCluster
-              ? 'Part of your training cluster'
-              : cluster.networked
-              ? 'In a serving cluster'
-              : 'Not networked: serves users on its own';
+      // Every GPU in the room is cabled into one cluster.
       final size = '${formatNumber(cluster.gpus)} GPUs';
-      final eff = cluster.networked ? ', ${formatPercent(cluster.scalingEfficiency)} scaling' : '';
-      final bottleneck =
-          t.isNetwork && cluster.bottleneckTileId == t.id && cluster.scalingEfficiency < 1
-              ? ' This switch is the bottleneck.'
-              : '';
-      clusterText = '$role ($size$eff).$bottleneck';
-      clusterColor = st.inTrainingCluster ? AppColors.neon : AppColors.cyan;
+      final eff =
+          cluster.scalingEfficiency < 1
+              ? ', ${formatPercent(cluster.scalingEfficiency)} scaling: ${g.network.name} feeds '
+                  '${formatNumber(g.networkCap)}. Upgrade it in Network'
+              : ' on ${g.network.name}';
+      clusterText = 'Part of your training cluster ($size$eff).';
+      clusterColor = cluster.scalingEfficiency < 1 ? AppColors.amber : AppColors.neon;
     }
 
     return Column(
@@ -175,7 +160,8 @@ class TileSheet extends StatelessWidget {
         if (t.isGpu && st.throttling) ...[
           gap8,
           const Text(
-            'Too hot: it throttles. Put a cooler on an adjacent cell, or spread GPUs out.',
+            'Too hot: it throttles. Put a cooler on an adjacent cell, spread GPUs out, or '
+            'add central cooling (later eras).',
             style: TextStyle(color: AppColors.red, fontSize: 12.5, height: 1.3),
           ),
         ],

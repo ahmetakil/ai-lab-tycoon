@@ -1,6 +1,7 @@
-// The placement grid drawn on a room's isometric floor: cluster glows,
-// network links, valid-cell highlights, tile sprites (depth sorted) with heat
-// tint and speed badges. Rebuilt only when what it shows changes.
+// The placement grid drawn on a room's isometric floor: the training-cluster
+// glow, overhead cable trays (styled by the network tier), valid-cell
+// highlights, tile sprites (depth sorted) with heat tint and speed badges.
+// Rebuilt only when what it shows changes.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -14,32 +15,42 @@ import '../theme.dart';
 import 'world_layout.dart';
 
 /// Tray groups, in display order.
-const tileKinds = [TileKind.gpu, TileKind.cooling, TileKind.network];
+const tileKinds = [TileKind.gpu, TileKind.cooling];
 
 String kindLabel(TileKind k) => switch (k) {
   TileKind.gpu => 'GPU',
   TileKind.cooling => 'Cooling',
-  TileKind.network => 'Network',
 };
 
 IconData kindIcon(TileKind k) => switch (k) {
   TileKind.gpu => Icons.memory,
   TileKind.cooling => Icons.ac_unit,
-  TileKind.network => Icons.hub,
 };
 
 Color kindColor(TileKind k) => switch (k) {
   TileKind.gpu => AppColors.neon,
   TileKind.cooling => AppColors.cyan,
-  TileKind.network => AppColors.amber,
 };
 
 /// Key stats of a part, short enough for a tray card.
 String tileStatsLine(Game g, TileDef t) => switch (t.kind) {
   TileKind.gpu =>
-    '${formatNumber(t.tflops)} TFLOPS · ${formatPower(g.tilePowerKw(t))} · heat ${formatNumber(t.heat)}',
+    '${formatNumber(t.tflops)} TFLOPS · ${formatPower(g.tilePowerKw(t))} · heat ${formatNumber(t.heat)}\n'
+        '${formatNumber(t.tflops / g.tilePowerKw(t))} TF/kW · ${formatNumber(t.tflops / g.tilePrice(t) * 1000)} TF/\$k',
   TileKind.cooling => 'cools ${formatNumber(t.cooling)} · ${formatPower(t.powerKw)}',
-  TileKind.network => 'feeds ${formatNumber(t.gpuCap)} GPUs · ${formatNumber(t.linkGbps)} Gbps',
+};
+
+/// Look of the overhead cables for a network tier: colour, width (SVG
+/// units) and glow. Copper is orange, fiber thin glowing blue, InfiniBand
+/// thick bundles, NVLink and optics bright.
+(Color, double, double) cableStyle(String tierId) => switch (tierId) {
+  'copper1g' => (const Color(0xFFD9822B), 3.0, 0.0),
+  'copper10g' => (const Color(0xFFE89A45), 4.0, 0.0),
+  'fiber100g' => (const Color(0xFF4FC3FF), 3.0, 3.0),
+  'ib400g' => (const Color(0xFF6F8BFF), 7.0, 1.5),
+  'ibspine' => (const Color(0xFF9A7CFF), 9.0, 2.0),
+  'nvlink' => (const Color(0xFFB6FF6A), 8.0, 4.0),
+  _ => (const Color(0xFFE6FFFF), 7.0, 5.0),
 };
 
 /// What the build interaction looks like right now (owned by the shell).
@@ -58,13 +69,14 @@ class _GridKey {
   final String? placing;
   final (int, int)? moveFrom;
   final String valid; // '1'/'0' per cell: empty and placeable right now
+  final int tiers; // network × 100 + cooling: restyles cables, re-tints heat
 
-  const _GridKey(this.revision, this.buildMode, this.placing, this.moveFrom, this.valid);
+  const _GridKey(this.revision, this.buildMode, this.placing, this.moveFrom, this.valid, this.tiers);
 
   factory _GridKey.of(Game g, RoomDef room, BuildState b) {
     final buf = StringBuffer();
     final placing = b.placing;
-    if (placing != null && tileById(placing)!.rooms.contains(room.id)) {
+    if (placing != null) {
       for (var y = 0; y < room.height; y++) {
         for (var x = 0; x < room.width; x++) {
           buf.write(g.canPlace(room.id, x, y, placing) ? '1' : '0');
@@ -78,6 +90,7 @@ class _GridKey {
       placing,
       mv != null && mv.$1 == room.id ? (mv.$2, mv.$3) : null,
       buf.toString(),
+      g.s.networkTier * 100 + g.s.coolingTier,
     );
   }
 
@@ -88,10 +101,11 @@ class _GridKey {
       other.buildMode == buildMode &&
       other.placing == placing &&
       other.moveFrom == moveFrom &&
-      other.valid == valid;
+      other.valid == valid &&
+      other.tiers == tiers;
 
   @override
-  int get hashCode => Object.hash(revision, buildMode, placing, moveFrom, valid);
+  int get hashCode => Object.hash(revision, buildMode, placing, moveFrom, valid, tiers);
 }
 
 /// Listens to the controller but only rebuilds the grid when its key changes.
@@ -101,12 +115,19 @@ class RoomGrid extends StatefulWidget {
   final BuildState build;
   final void Function(String roomId, int x, int y) onCellTap;
 
+  /// Drag-to-paint while placing: called for every cell the drag crosses
+  /// (in order, no gaps), then [onPaintEnd].
+  final void Function(String roomId, int x, int y)? onCellPaint;
+  final VoidCallback? onPaintEnd;
+
   const RoomGrid({
     super.key,
     required this.controller,
     required this.room,
     required this.build,
     required this.onCellTap,
+    this.onCellPaint,
+    this.onPaintEnd,
   });
 
   @override
@@ -144,6 +165,35 @@ class _RoomGridState extends State<RoomGrid> {
     if (k != _key) setState(() {});
   }
 
+  (int, int)? _lastPaint;
+  Offset? _down;
+  final _painted = <(int, int)>{};
+
+  void _paintTo(RoomGeo geo, Offset local, {bool start = false}) {
+    final cell = geo.cellAtLocal(local);
+    if (start) {
+      _painted.clear();
+      _lastPaint = null;
+    }
+    if (cell == null) return;
+    final from = _lastPaint ?? cell;
+    // Every cell on the line from the last one (fast drags skip cells).
+    final dx = cell.$1 - from.$1, dy = cell.$2 - from.$2;
+    final n = math.max(dx.abs(), dy.abs());
+    for (var i = 0; i <= n; i++) {
+      final c = n == 0 ? cell : (from.$1 + (dx * i / n).round(), from.$2 + (dy * i / n).round());
+      if (_painted.add(c)) widget.onCellPaint!(widget.room.id, c.$1, c.$2);
+    }
+    _lastPaint = cell;
+  }
+
+  void _endPaint() {
+    _lastPaint = null;
+    _down = null;
+    if (_painted.isNotEmpty) widget.onPaintEnd?.call();
+    _painted.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
     final g = widget.controller.game;
@@ -159,6 +209,7 @@ class _RoomGridState extends State<RoomGrid> {
       );
     }
     final geo = geoOf(widget.room.id);
+    final paint = widget.build.placing != null && widget.onCellPaint != null;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -172,6 +223,14 @@ class _RoomGridState extends State<RoomGrid> {
               final cell = geo.cellAtLocal(d.localPosition);
               if (cell != null) widget.onCellTap(widget.room.id, cell.$1, cell.$2);
             },
+            // Placing: a drag paints the part along its path (the map pans
+            // with two fingers or outside the floor).
+            onPanDown: paint ? (d) => _down = d.localPosition : null,
+            onPanStart:
+                paint ? (d) => _paintTo(geo, _down ?? d.localPosition, start: true) : null,
+            onPanUpdate: paint ? (d) => _paintTo(geo, d.localPosition) : null,
+            onPanEnd: paint ? (_) => _endPaint() : null,
+            onPanCancel: paint ? _endPaint : null,
             child: CustomPaint(painter: _FloorHitArea(geo), size: geo.size),
           ),
         ),
@@ -220,35 +279,20 @@ class _GridLayers extends StatelessWidget {
         for (var x = 0; x < w; x++) g.tileStatus(room.id, x, y),
     ];
     TileStatus? at(int x, int y) => x < 0 || y < 0 || x >= w || y >= h ? null : statuses[y * w + x];
-    final clusters = {for (final cl in g.clusters(room.id)) cl.id: cl};
+    final cluster = g.trainingCluster;
 
     final glows = <(int, int, Color)>[];
-    final links = <(int, int, int, int, bool)>[];
     final valid = <(int, int)>[];
     final tilesLayer = <(int, int, TileStatus)>[];
+    // GPU cells per row, for the overhead cable trays.
+    final rows = <int, List<int>>{};
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         final st = at(x, y);
         final i = y * w + x;
-        if (st != null && st.clusterId != null && !st.def.isCooling) {
-          final cl = clusters[st.clusterId];
-          final color =
-              st.inTrainingCluster
-                  ? AppColors.neon
-                  : (cl?.networked ?? false)
-                  ? AppColors.cyan
-                  : null;
-          if (color != null) glows.add((x, y, color));
-        }
-        for (final (dx, dy) in const [(1, 0), (0, 1)]) {
-          final o = at(x + dx, y + dy);
-          if (st == null || o == null) continue;
-          final linked =
-              (st.def.isNetwork && (o.def.isNetwork || o.def.isGpu)) ||
-              (o.def.isNetwork && st.def.isGpu);
-          if (linked) {
-            links.add((x, y, x + dx, y + dy, st.inTrainingCluster && o.inTrainingCluster));
-          }
+        if (st != null && st.def.isGpu) {
+          glows.add((x, y, st.inTrainingCluster ? AppColors.neon : AppColors.cyan));
+          (rows[y] ??= []).add(x);
         }
         if (st != null) {
           tilesLayer.add((x, y, st));
@@ -278,7 +322,6 @@ class _GridLayers extends StatelessWidget {
               geo: geo,
               buildMode: gridKey.buildMode || gridKey.placing != null || mv != null,
               glows: glows,
-              links: links,
               moveFrom: mv,
             ),
           ),
@@ -301,23 +344,132 @@ class _GridLayers extends StatelessWidget {
               moving: mv == (x, y),
             ),
           ),
+        // Overhead cable trays above the tiles (decorative; the whole room
+        // is one cluster whatever the layout).
+        if (rows.values.fold(0, (a, r) => a + r.length) > 1)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(painter: _CablePainter(geo, rows, g.network.id)),
+            ),
+          ),
+        if (gridKey.buildMode && cluster != null)
+          Positioned(
+            left: geo.svgToLocal(geo.gridSvg(w / 2, 0, 150)).dx - 90,
+            top: geo.svgToLocal(geo.gridSvg(w / 2, 0, 150)).dy - 14,
+            width: 180,
+            child: IgnorePointer(child: Center(child: _ClusterLabel(game: g, cluster: cluster))),
+          ),
       ],
     );
   }
+}
+
+/// "96 GPUs · trains · 256 fed": what the network keeps fed, in build mode.
+class _ClusterLabel extends StatelessWidget {
+  final Game game;
+  final Cluster cluster;
+  const _ClusterLabel({required this.game, required this.cluster});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = cluster;
+    final color =
+        c.overCap
+            ? AppColors.red
+            : c.gpus >= 0.8 * c.gpuCap
+            ? AppColors.amber
+            : AppColors.neon;
+    return Container(
+      key: const ValueKey('cluster-label'),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xE60B1220),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: color, width: 1.4),
+      ),
+      child: Text(
+        '${formatNumber(c.gpus)} GPUs · trains · ${formatNumber(game.networkCap)} fed'
+        '${c.overCap ? ' → ${formatPercent(c.scalingEfficiency)}' : ''}',
+        maxLines: 1,
+        style: numStyle(size: 10.5, color: color, weight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+/// Cable trays hung above the GPU rows: one run per row over its GPUs, drops
+/// down to each tile, and a trunk joining the rows. Style follows the tier.
+class _CablePainter extends CustomPainter {
+  final RoomGeo geo;
+  final Map<int, List<int>> rows;
+  final String tierId;
+  _CablePainter(this.geo, this.rows, this.tierId);
+
+  static const _z = 105.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final (color, width, glow) = cableStyle(tierId);
+    final sw = width * geo.scale * 1.6;
+    final shadow =
+        Paint()
+          ..color = const Color(0xAA05070D)
+          ..strokeWidth = sw + 3
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke;
+    final cable =
+        Paint()
+          ..color = color
+          ..strokeWidth = sw
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke;
+    if (glow > 0) cable.maskFilter = MaskFilter.blur(BlurStyle.solid, glow);
+    final drop =
+        Paint()
+          ..color = color.withValues(alpha: 0.55)
+          ..strokeWidth = math.max(1, sw * 0.45);
+    Offset p(double gx, double gy, [double z = _z]) => geo.svgToLocal(geo.gridSvg(gx, gy, z));
+    final ys = rows.keys.toList()..sort();
+    final path = Path();
+    var trunkX = double.infinity;
+    for (final y in ys) {
+      final xs = rows[y]!..sort();
+      trunkX = math.min(trunkX, xs.first.toDouble());
+    }
+    for (final y in ys) {
+      final xs = rows[y]!;
+      final a = p(trunkX + 0.5, y + 0.5), b = p(xs.last + 0.5, y + 0.5);
+      path
+        ..moveTo(a.dx, a.dy)
+        ..lineTo(b.dx, b.dy);
+      for (final x in xs) {
+        canvas.drawLine(p(x + 0.5, y + 0.5), p(x + 0.5, y + 0.5, 70), drop);
+      }
+    }
+    if (ys.length > 1) {
+      final a = p(trunkX + 0.5, ys.first + 0.5), b = p(trunkX + 0.5, ys.last + 0.5);
+      path
+        ..moveTo(a.dx, a.dy)
+        ..lineTo(b.dx, b.dy);
+    }
+    canvas.drawPath(path, shadow);
+    canvas.drawPath(path, cable);
+  }
+
+  @override
+  bool shouldRepaint(_CablePainter old) => old.tierId != tierId || old.rows != rows;
 }
 
 class _FloorPainter extends CustomPainter {
   final RoomGeo geo;
   final bool buildMode;
   final List<(int, int, Color)> glows;
-  final List<(int, int, int, int, bool)> links;
   final (int, int)? moveFrom;
 
   _FloorPainter({
     required this.geo,
     required this.buildMode,
     required this.glows,
-    required this.links,
     required this.moveFrom,
   });
 
@@ -348,7 +500,7 @@ class _FloorPainter extends CustomPainter {
         line,
       );
     }
-    // Cluster glows: training green, other networked clusters cyan.
+    // Training-cluster glow under every GPU.
     for (final (x, y, color) in glows) {
       final p = _diamond(x, y, inset: 0.05);
       canvas.drawPath(p, Paint()..color = color.withValues(alpha: 0.16));
@@ -359,28 +511,6 @@ class _FloorPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2 * geo.scale * 2.2
           ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 3),
-      );
-    }
-    // Network links between cell centres, just above the floor.
-    for (final (x0, y0, x1, y1, training) in links) {
-      final a = geo.cellCenterLocal(x0, y0, 6), b = geo.cellCenterLocal(x1, y1, 6);
-      final color = training ? const Color(0xFFB6FF6A) : AppColors.amber;
-      canvas.drawLine(
-        a,
-        b,
-        Paint()
-          ..color = const Color(0xCC080C1A)
-          ..strokeWidth = 9 * geo.scale * 1.6
-          ..strokeCap = StrokeCap.round,
-      );
-      canvas.drawLine(
-        a,
-        b,
-        Paint()
-          ..color = color
-          ..strokeWidth = 4.5 * geo.scale * 1.6
-          ..strokeCap = StrokeCap.round
-          ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 2.5),
       );
     }
     final mv = moveFrom;
@@ -490,7 +620,8 @@ class _TileArtState extends State<_TileArt> with SingleTickerProviderStateMixin 
   @override
   Widget build(BuildContext context) {
     final st = widget.status;
-    final heat = st.def.isGpu && st.throttling ? ((1 - st.speed) / 0.7).clamp(0.0, 1.0) : 0.0;
+    final heat =
+        st.def.isGpu && st.throttling ? ((1 - st.speed) / (1 - minThrottleSpeed)).clamp(0.0, 1.0) : 0.0;
     final art = Image.asset(
       GameArt.tile(st.def.id),
       fit: BoxFit.fill,

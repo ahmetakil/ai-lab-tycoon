@@ -53,7 +53,7 @@ extension EraInfo on Era {
     Era.smallLab => 480, // 1 h = 20 days
     Era.mediumLab => 180, // 1 h = 7.5 days
     Era.bigLab => 72, // 1 h = 3 days
-    Era.globalLab => 36, // 8 h = 12 days
+    Era.globalLab => 40, // 8 h = 13 days
   };
 }
 
@@ -72,6 +72,59 @@ class PowerDef {
     required this.era,
     required this.capacityKw,
     required this.cost,
+  });
+}
+
+/// A network tier: the fabric that cables every GPU in the room into one
+/// training cluster (overhead, so where tiles sit doesn't matter). Global,
+/// like a power tier: it moves with you. [gpuCap] is how many GPUs (not
+/// tiles) train together at full efficiency; past it a run scales at
+/// sqrt(cap / gpus).
+class NetworkDef {
+  final String id;
+  final String name;
+  final String blurb;
+  final Era era;
+  final double gpuCap;
+  final double linkGbps;
+  final double cost;
+
+  /// Upgrades that must be owned first (e.g. the interconnect research).
+  final List<String> requires;
+
+  const NetworkDef({
+    required this.id,
+    required this.name,
+    required this.blurb,
+    required this.era,
+    required this.gpuCap,
+    required this.linkGbps,
+    required this.cost,
+    this.requires = const [],
+  });
+}
+
+/// A central cooling tier (a plant outside the room). It removes
+/// [perGpuTile] heat from every GPU tile, on top of the room's free cooling
+/// and any cooler tiles, so big rooms are about capacity rather than
+/// hand-placing coolers.
+class CoolingDef {
+  final String id;
+  final String name;
+  final String blurb;
+  final Era era;
+  final double perGpuTile;
+  final double cost;
+  final List<String> requires;
+
+  const CoolingDef({
+    required this.id,
+    required this.name,
+    required this.blurb,
+    required this.era,
+    required this.perGpuTile,
+    required this.cost,
+    this.requires = const [],
   });
 }
 
@@ -202,13 +255,16 @@ class RivalSnapshot {
 // Heat and cooling are abstract units on each room's scale: a room removes
 // ambientCooling × (its cell count) for free, shared evenly by its GPU tiles;
 // a cooler's `cooling` is split evenly among its orthogonally adjacent GPUs.
-// Network gpuCap is a GPU count (not tiles): the GPUs that switch keeps fed.
+// Every GPU tile in the room is cabled (overhead) into one training cluster;
+// the network tier (networkTiers, global like power) sets how many GPUs it
+// keeps fed. Cooling is the spatial part: coolers help their neighbours, and
+// later a central cooling tier (coolingTiers) cools every GPU tile.
 // Each newer GPU tile beats the older ones on TFLOPS/kW, and on TFLOPS/$
 // except the deliberately bad gpu_old (cheap up front, worse on everything).
 // Ids are save-format keys and art file names: never rename, append only.
 // ---------------------------------------------------------------------------
 
-enum TileKind { gpu, cooling, network }
+enum TileKind { gpu, cooling }
 
 class TileDef {
   final String id;
@@ -217,12 +273,14 @@ class TileDef {
   final TileKind kind;
   final Era era;
 
-  /// Room ids this tile can be placed in.
+  /// Room ids this tile is sold for: its era's parts in the tray. Once
+  /// unlocked it can be placed in any room (an old card in a big room is
+  /// allowed, just a poor deal).
   final Set<String> rooms;
   final double cost;
 
   /// Power draw per tile. GPU tiles are scaled by upgrades (Game.powerMult);
-  /// cooling and network gear are not.
+  /// cooling tiles are not.
   final double powerKw;
 
   // GPU tiles.
@@ -232,10 +290,6 @@ class TileDef {
 
   // Cooling tiles: heat removed, split evenly among adjacent GPU tiles.
   final double cooling;
-
-  // Network tiles.
-  final double gpuCap;
-  final double linkGbps;
 
   /// Upgrades that must be owned first (e.g. liquid cooling).
   final List<String> requires;
@@ -261,8 +315,6 @@ class TileDef {
     this.heat = 0,
     this.gpusPerTile = 0,
     this.cooling = 0,
-    this.gpuCap = 0,
-    this.linkGbps = 0,
     this.requires = const [],
     this.minPowerTier = 0,
     this.priceGrowth = 0,
@@ -270,8 +322,10 @@ class TileDef {
 
   bool get isGpu => kind == TileKind.gpu;
   bool get isCooling => kind == TileKind.cooling;
-  bool get isNetwork => kind == TileKind.network;
   double get tflopsPerKw => powerKw <= 0 ? 0 : tflops / powerKw;
+
+  /// Sold for [roomId] (the current era's parts), not just carried over.
+  bool nativeTo(String roomId) => rooms.contains(roomId);
 }
 
 class RoomDef {
@@ -555,7 +609,7 @@ const tiles = <TileDef>[
   ),
   TileDef(
     id: 'cool_chiller',
-    name: 'Chiller plant',
+    name: 'Chiller unit',
     blurb:
         'Industrial chillers making cold water for a whole hall. Strong, '
         'power-hungry, and why the roof is covered in fans.',
@@ -606,123 +660,6 @@ const tiles = <TileDef>[
     powerKw: 450,
     cooling: 3000,
   ),
-
-  // --- Network ----------------------------------------------------------------
-  TileDef(
-    id: 'net_home',
-    name: 'Home router',
-    blurb:
-        '1 GbE ports and a blinking light. Fine for 2–4 GPUs; any more '
-        'and they mostly wait on each other.',
-    kind: TileKind.network,
-    era: Era.garage,
-    rooms: _garage,
-    cost: 150,
-    powerKw: 0.01,
-    gpuCap: 4,
-    linkGbps: 1,
-  ),
-  TileDef(
-    id: 'net_5g',
-    name: '5 Gbit switch',
-    blurb:
-        'A small unmanaged switch. Enough bandwidth to keep about 8 GPUs '
-        'fed during training.',
-    kind: TileKind.network,
-    era: Era.garage,
-    rooms: _garage,
-    cost: 600,
-    powerKw: 0.02,
-    gpuCap: 8,
-    linkGbps: 5,
-  ),
-  TileDef(
-    id: 'net_10g',
-    name: '10 GbE switch',
-    blurb:
-        'Prosumer 10 Gigabit Ethernet. Keeps about 32 GPUs fed before '
-        'the gradient sync clogs the pipe.',
-    kind: TileKind.network,
-    era: Era.garage,
-    rooms: {'garage', 'closet', 'colo'},
-    cost: 2500,
-    powerKw: 0.05,
-    gpuCap: 32,
-    linkGbps: 10,
-  ),
-  TileDef(
-    id: 'net_100g',
-    name: '100G Ethernet',
-    blurb:
-        '100 Gbit/s top-of-rack switch with RDMA (RoCE): GPUs write '
-        'straight into each other\'s memory. Feeds ~256 GPUs.',
-    kind: TileKind.network,
-    era: Era.startup,
-    rooms: {'closet', 'colo', 'hall'},
-    cost: 20000,
-    powerKw: 0.5,
-    gpuCap: 256,
-    linkGbps: 100,
-  ),
-  TileDef(
-    id: 'net_ib',
-    name: 'InfiniBand NDR 400G',
-    blurb:
-        '400 Gbit/s ports, RDMA and microsecond latency: the classic '
-        'AI-cluster fabric. Scales to thousands of GPUs.',
-    kind: TileKind.network,
-    era: Era.smallLab,
-    rooms: {'closet', 'colo', 'hall', 'campus'},
-    cost: 60000,
-    powerKw: 1,
-    gpuCap: 4096,
-    linkGbps: 400,
-    requires: ['interconnect'],
-  ),
-  TileDef(
-    id: 'net_ib_spine',
-    name: 'InfiniBand spine',
-    blurb:
-        'A second switch layer above the leaf switches (a fat tree), so '
-        'tens of thousands of GPUs get full bandwidth.',
-    kind: TileKind.network,
-    era: Era.mediumLab,
-    rooms: {'hall', 'campus'},
-    cost: 1e6,
-    powerKw: 10,
-    gpuCap: 32768,
-    linkGbps: 800,
-    requires: ['interconnect'],
-  ),
-  TileDef(
-    id: 'net_nvlink',
-    name: 'NVLink fabric',
-    blurb:
-        'Terabytes per second between GPUs inside each rack, plus a fast '
-        'scale-out network between racks. ~131k GPUs.',
-    kind: TileKind.network,
-    era: Era.bigLab,
-    rooms: {'hall', 'campus', 'gigasite'},
-    cost: 5e6,
-    powerKw: 30,
-    gpuCap: 131072,
-    linkGbps: 14400,
-  ),
-  TileDef(
-    id: 'net_optical',
-    name: 'Optical fabric',
-    blurb:
-        'Optical circuit switches and co-packaged optics: light instead of '
-        'copper, so millions of GPUs can train as one.',
-    kind: TileKind.network,
-    era: Era.globalLab,
-    rooms: {'campus', 'gigasite'},
-    cost: 30e6,
-    powerKw: 100,
-    gpuCap: 4194304,
-    linkGbps: 1600,
-    requires: ['parallelism'],
-  ),
 ];
 
 const rooms = <RoomDef>[
@@ -744,10 +681,10 @@ const rooms = <RoomDef>[
         'A converted supply closet at the office. The door stays open '
         'for "airflow".',
     era: Era.startup,
-    width: 6,
-    height: 6,
+    width: 7,
+    height: 7,
     cost: 15000,
-    ambientCooling: 4,
+    ambientCooling: 2.5,
     tileScaleLabel: '8-GPU server',
     minPowerTier: 2, // office
   ),
@@ -758,10 +695,10 @@ const rooms = <RoomDef>[
         'Your own fenced-off corner of someone else\'s datacenter, with '
         'proper cold aisles.',
     era: Era.smallLab,
-    width: 8,
-    height: 8,
+    width: 10,
+    height: 10,
     cost: 2e6,
-    ambientCooling: 8,
+    ambientCooling: 5,
     tileScaleLabel: '8-GPU server',
     minPowerTier: 3, // colo
   ),
@@ -772,10 +709,10 @@ const rooms = <RoomDef>[
         'A whole hall of racks with its own chillers. Every tile here is '
         'a rack.',
     era: Era.mediumLab,
-    width: 12,
-    height: 12,
+    width: 14,
+    height: 14,
     cost: 3e6,
-    ambientCooling: 30,
+    ambientCooling: 18,
     tileScaleLabel: 'rack (32–72 GPUs)',
     minPowerTier: 4, // hall
   ),
@@ -786,10 +723,10 @@ const rooms = <RoomDef>[
         'Several halls and a substation. Every tile is a pod of about a '
         'thousand GPUs.',
     era: Era.bigLab,
-    width: 12,
-    height: 12,
+    width: 18,
+    height: 18,
     cost: 30e6,
-    ambientCooling: 60,
+    ambientCooling: 40,
     tileScaleLabel: 'pod (~1k GPUs)',
     minPowerTier: 5, // campus
   ),
@@ -800,10 +737,10 @@ const rooms = <RoomDef>[
         'Buildings in a field next to a power plant. Every tile is a '
         'whole building of ~8k GPUs.',
     era: Era.globalLab,
-    width: 12,
-    height: 12,
+    width: 22,
+    height: 22,
     cost: 4e8,
-    ambientCooling: 100,
+    ambientCooling: 70,
     tileScaleLabel: 'building (~8k GPUs)',
     minPowerTier: 7, // gigawatt campus
   ),
@@ -816,9 +753,19 @@ final Map<String, RoomDef> _roomById = {for (final r in rooms) r.id: r};
 TileDef? tileById(String id) => _tileById[id];
 RoomDef? roomById(String id) => _roomById[id];
 
+/// Position of [roomId] in the story (garage = 0), or -1 if unknown. You
+/// live in one room at a time and move to the next one in this order.
+int roomIndex(String roomId) => rooms.indexWhere((r) => r.id == roomId);
+
+/// The room after [roomId], or null after the last one.
+RoomDef? roomAfter(String roomId) {
+  final i = roomIndex(roomId);
+  return i >= 0 && i + 1 < rooms.length ? rooms[i + 1] : null;
+}
+
 // ---------------------------------------------------------------------------
-// Power tiers. Each one replaces the previous cap; the cap is global across
-// all rooms (GPU, cooling and network tiles all draw from it).
+// Power tiers. Each one replaces the previous cap; it covers the room you're
+// in (GPU and cooling tiles draw from it) and moves with you.
 // APPEND ONLY: saves store the tier index.
 // ---------------------------------------------------------------------------
 const powerTiers = <PowerDef>[
@@ -843,7 +790,7 @@ const powerTiers = <PowerDef>[
     name: 'Office with 3-phase power',
     blurb: 'First real office. The server closet is louder than the team.',
     era: Era.startup,
-    capacityKw: 40,
+    capacityKw: 50,
     cost: 60000,
   ),
   PowerDef(
@@ -868,7 +815,7 @@ const powerTiers = <PowerDef>[
     blurb: 'Several halls and a substation.',
     era: Era.mediumLab,
     capacityKw: 20000,
-    cost: 12e6,
+    cost: 7e6,
   ),
   PowerDef(
     id: 'plant',
@@ -876,7 +823,7 @@ const powerTiers = <PowerDef>[
     blurb: 'You now have opinions about grid interconnect queues.',
     era: Era.bigLab,
     capacityKw: 300000,
-    cost: 250e6,
+    cost: 120e6,
   ),
   PowerDef(
     id: 'gw_campus',
@@ -886,7 +833,7 @@ const powerTiers = <PowerDef>[
         'multiplies and heat.',
     era: Era.globalLab,
     capacityKw: 1e6,
-    cost: 6e8,
+    cost: 3.5e8,
   ),
   PowerDef(
     id: 'nuclear_restart',
@@ -896,7 +843,7 @@ const powerTiers = <PowerDef>[
         'some gas turbines nobody mentions.',
     era: Era.globalLab,
     capacityKw: 2e6,
-    cost: 2e9,
+    cost: 1e9,
   ),
   PowerDef(
     id: 'multi_site',
@@ -906,7 +853,151 @@ const powerTiers = <PowerDef>[
         'fiber.',
     era: Era.globalLab,
     capacityKw: 4e6,
-    cost: 5e9,
+    cost: 2e9,
+  ),
+];
+
+// ---------------------------------------------------------------------------
+// Network tiers. Each one replaces the previous fabric; every GPU in the room
+// is cabled automatically, the tier sets how many GPUs train together.
+// APPEND ONLY: saves store the tier index.
+// ---------------------------------------------------------------------------
+const networkTiers = <NetworkDef>[
+  NetworkDef(
+    id: 'copper1g',
+    name: 'Copper Ethernet 1G',
+    blurb:
+        'Cat-6 cables and a home router. Fine for up to 4 GPUs; any more '
+        'and they mostly wait on each other to sync gradients.',
+    era: Era.garage,
+    gpuCap: 4,
+    linkGbps: 1,
+    cost: 0,
+  ),
+  NetworkDef(
+    id: 'copper10g',
+    name: '10G copper',
+    blurb:
+        'Prosumer 10 Gigabit Ethernet switches. Keeps about 32 GPUs fed '
+        'before the gradient sync clogs the pipe.',
+    era: Era.garage,
+    gpuCap: 32,
+    linkGbps: 10,
+    cost: 1500,
+  ),
+  NetworkDef(
+    id: 'fiber100g',
+    name: '100G fiber',
+    blurb:
+        '100 Gbit/s optics with RDMA over Ethernet (RoCE): GPUs write '
+        'straight into each other\'s memory. Feeds ~256 GPUs.',
+    era: Era.startup,
+    gpuCap: 256,
+    linkGbps: 100,
+    cost: 40000,
+  ),
+  NetworkDef(
+    id: 'ib400g',
+    name: 'InfiniBand 400G',
+    blurb:
+        '400 Gbit/s ports, RDMA and microsecond latency: the classic '
+        'AI-cluster fabric. Scales to thousands of GPUs.',
+    era: Era.smallLab,
+    gpuCap: 4096,
+    linkGbps: 400,
+    cost: 1.5e6,
+    requires: ['interconnect'],
+  ),
+  NetworkDef(
+    id: 'ibspine',
+    name: 'InfiniBand spine',
+    blurb:
+        'A second switch layer above the leaf switches (a fat tree), so '
+        'tens of thousands of GPUs get full bandwidth.',
+    era: Era.mediumLab,
+    gpuCap: 32768,
+    linkGbps: 800,
+    cost: 15e6,
+    requires: ['interconnect'],
+  ),
+  NetworkDef(
+    id: 'nvlink',
+    name: 'NVLink fabric',
+    blurb:
+        'Terabytes per second between GPUs inside each rack, plus a fast '
+        'scale-out network between racks. ~131k GPUs.',
+    era: Era.bigLab,
+    gpuCap: 131072,
+    linkGbps: 14400,
+    cost: 200e6,
+  ),
+  NetworkDef(
+    id: 'optical',
+    name: 'Optical fabric',
+    blurb:
+        'Optical circuit switches and co-packaged optics: light instead of '
+        'copper, so millions of GPUs can train as one.',
+    era: Era.globalLab,
+    gpuCap: 4194304,
+    linkGbps: 1600,
+    cost: 1.5e9,
+    requires: ['parallelism'],
+  ),
+];
+
+// ---------------------------------------------------------------------------
+// Central cooling tiers. Tier 0 is just the room's air. Each one replaces the
+// previous plant. APPEND ONLY: saves store the tier index.
+// ---------------------------------------------------------------------------
+const coolingTiers = <CoolingDef>[
+  CoolingDef(
+    id: 'room_air',
+    name: 'Room air',
+    blurb: 'Whatever the room\'s own air handling removes. Coolers do the rest.',
+    era: Era.garage,
+    perGpuTile: 0,
+    cost: 0,
+  ),
+  CoolingDef(
+    id: 'chiller',
+    name: 'Central chilled water',
+    blurb:
+        'A chiller plant outside pipes cold water to coils at every rack '
+        'row, so the whole hall is cooled, not just the spots next to an AC.',
+    era: Era.mediumLab,
+    perGpuTile: 80,
+    cost: 3e6,
+  ),
+  CoolingDef(
+    id: 'tower',
+    name: 'Evaporative cooling towers',
+    blurb:
+        'Towers dump heat by evaporating water: far cheaper per megawatt than '
+        'chillers, at the cost of a lot of water.',
+    era: Era.bigLab,
+    perGpuTile: 250,
+    cost: 40e6,
+  ),
+  CoolingDef(
+    id: 'liquid',
+    name: 'Facility liquid loop',
+    blurb:
+        'Coolant runs from the plant straight to cold plates on the chips. '
+        'Liquid carries heat thousands of times better than air.',
+    era: Era.bigLab,
+    perGpuTile: 450,
+    cost: 150e6,
+    requires: ['liquid_cooling'],
+  ),
+  CoolingDef(
+    id: 'dry',
+    name: 'Dry-cooler farm',
+    blurb:
+        'Fields of closed-loop dry coolers: the liquid never touches outside '
+        'air, so almost no water is used.',
+    era: Era.globalLab,
+    perGpuTile: 550,
+    cost: 800e6,
   ),
 ];
 
@@ -1082,7 +1173,7 @@ const upgrades = <UpgradeDef>[
         'well-edited text the web crawl is short on. Twice the tokens.',
     category: UpgradeCategory.data,
     era: Era.smallLab,
-    cost: 2e7,
+    cost: 1.2e+07,
     effects: Effects(dataMult: 2),
   ),
   UpgradeDef(
@@ -1268,7 +1359,7 @@ const upgrades = <UpgradeDef>[
     category: UpgradeCategory.data,
     era: Era.globalLab,
     cost: 7e9,
-    effects: Effects(ratingAdd: 20, arpuMult: 1.1),
+    effects: Effects(ratingAdd: 23, arpuMult: 1.1),
     requires: ['rlhf'],
   ),
   UpgradeDef(
@@ -1279,7 +1370,7 @@ const upgrades = <UpgradeDef>[
         'accuracy keeps climbing with inference compute.',
     category: UpgradeCategory.research,
     era: Era.globalLab,
-    cost: 28e9,
+    cost: 2.2e+10,
     effects: Effects(ratingAdd: 35, serveEffMult: 0.7),
     requires: ['reasoning'],
   ),

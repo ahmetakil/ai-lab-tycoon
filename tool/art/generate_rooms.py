@@ -465,7 +465,7 @@ def garage():
 
 
 def closet():
-    r = Room('closet', 6, 6, 1.2, wall=200, ground=150)
+    r = Room('closet', 7, 7, 1.2, wall=200, ground=150)
     L, g0 = r.L, r.grid0
     rnd = random.Random(2)
     # strip-mall sidewalk and asphalt
@@ -521,7 +521,7 @@ def closet():
 
 
 def colo():
-    r = Room('colo', 8, 8, 1.0, wall=200, ground=150)
+    r = Room('colo', 10, 10, 1.0, wall=200, ground=150)
     L, g0 = r.L, r.grid0
     r.ground_plate('#23283A')
     fl = rect(0, 0, L, L, '#5E6676')
@@ -586,7 +586,7 @@ def colo():
 
 
 def hall():
-    r = Room('hall', 12, 12, 1.0, wall=230, ground=150)
+    r = Room('hall', 14, 14, 1.0, wall=230, ground=150)
     L, g0 = r.L, r.grid0
     r.ground_plate('#1E2333', body=''.join(rect(-150 + k * 90, L + 40, 4, 60, '#E0E4EC', 0.6) for k in range(int((L + 300) / 90))))
     fl = rect(0, 0, L, L, '#9AA3B4')
@@ -632,7 +632,7 @@ def hall():
 
 
 def campus():
-    r = Room('campus', 12, 12, 1.0, wall=260, ground=150)
+    r = Room('campus', 18, 18, 1.0, wall=260, ground=150)
     L, g0 = r.L, r.grid0
     r.ground_plate('#151A28')
     fl = rect(0, 0, L, L, '#273047')
@@ -673,7 +673,7 @@ def campus():
 
 
 def gigasite():
-    r = Room('gigasite', 12, 12, 1.2, wall=340, ground=170)
+    r = Room('gigasite', 22, 22, 1.2, wall=340, ground=170)
     L, g0 = r.L, r.grid0
     rnd = random.Random(4)
     dirt = ''.join(circ(rnd.uniform(-170, L + 170), rnd.uniform(-170, L + 170), rnd.uniform(4, 14), '#3A3326', 0.5) for _ in range(220))

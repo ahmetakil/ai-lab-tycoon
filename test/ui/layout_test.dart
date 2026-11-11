@@ -51,7 +51,7 @@ GameState _stateAt(String stage, double seconds, {bool casual = false}) {
   final json = _saves.putIfAbsent(stage, () {
     final r =
         casual
-            ? runSchedule(maxWallSeconds: seconds, stopWhenDone: false, dt: 3, thinkEvery: 6)
+            ? runSchedule(maxWallSeconds: seconds, stopWhenDone: false)
             : runPlaythrough(maxSeconds: seconds, stopWhenDone: false);
     r.game.events.clear();
     return jsonEncode(r.game.s.toJson());
@@ -107,7 +107,9 @@ void main() {
     'mediumlab': (12 * 3600.0, true),
     'frontier': (36 * 3600.0, true),
   };
-  const tools = ['research', 'train', 'rivals', 'stats', 'settings'];
+  const tools = ['research', 'train', 'power', 'rivals', 'stats', 'settings'];
+  // HUD plates and the goal strip open their own modals.
+  const plates = ['network-chip', 'goal-strip', 'cooling-chip'];
 
   for (final size in sizes) {
     for (final stage in stages.entries) {
@@ -148,6 +150,17 @@ void main() {
           await _settle(tester, 400);
         }
 
+        for (final plate in plates) {
+          final f = find.byKey(ValueKey(plate));
+          if (f.evaluate().isEmpty) continue; // cooling shows from the Medium lab (wide HUD)
+          await tester.tap(f.first);
+          await _settle(tester, 500);
+          expect(tester.takeException(), isNull, reason: '$plate modal');
+          await _shot(tester, key, '${tag}_$plate');
+          await tester.tap(find.byKey(const ValueKey('modal-close')).last);
+          await _settle(tester, 400);
+        }
+
         await tester.tap(find.byKey(const ValueKey('tool-build')));
         await _settle(tester, 500);
         expect(tester.takeException(), isNull, reason: 'build mode');
@@ -161,8 +174,9 @@ void main() {
     }
   }
 
-  // A crowded garage: throttling GPUs (heat tint + badges), a too-slow switch
-  // (bottleneck hint) and placement mode with its valid-cell highlights.
+  // A crowded garage: throttling GPUs (heat tint + badges), more GPUs than
+  // copper 1G feeds (network meter red) and placement mode with its
+  // valid-cell highlights.
   for (final size in sizes) {
     testWidgets('garage scenarios at ${size.width.toInt()}w', (tester) async {
       if (_out != null) await tester.runAsync(_loadFonts);
@@ -171,8 +185,8 @@ void main() {
       final c = await GameController.load();
       final garage = <String?>[
         'gpu_v_class', 'gpu_v_class', 'gpu_gamer', null, //
-        'gpu_gamer', 'net_home', 'gpu_old', null,
-        'gpu_gamer', 'net_home', 'gpu_v_class', null,
+        'gpu_gamer', 'gpu_gamer', 'gpu_old', null,
+        'gpu_gamer', null, 'gpu_v_class', null,
         null, 'cool_fan', null, null,
       ];
       c.game = Game(GameState(money: 4000, powerTier: 1, grids: {'garage': garage}));
@@ -199,7 +213,7 @@ void main() {
       await tester.tapAt(cellOnScreen(tester, 'garage', 1, 1));
       await _settle(tester, 800);
       expect(tester.takeException(), isNull);
-      await _shot(tester, key, '${tag}_switch_sheet');
+      await _shot(tester, key, '${tag}_tile_sheet');
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 15));
@@ -208,32 +222,77 @@ void main() {
     });
   }
 
-  // Buying the next area: darkness recedes and the camera pulls back.
-  for (final size in [const Size(390, 844), const Size(1400, 900)]) {
-    testWidgets('reveal sequence at ${size.width.toInt()}w', (tester) async {
+  // The move-to-closet modal: the requirements checklist.
+  for (final size in sizes) {
+    testWidgets('move modal at ${size.width.toInt()}w', (tester) async {
       if (_out != null) await tester.runAsync(_loadFonts);
-      SharedPreferences.setMockInitialValues({'intro_seen_v1': true});
+      SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
+      await _setSize(tester, size);
+      final c = await GameController.load();
+      c.game = Game(GameState(money: 9000, users: 1200, era: Era.garage, powerTier: 1));
+      final key = GlobalKey();
+      await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('unlock-closet')));
+      await _settle(tester, 500);
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('move-checklist')), findsOneWidget);
+      await _shot(tester, key, '${size.width.toInt()}_move_modal');
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 15));
+      c.dispose();
+      await _setSize(tester, null);
+    });
+  }
+
+  // Moving to the closet: truck and fade along the road, the camera follows,
+  // the tiles pop in at the new place; a tap skips it.
+  for (final size in [const Size(390, 844), const Size(1400, 900)]) {
+    testWidgets('move sequence at ${size.width.toInt()}w', (tester) async {
+      if (_out != null) await tester.runAsync(_loadFonts);
+      SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
       await _setSize(tester, size);
       final c = await GameController.load();
       final garage = List<String?>.filled(16, null);
       for (final i in [5, 6, 9, 10]) {
         garage[i] = 'gpu_gamer';
       }
-      garage[1] = 'net_5g';
+      garage[1] = 'cool_fan';
       c.game = Game(
         GameState(money: 1e5, era: Era.startup, powerTier: 2, grids: {'garage': garage}),
       );
       final key = GlobalKey();
       await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
       await _settle(tester);
-      final tag = '${size.width.toInt()}_reveal';
+      final tag = '${size.width.toInt()}_move';
       await _shot(tester, key, '${tag}_0');
-      c.act((g) => g.buyRoom('closet'));
-      for (final (i, ms) in [(1, 300), (2, 600), (3, 1200)]) {
+      expect(c.act((g) => g.moveTo('closet')), isTrue);
+      for (final (i, ms) in [(1, 500), (2, 700), (3, 900)]) {
         await _settle(tester, ms);
         expect(tester.takeException(), isNull);
         await _shot(tester, key, '${tag}_$i');
       }
+      expect(find.byKey(const ValueKey('move-banner')), findsOneWidget);
+      await _settle(tester, 1400);
+      expect(find.byKey(const ValueKey('move-banner')), findsNothing);
+      expect(find.byKey(const ValueKey('room-garage')), findsNothing);
+      expect(find.byKey(const ValueKey('leaving-garage')), findsNothing);
+      expect(find.byKey(const ValueKey('room-closet')), findsOneWidget);
+      await _shot(tester, key, '${tag}_closet');
+
+      // Next move (closet → colo) and skip it with a tap.
+      c.game.s.era = Era.smallLab;
+      c.game.s.powerTier = 3;
+      c.game.s.money = 1e8;
+      expect(c.act((g) => g.moveTo('colo')), isTrue);
+      await _settle(tester, 300);
+      expect(find.byKey(const ValueKey('move-skip')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('move-skip')));
+      await _settle(tester, 300);
+      expect(find.byKey(const ValueKey('move-banner')), findsNothing);
+      expect(find.byKey(const ValueKey('room-colo')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await _shot(tester, key, '${tag}_colo_skipped');
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 15));

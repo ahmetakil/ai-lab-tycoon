@@ -1,7 +1,8 @@
-// The one full-screen world: every room at a fixed spot on a dark map. Owned
-// rooms are lit, the next plot is a faint silhouette with an "Unlock area"
-// sign, everything further out is black. Buying a room or reaching a new era
-// pushes the darkness back and pulls the camera out to show it.
+// The one full-screen world: the room you're in, lit, on a dark map, and a
+// faint silhouette of the next property with its "Move here" sign. (The
+// parents' house sits beside the garage while you're there.) Moving is a
+// moment: boxes and a truck along the road, the camera follows, the old room
+// fades away and your tiles pop in at the new place. Tap to skip.
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -20,6 +21,9 @@ import 'room_fx.dart';
 import 'room_grid.dart';
 import 'world_layout.dart';
 
+/// How long the move moment lasts (tap skips it).
+const kMoveDuration = Duration(milliseconds: 2800);
+
 class WorldMap extends StatefulWidget {
   final GameController controller;
   final BuildState build;
@@ -28,6 +32,8 @@ class WorldMap extends StatefulWidget {
   final EdgeInsets safe;
   final bool cheering;
   final void Function(String roomId, int x, int y) onCellTap;
+  final void Function(String roomId, int x, int y)? onCellPaint;
+  final VoidCallback? onPaintEnd;
   final void Function(RoomDef room) onPlotTap;
 
   /// Fired once a reveal fly-over has finished (the shell lets moments play).
@@ -40,6 +46,8 @@ class WorldMap extends StatefulWidget {
     required this.safe,
     required this.onCellTap,
     required this.onPlotTap,
+    this.onCellPaint,
+    this.onPaintEnd,
     this.cheering = false,
     this.onRevealDone,
   });
@@ -48,8 +56,8 @@ class WorldMap extends StatefulWidget {
   State<WorldMap> createState() => WorldMapState();
 }
 
-/// The next room you could buy (shown faintly), if any.
-RoomDef? nextPlot(Game g) => rooms.where((r) => !g.isRoomOwned(r.id)).firstOrNull;
+/// The next room you could move to (shown faintly), if any.
+RoomDef? nextPlot(Game g) => g.nextRoom;
 
 class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
   final camera = WorldCamera();
@@ -62,10 +70,19 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
     vsync: this,
     duration: const Duration(milliseconds: 1700),
   );
-  final _reveal = <String, AnimationController>{};
+
+  /// 0 → 1 over a move (1 when no move is playing).
+  late final AnimationController _move = AnimationController(
+    vsync: this,
+    duration: kMoveDuration,
+    value: 1,
+  );
   StreamSubscription<GameEvent>? _sub;
 
-  Set<String> _owned = {};
+  late String _room;
+
+  /// The room you just left, while the move moment plays.
+  String? _from;
   Era? _era;
   bool _placed = false;
   Size _lastViewport = Size.zero;
@@ -76,14 +93,14 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
   GameController get c => widget.controller;
   Game get g => c.game;
 
+  /// True while the move moment plays.
+  bool get moving => _from != null;
+
   @override
   void initState() {
     super.initState();
-    _owned = {for (final r in g.ownedRooms) r.id};
+    _room = g.currentRoom.id;
     _era = g.s.era;
-    for (final id in _owned) {
-      _reveal[id] = AnimationController(vsync: this, value: 1);
-    }
     c.addListener(_onTick);
     _sub = c.events.listen(_onEvent);
     _fly.addListener(() {
@@ -92,7 +109,14 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
       camera.set(Offset.lerp(_flyFromC, _flyToC, t)!, z, clamp: false);
     });
     _fly.addStatusListener((s) {
-      if (s == AnimationStatus.completed) widget.onRevealDone?.call();
+      if (s == AnimationStatus.completed && !moving) widget.onRevealDone?.call();
+    });
+    _move.addStatusListener((s) {
+      if (s == AnimationStatus.completed && _from != null) {
+        setState(() => _from = null);
+        _updateBounds();
+        widget.onRevealDone?.call();
+      }
     });
   }
 
@@ -104,9 +128,7 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
     _sub?.cancel();
     _clock.dispose();
     _fly.dispose();
-    for (final a in _reveal.values) {
-      a.dispose();
-    }
+    _move.dispose();
     camera.dispose();
     super.dispose();
   }
@@ -116,53 +138,60 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
       // The next plot just became reachable: pull back to show it.
       setState(() => _era = e.era);
       _updateBounds();
-      _flyTo(_revealedRect(), fill: 0.86);
+      if (!moving) _flyTo(_revealedRect(), fill: 0.86);
     }
   }
 
   void _onTick() {
     if (!mounted) return;
-    final owned = {for (final r in g.ownedRooms) r.id};
-    if (owned.length != _owned.length || !owned.containsAll(_owned)) {
-      final fresh = owned.difference(_owned);
-      _owned = owned;
-      for (final id in fresh) {
-        final a =
-            _reveal[id] ??= AnimationController(
-              vsync: this,
-              duration: const Duration(milliseconds: 1800),
-            );
-        a.forward(from: 0);
-      }
-      setState(() {});
-      _updateBounds();
-      if (fresh.isNotEmpty) _flyTo(_purchaseFrame(fresh.last), fill: 0.86);
-    }
+    final room = g.currentRoom.id;
+    if (room != _room) _startMove(_room, room);
     if (g.s.era != _era) {
       setState(() => _era = g.s.era);
       _updateBounds();
     }
   }
 
+  // --- Moving -------------------------------------------------------------------
+
+  void _startMove(String from, String to) {
+    setState(() {
+      _from = from;
+      _room = to;
+    });
+    _updateBounds();
+    _move.forward(from: 0);
+    // Camera: frame both places, then settle on the new one.
+    _flyTo(
+      geoOf(to).frameRect.expandToInclude(geoOf(from).frameRect.deflate(80)),
+      fill: 0.9,
+      duration: const Duration(milliseconds: 1100),
+    );
+    Future.delayed(const Duration(milliseconds: 1150), () {
+      if (mounted && _from != null) {
+        _flyTo(geoOf(_room).frameRect, fill: 0.84, duration: const Duration(milliseconds: 1400));
+      }
+    });
+  }
+
+  /// Jump to the end of the move moment.
+  void skipMove() {
+    if (!moving) return;
+    _fly.stop();
+    _move.value = 1; // completes → clears _from
+    final f = geoOf(_room).frameRect;
+    camera.set(f.center, camera.fitZoom(f, fill: 0.84).clamp(camera.minZoom, camera.maxZoom));
+  }
+
   // --- Camera -----------------------------------------------------------------
 
   Rect _revealedRect() {
-    Rect? r;
-    for (final id in _owned) {
-      final f = geoOf(id).frameRect;
-      r = r == null ? f : r.expandToInclude(f);
-    }
-    if (_owned.contains('garage')) r = r!.expandToInclude(geoOf('house').rect.deflate(60));
+    var r = geoOf(_room).frameRect;
+    if (_room == 'garage') r = r.expandToInclude(geoOf('house').rect.deflate(60));
     final next = nextPlot(g);
-    if (next != null) r = r!.expandToInclude(geoOf(next.id).frameRect);
-    return r!;
-  }
-
-  /// A new room and the one before it on the road.
-  Rect _purchaseFrame(String id) {
-    final i = rooms.indexWhere((r) => r.id == id);
-    var r = geoOf(id).frameRect;
-    if (i > 0) r = r.expandToInclude(geoOf(rooms[i - 1].id).frameRect);
+    if (next != null) r = r.expandToInclude(geoOf(next.id).frameRect);
+    final from = _from;
+    if (from != null) r = r.expandToInclude(geoOf(from).frameRect);
     return r;
   }
 
@@ -183,11 +212,11 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
     _fly.forward(from: 0);
   }
 
-  /// Fly to one room (e.g. picked from the build drawer).
+  /// Fly to one room.
   void focusRoom(String id) =>
       _flyTo(geoOf(id).frameRect, fill: 0.82, duration: const Duration(milliseconds: 700));
 
-  /// Frame everything you have so far.
+  /// Frame your place and the next plot.
   void showAll({bool animate = true}) {
     final r = _revealedRect();
     if (animate) {
@@ -201,19 +230,9 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
     camera.viewport = viewport;
     camera.safe = widget.safe;
     _updateBounds();
-    if (_owned.length <= 1) {
-      // Fresh start: tight on the garage, darkness all around.
-      final f = geoOf('garage').frameRect;
-      final portrait = viewport.height > viewport.width * 1.2;
-      camera.set(f.center, camera.fitZoom(f, fill: portrait ? 0.92 : 0.78));
-    } else if (viewport.height > viewport.width * 1.2) {
-      // Portrait: the whole map would be tiny; start on your newest room.
-      final f = geoOf(g.ownedRooms.last.id).frameRect;
-      camera.set(f.center, camera.fitZoom(f, fill: 0.85));
-    } else {
-      final r = _revealedRect();
-      camera.set(r.center, camera.fitZoom(r, fill: 0.9));
-    }
+    final f = geoOf(_room).frameRect;
+    final portrait = viewport.height > viewport.width * 1.2;
+    camera.set(f.center, camera.fitZoom(f, fill: portrait ? 0.92 : 0.8));
     _placed = true;
     _lastViewport = viewport;
   }
@@ -247,7 +266,7 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
             camera: camera,
             worldSize: worldRect.size,
             onUserMove: () {
-              if (_fly.isAnimating) _fly.stop();
+              if (_fly.isAnimating && !moving) _fly.stop();
             },
             overlayBuilder: _overlay,
             child: _world(),
@@ -259,10 +278,20 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
 
   Widget _world() {
     final next = nextPlot(g);
-    final order = [
-      ...roomGeos.keys.where((id) => id == 'house' || _owned.contains(id) || id == next?.id),
+    final from = _from;
+    // While moving the plot you're moving into is the room itself.
+    final showNext = next != null && next.id != _room;
+    final ids = <String>[
+      if (_room == 'garage' || from == 'garage') 'house',
+      if (from != null) from,
+      _room,
+      if (showNext) next.id,
     ]..sort((a, b) => geoOf(a).worldCenter.dy.compareTo(geoOf(b).worldCenter.dy));
-    final reveals = [for (final id in _owned) _reveal[id]!];
+    // Fade-in of the new room and fade-out of the old one, from the move.
+    final fadeIn = _move.drive(CurveTween(curve: const Interval(0.3, 0.75, curve: Curves.easeOut)));
+    final fadeOut = _move.drive(
+      Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: const Interval(0.15, 0.6))),
+    );
     return SizedBox.fromSize(
       size: worldRect.size,
       child: Stack(
@@ -272,21 +301,25 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
             child: RepaintBoundary(
               child: CustomPaint(
                 painter: _Backdrop(
-                  owned: _owned,
-                  next: next?.id,
-                  reveals: {for (final id in _owned) id: _reveal[id]!},
-                  repaint: Listenable.merge(reveals),
+                  room: _room,
+                  from: from,
+                  next: showNext ? next.id : null,
+                  move: _move,
                 ),
               ),
             ),
           ),
-          for (final id in order)
+          for (final id in ids)
             if (id == 'house')
               Positioned.fromRect(
                 rect: geoOf(id).rect,
-                child: _Decor(geo: geoOf(id), clock: _seconds, reveal: _reveal['garage']!),
+                child: _Decor(
+                  geo: geoOf(id),
+                  clock: _seconds,
+                  opacity: from == 'garage' ? fadeOut : const AlwaysStoppedAnimation(1),
+                ),
               )
-            else if (_owned.contains(id))
+            else if (id == _room)
               Positioned.fromRect(
                 key: ValueKey('room-$id'),
                 rect: geoOf(id).rect,
@@ -295,12 +328,23 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
                   room: roomById(id)!,
                   geo: geoOf(id),
                   clock: _seconds,
-                  reveal: _reveal[id]!,
+                  reveal: fadeIn,
+                  // Tiles pop in once the room has faded in.
+                  showGrid: !moving || _move.value > 0.45,
+                  move: _move,
                   buildState: widget.build,
-                  hasFounder: id == _founderRoom(),
+                  hasFounder: geoOf(id).art.seat != null,
                   cheering: widget.cheering,
                   onCellTap: widget.onCellTap,
+                  onCellPaint: widget.onCellPaint,
+                  onPaintEnd: widget.onPaintEnd,
                 ),
+              )
+            else if (id == from)
+              Positioned.fromRect(
+                key: ValueKey('leaving-$id'),
+                rect: geoOf(id).rect,
+                child: _LeavingRoom(geo: geoOf(id), opacity: fadeOut),
               )
             else
               Positioned.fromRect(
@@ -308,29 +352,22 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
                 rect: geoOf(id).rect,
                 child: _FaintPlot(geo: geoOf(id), reachable: g.isUnlocked(roomById(id)!.era)),
               ),
+          if (from != null)
+            _MovingTruck(from: geoOf(from).worldCenter, to: geoOf(_room).worldCenter, t: _move),
         ],
       ),
     );
   }
 
-  /// "You" sit in the newest room that has a desk.
-  String? _founderRoom() {
-    String? best;
-    for (final r in rooms) {
-      if (_owned.contains(r.id) && geoOf(r.id).art.seat != null) best = r.id;
-    }
-    return best;
-  }
-
   Widget _overlay(BuildContext context) {
     final next = nextPlot(g);
     final children = <Widget>[];
-    if (next != null) {
+    if (next != null && !moving) {
       final geo = geoOf(next.id);
       final p = camera.worldToScreen(geo.worldCenter - Offset(0, geo.side * 0.12 * geo.scale));
       final safe = camera.safe, vp = camera.viewport;
       final area = Rect.fromLTRB(safe.left, safe.top, vp.width, vp.height - safe.bottom);
-      final sign = _UnlockSign(
+      final sign = _MoveSign(
         key: ValueKey('unlock-${next.id}'),
         controller: c,
         room: next,
@@ -354,8 +391,8 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
       }
     }
     // Floating "+$" / "+users" ticks over the room where you work.
-    final home = _founderRoom() ?? g.ownedRooms.last.id;
-    final hp = camera.worldToScreen(geoOf(home).worldCenter - Offset(0, 40 * geoOf(home).scale));
+    final home = geoOf(_room);
+    final hp = camera.worldToScreen(home.worldCenter - Offset(0, 40 * home.scale));
     children.add(
       Positioned(
         left: hp.dx - 80,
@@ -365,6 +402,21 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
         child: IncomeTicks(key: const ValueKey('income-ticks'), controller: c),
       ),
     );
+    if (moving) {
+      children.add(
+        Positioned.fill(
+          child: GestureDetector(
+            key: const ValueKey('move-skip'),
+            behavior: HitTestBehavior.opaque,
+            onTap: skipMove,
+            child: Align(
+              alignment: const Alignment(0, -0.55),
+              child: _MoveBanner(room: roomById(_room)!, t: _move),
+            ),
+          ),
+        ),
+      );
+    }
     return Stack(clipBehavior: Clip.hardEdge, children: children);
   }
 }
@@ -457,52 +509,42 @@ class _IncomeTicksState extends State<IncomeTicks> with SingleTickerProviderStat
 // --- Pieces -----------------------------------------------------------------
 
 class _Backdrop extends CustomPainter {
-  final Set<String> owned;
+  final String room;
+  final String? from;
   final String? next;
-  final Map<String, Animation<double>> reveals;
+  final Animation<double> move;
 
-  _Backdrop({
-    required this.owned,
-    required this.next,
-    required this.reveals,
-    required Listenable repaint,
-  }) : super(repaint: repaint);
-
-  static const _story = ['garage', 'closet', 'colo', 'hall', 'campus', 'gigasite'];
+  _Backdrop({required this.room, required this.from, required this.next, required this.move})
+    : super(repaint: move);
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Roads between consecutive plots you can see.
     final road =
         Paint()
-          ..color = const Color(0xFF12151D)
           ..strokeWidth = 70
           ..strokeCap = StrokeCap.round;
     final dash =
         Paint()
           ..color = const Color(0x55E0C27A)
           ..strokeWidth = 4;
-    for (var i = 0; i + 1 < _story.length; i++) {
-      final a = _story[i], b = _story[i + 1];
-      final seen = owned.contains(a) && (owned.contains(b) || next == b);
-      if (!seen) continue;
-      final t = owned.contains(b) ? (reveals[b]?.value ?? 1) : 0.45;
+    void drawRoad(String a, String b, double alpha) {
       final pa = geoOf(a).worldCenter, pb = geoOf(b).worldCenter;
-      canvas.drawLine(
-        pa,
-        pb,
-        road..color = const Color(0xFF12151D).withValues(alpha: 0.5 + 0.5 * t),
-      );
+      canvas.drawLine(pa, pb, road..color = const Color(0xFF12151D).withValues(alpha: alpha));
       final len = (pb - pa).distance;
       final dir = (pb - pa) / len;
       for (var d = 0.0; d < len; d += 60) {
         canvas.drawLine(pa + dir * d, pa + dir * math.min(len, d + 28), dash);
       }
     }
-    // Pools of light around what you own: the darkness recedes as they grow.
-    for (final id in owned) {
+
+    final f = from;
+    if (f != null) drawRoad(f, room, 1 - 0.5 * Curves.easeIn.transform(move.value));
+    final n = next;
+    if (n != null) drawRoad(room, n, 0.6);
+    // A pool of light around where you are; while moving it follows you.
+    void pool(String id, double t) {
+      if (t <= 0) return;
       final geo = geoOf(id);
-      final t = Curves.easeOut.transform(reveals[id]?.value ?? 1);
       final r = geo.frameRect.width * (0.35 + 0.5 * t);
       final c = id == 'garage' ? const Color(0xFF2A2214) : const Color(0xFF142034);
       final center = geo.worldCenter;
@@ -519,34 +561,181 @@ class _Backdrop extends CustomPainter {
       );
       canvas.restore();
     }
+
+    final m = Curves.easeInOut.transform(move.value);
+    if (f != null) pool(f, 1 - m);
+    pool(room, f == null ? 1 : m);
   }
 
   @override
-  bool shouldRepaint(_Backdrop old) => old.owned != owned || old.next != next;
+  bool shouldRepaint(_Backdrop old) =>
+      old.room != room || old.from != from || old.next != next;
 }
 
 class _Decor extends StatelessWidget {
   final RoomGeo geo;
   final Animation<double> clock;
-  final Animation<double> reveal;
-  const _Decor({required this.geo, required this.clock, required this.reveal});
+  final Animation<double> opacity;
+  const _Decor({required this.geo, required this.clock, required this.opacity});
 
   @override
   Widget build(BuildContext context) => IgnorePointer(
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        RepaintBoundary(
-          child: Image.asset(
+    child: FadeTransition(
+      opacity: opacity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          RepaintBoundary(
+            child: Image.asset(
+              GameArt.world(geo.id),
+              fit: BoxFit.fill,
+              filterQuality: FilterQuality.medium,
+              errorBuilder: (_, __, ___) => const SizedBox(),
+            ),
+          ),
+          RoomFx(geo: geo, clock: clock, under: false),
+        ],
+      ),
+    ),
+  );
+}
+
+/// The room you just left: its art, packed boxes, fading out.
+class _LeavingRoom extends StatelessWidget {
+  final RoomGeo geo;
+  final Animation<double> opacity;
+  const _LeavingRoom({required this.geo, required this.opacity});
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: FadeTransition(
+      opacity: opacity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
             GameArt.world(geo.id),
             fit: BoxFit.fill,
-            opacity: reveal,
-            filterQuality: FilterQuality.medium,
+            filterQuality: FilterQuality.low,
             errorBuilder: (_, __, ___) => const SizedBox(),
           ),
-        ),
-        RoomFx(geo: geo, clock: clock, under: false),
-      ],
+          Align(
+            alignment: const Alignment(0, 0.2),
+            child: FractionallySizedBox(
+              widthFactor: 0.35,
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Image.asset(
+                  GameArt.moveBoxes,
+                  fit: BoxFit.contain,
+                  errorBuilder:
+                      (_, __, ___) => const FittedBox(
+                        child: Icon(Icons.inventory_2_rounded, color: Color(0xFFC9A36A)),
+                      ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// The moving truck driving along the road from the old place to the new.
+class _MovingTruck extends StatelessWidget {
+  final Offset from, to;
+  final Animation<double> t;
+  const _MovingTruck({required this.from, required this.to, required this.t});
+
+  @override
+  Widget build(BuildContext context) {
+    final leftward = to.dx < from.dx;
+    const w = 220.0, h = 140.0;
+    return AnimatedBuilder(
+      animation: t,
+      builder: (context, _) {
+        final k = Curves.easeInOutCubic.transform(((t.value - 0.05) / 0.7).clamp(0.0, 1.0));
+        final p = Offset.lerp(from, to, k)!;
+        final fade = t.value > 0.85 ? (1 - (t.value - 0.85) / 0.15) : 1.0;
+        final bounce = math.sin(t.value * math.pi * 14).abs() * 6;
+        return Positioned(
+          left: p.dx - w / 2,
+          top: p.dy - h + 20 - bounce,
+          width: w,
+          height: h,
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: fade.clamp(0.0, 1.0),
+              child: Image.asset(
+                leftward ? GameArt.moveTruckFlip : GameArt.moveTruck,
+                key: const ValueKey('move-truck'),
+                fit: BoxFit.contain,
+                errorBuilder:
+                    (_, __, ___) => Transform.flip(
+                      flipX: leftward,
+                      child: const FittedBox(
+                        child: Icon(Icons.local_shipping_rounded, color: Color(0xFFFFB547)),
+                      ),
+                    ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// "Moving to the Server closet · tap to skip".
+class _MoveBanner extends StatelessWidget {
+  final RoomDef room;
+  final Animation<double> t;
+  const _MoveBanner({required this.room, required this.t});
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: t.drive(
+      TweenSequence([
+        TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 10),
+        TweenSequenceItem(tween: ConstantTween(1.0), weight: 75),
+        TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 15),
+      ]),
+    ),
+    child: Container(
+      key: const ValueKey('move-banner'),
+      padding: const EdgeInsets.fromLTRB(16, 9, 16, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xEE0B1220),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.amber, width: 2),
+        boxShadow: [BoxShadow(color: AppColors.amber.withValues(alpha: 0.3), blurRadius: 18)],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.local_shipping_rounded, color: AppColors.amber, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'MOVING DAY',
+                style: labelStyle(color: AppColors.amber, size: 12).copyWith(letterSpacing: 1.6),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Moving to the ${room.name}',
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          ),
+          const Text(
+            'everything comes with you · tap to skip',
+            style: TextStyle(color: AppColors.muted, fontSize: 11),
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -557,10 +746,16 @@ class _OwnedRoom extends StatelessWidget {
   final RoomGeo geo;
   final Animation<double> clock;
   final Animation<double> reveal;
+
+  /// Rebuilds the grid when the move moment reaches the pop-in.
+  final Animation<double> move;
+  final bool showGrid;
   final BuildState buildState;
   final bool hasFounder;
   final bool cheering;
   final void Function(String roomId, int x, int y) onCellTap;
+  final void Function(String roomId, int x, int y)? onCellPaint;
+  final VoidCallback? onPaintEnd;
 
   const _OwnedRoom({
     required this.controller,
@@ -568,16 +763,20 @@ class _OwnedRoom extends StatelessWidget {
     required this.geo,
     required this.clock,
     required this.reveal,
+    required this.move,
+    required this.showGrid,
     required this.buildState,
     required this.hasFounder,
     required this.cheering,
     required this.onCellTap,
+    this.onCellPaint,
+    this.onPaintEnd,
   });
 
   @override
   Widget build(BuildContext context) {
     return FadeTransition(
-      opacity: reveal.drive(CurveTween(curve: const Interval(0, 0.6))),
+      opacity: reveal,
       alwaysIncludeSemantics: true,
       child: Stack(
         fit: StackFit.expand,
@@ -604,7 +803,30 @@ class _OwnedRoom extends StatelessWidget {
                 cheering: cheering,
               ),
             ),
-          RoomGrid(controller: controller, room: room, build: buildState, onCellTap: onCellTap),
+          // While moving, the tiles pop in once the room has faded in.
+          if (showGrid)
+            RoomGrid(
+              controller: controller,
+              room: room,
+              build: buildState,
+              onCellTap: onCellTap,
+              onCellPaint: onCellPaint,
+              onPaintEnd: onPaintEnd,
+            )
+          else
+            AnimatedBuilder(
+              animation: move,
+              builder:
+                  (context, _) =>
+                      move.value > 0.45
+                          ? RoomGrid(
+                            controller: controller,
+                            room: room,
+                            build: buildState,
+                            onCellTap: onCellTap,
+                          )
+                          : const SizedBox.shrink(),
+            ),
           RoomFx(geo: geo, clock: clock, under: false),
         ],
       ),
@@ -731,15 +953,16 @@ class _PlotOutline extends CustomPainter {
   bool shouldRepaint(_PlotOutline old) => old.reachable != reachable;
 }
 
-/// Floating "Unlock area" sign over the next plot.
-class _UnlockSign extends StatelessWidget {
+/// Floating "Move here" sign over the next plot ("Next place" while it's
+/// still locked).
+class _MoveSign extends StatelessWidget {
   final GameController controller;
   final RoomDef room;
   final VoidCallback onTap;
 
   /// Off-screen pointer: one line with an arrow towards the plot.
   final bool compact;
-  const _UnlockSign({
+  const _MoveSign({
     super.key,
     required this.controller,
     required this.room,
@@ -783,13 +1006,13 @@ class _UnlockSign extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      buyable ? Icons.lock_open_rounded : Icons.lock_rounded,
+                      buyable ? Icons.local_shipping_rounded : Icons.lock_rounded,
                       size: 13,
                       color: color,
                     ),
                     const SizedBox(width: 5),
                     Text(
-                      '${room.name} · ${formatMoney(room.cost)}',
+                      'Move to ${room.name} · ${formatMoney(room.cost)}',
                       style: numStyle(size: 11, color: AppColors.text, weight: FontWeight.w700),
                     ),
                     const SizedBox(width: 3),
@@ -831,13 +1054,13 @@ class _UnlockSign extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          buyable ? Icons.lock_open_rounded : Icons.lock_rounded,
+                          buyable ? Icons.local_shipping_rounded : Icons.lock_rounded,
                           size: 15,
                           color: color,
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'UNLOCK AREA',
+                          buyable ? 'MOVE HERE' : 'NEXT PLACE',
                           style: labelStyle(color: color, size: 12).copyWith(letterSpacing: 1.6),
                         ),
                       ],
@@ -846,7 +1069,7 @@ class _UnlockSign extends StatelessWidget {
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
-                        '${room.name} · ${formatMoney(room.cost)}',
+                        'Move to ${room.name} · ${formatMoney(room.cost)}',
                         maxLines: 1,
                         style: numStyle(size: 12, color: AppColors.text, weight: FontWeight.w700),
                       ),

@@ -113,7 +113,9 @@ const maxSupplyPremium = 4.0;
 // One condition per era, alternating users / rating / money so each era asks
 // for something different. Users are bounded by serving capacity, i.e. by the
 // power tiers of the era you're in, so every gate is reachable with that
-// era's own rooms and tiers (checked by the playthrough tests).
+// era's own room and tiers (checked by the playthrough tests). Moving to the
+// next room only costs money and doesn't need the era; the era still unlocks
+// the new parts, power and network tiers and research.
 
 /// Garage → Startup: people use it (one maxed-out garage serves ~4k).
 const startupUnlockUsers = 3e3;
@@ -122,11 +124,10 @@ const startupUnlockUsers = 3e3;
 /// server closet + startup software gets there.
 const smallLabUnlockRating = 1000.0;
 
-/// Small lab → Medium lab: a GPT-ish-3-class model (the old "Lab" gate).
-/// Needs a well-networked colo cage of H100 servers and the small-lab data
-/// work; the small-lab data budget caps rating near 1120, so it's reachable
-/// but asks for most of the era.
-const mediumLabUnlockRating = 1120.0;
+/// Small lab → Medium lab: just past GPT-ish-3 (1120). Needs a full colo cage
+/// of H100 servers on InfiniBand and the small-lab data work (the books
+/// corpus lifts the data cap past it), so it asks for most of the era.
+const mediumLabUnlockRating = 1130.0;
 
 /// Medium lab → Big lab: a GPT-ish-4-class model (between ChatGPT-ish and
 /// GPT-ish-4). Needs a datacenter hall and RLHF.
@@ -136,4 +137,6 @@ const bigLabUnlockRating = 1260.0;
 /// Grokk 3). Rating, not users or revenue: it's paced by training runs, a
 /// full campus on the power-plant tier with reasoning RL reaches it, and a
 /// lab that ships open weights (less revenue per user) is never locked out.
-const globalLabUnlockRating = 1500.0;
+/// (1490: a few points under Grokk 3 so the unlock lands on day 2's evening
+/// session rather than the morning after.)
+const globalLabUnlockRating = 1490.0;

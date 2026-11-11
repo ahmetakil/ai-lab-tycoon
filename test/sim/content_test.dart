@@ -74,14 +74,6 @@ void main() {
         'cool_liquid',
         'cool_chiller',
         'cool_tower',
-        'net_home',
-        'net_5g',
-        'net_10g',
-        'net_100g',
-        'net_ib',
-        'net_ib_spine',
-        'net_nvlink',
-        'net_optical',
       ];
       const gridRooms = ['garage', 'closet', 'colo', 'hall', 'campus', 'gigasite'];
       expect(tiles.map((t) => t.id), containsAll(gridTiles));
@@ -145,21 +137,25 @@ void main() {
             expect(t.powerKw / t.gpusPerTile, inInclusiveRange(0.2, 4), reason: t.id);
           case TileKind.cooling:
             expect(t.cooling, greaterThan(0), reason: t.id);
-          case TileKind.network:
-            expect(t.gpuCap, greaterThan(0), reason: t.id);
-            expect(t.linkGbps, greaterThan(0), reason: t.id);
         }
       }
-      // Network tiers grow: home router 2–4 GPUs ... optical in the millions.
-      final caps = [
-        for (final t in tiles)
-          if (t.isNetwork) t.gpuCap,
-      ];
-      for (var i = 1; i < caps.length; i++) {
-        expect(caps[i], greaterThan(caps[i - 1]));
+      // Network tiers grow: copper 2–4 GPUs ... optical in the millions,
+      // gated in era order, with ids the cable art uses.
+      for (var i = 1; i < networkTiers.length; i++) {
+        expect(networkTiers[i].gpuCap, greaterThan(networkTiers[i - 1].gpuCap));
+        expect(networkTiers[i].era.index, greaterThanOrEqualTo(networkTiers[i - 1].era.index));
+        expect(networkTiers[i].cost, greaterThan(networkTiers[i - 1].cost));
       }
-      expect(tileById('net_home')!.gpuCap, inInclusiveRange(2, 4));
-      expect(tileById('net_optical')!.gpuCap, greaterThanOrEqualTo(1e6));
+      expect(networkTiers.first.gpuCap, inInclusiveRange(2, 4));
+      expect(networkTiers.first.cost, 0);
+      expect(networkTiers.last.gpuCap, greaterThanOrEqualTo(1e6));
+      expect(networkTiers.map((n) => n.id), ['copper1g', 'copper10g', 'fiber100g', 'ib400g', 'ibspine', 'nvlink', 'optical']);
+      // Central cooling grows too; tier 0 is free room air.
+      expect(coolingTiers.first.perGpuTile, 0);
+      for (var i = 1; i < coolingTiers.length; i++) {
+        expect(coolingTiers[i].perGpuTile, greaterThan(coolingTiers[i - 1].perGpuTile));
+      }
+      expect(coolingTiers.skip(1).map((c) => c.id), ['chiller', 'tower', 'liquid', 'dry']);
     });
 
     test('power tiers grow and newer GPUs dominate older ones', () {
@@ -193,7 +189,7 @@ void main() {
   });
 
   group('eras', () {
-    test('every era unlocks a room, GPU, cooling and network tiles, a power tier and 3-6 upgrades', () {
+    test('every era unlocks a room, GPU and cooling tiles, a power tier and 3-6 upgrades', () {
       for (final era in Era.values) {
         expect(rooms.where((r) => r.era == era), hasLength(1), reason: era.name);
         for (final kind in TileKind.values) {
@@ -219,6 +215,11 @@ void main() {
       }
       for (final r in rooms) {
         expect(powerTiers[r.minPowerTier].era.index, lessThanOrEqualTo(r.era.index), reason: r.id);
+      }
+      for (final n in [...networkTiers.map((n) => (n.id, n.era, n.requires)), ...coolingTiers.map((c) => (c.id, c.era, c.requires))]) {
+        for (final r in n.$3) {
+          expect(byId[r]!.era.index, lessThanOrEqualTo(n.$2.index), reason: '${n.$1} needs $r');
+        }
       }
     });
 

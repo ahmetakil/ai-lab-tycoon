@@ -9,16 +9,13 @@ const tileCodes = {
   'V': 'gpu_v_class',
   'A': 'srv_a_class',
   'H': 'srv_h_class',
+  'R': 'rack_h_class',
   'F': 'cool_fan',
   'W': 'cool_window_ac',
   'C': 'cool_crac',
-  'h': 'net_home',
-  '5': 'net_5g',
-  't': 'net_10g',
-  'x': 'net_100g',
 };
 
-/// Row-major cells for [roomId] from rows like 'G5G.' ('.' = empty).
+/// Row-major cells for [roomId] from rows like 'GFG.' ('.' = empty).
 List<String?> gridOf(String roomId, List<String> rows) {
   final room = roomById(roomId)!;
   assert(rows.length == room.height, 'need ${room.height} rows');
@@ -29,19 +26,43 @@ List<String?> gridOf(String roomId, List<String> rows) {
   ];
 }
 
-/// A game with the given room layouts, lots of money and every power tier.
-Game gameWith(
-  Map<String, List<String>> layouts, {
+/// A game in [roomId] with the given layout, lots of money and every power
+/// tier.
+Game gameIn(
+  String roomId,
+  List<String> rows, {
   double money = 1e12,
   int powerTier = 9,
+  int networkTier = 0,
+  int coolingTier = 0,
   Era era = Era.globalLab,
   Set<String>? ownedUpgrades,
 }) => Game(
   GameState(
     money: money,
     powerTier: powerTier,
+    networkTier: networkTier,
+    coolingTier: coolingTier,
     era: era,
     ownedUpgrades: ownedUpgrades,
-    grids: {for (final e in layouts.entries) e.key: gridOf(e.key, e.value)},
+    grids: {roomId: gridOf(roomId, rows)},
   ),
+);
+
+/// A game in the garage with [rows].
+Game gameWith(
+  List<String> rows, {
+  double money = 1e12,
+  int powerTier = 9,
+  int networkTier = 0,
+  Era era = Era.globalLab,
+  Set<String>? ownedUpgrades,
+}) => gameIn(
+  'garage',
+  rows,
+  money: money,
+  powerTier: powerTier,
+  networkTier: networkTier,
+  era: era,
+  ownedUpgrades: ownedUpgrades,
 );

@@ -78,7 +78,9 @@ class ModelRelease {
 
 /// Current save format. Older saves load as a fresh game (see fromJson).
 /// v3: six eras (v2 had three) and per-run time compression.
-const saveVersion = 3;
+/// v4: one room at a time (you move, your tiles come with you); network and
+/// central cooling are global tiers (no switch tiles).
+const saveVersion = 4;
 
 /// Where the starting RTX 4090 (gpu_gamer) sits in the garage.
 const startGpuCell = (1, 1);
@@ -90,8 +92,11 @@ class GameState {
   double users;
   double hype; // multiplier ≥ 1, decays toward 1
   int powerTier; // index into powerTiers
+  int networkTier; // index into networkTiers
+  int coolingTier; // index into coolingTiers
 
-  /// Owned rooms → row-major cells (width × height), null = empty. Mutate
+  /// The room you're in → its row-major cells (width × height), null =
+  /// empty. Always exactly one entry: moving (Game.moveTo) replaces it. Mutate
   /// through [setTile] (or call [touchGrid] after editing a list directly) so
   /// Game's cached grid stats are recomputed.
   final Map<String, List<String?>> grids;
@@ -117,7 +122,8 @@ class GameState {
   /// The UI can show "fresh start" and skip offline progress.
   bool startedFromOldSave = false;
 
-  /// Bumped on every grid change; Game caches grid stats against it (not saved).
+  /// Bumped on every grid change; Game caches grid stats against it (and the
+  /// network and cooling tiers). Not saved.
   int gridRevision = 0;
 
   GameState({
@@ -126,6 +132,8 @@ class GameState {
     this.users = 0,
     this.hype = 1,
     this.powerTier = 0,
+    this.networkTier = 0,
+    this.coolingTier = 0,
     Map<String, List<String?>>? grids,
     Set<String>? ownedUpgrades,
     this.openReleases = 0,
@@ -139,7 +147,8 @@ class GameState {
     this.rngState = 12345,
     this.era = Era.garage,
     this.labName = 'Garage Labs',
-  }) : grids = grids ?? startGrids(),
+  }) : assert(grids == null || grids.length == 1, 'one room at a time'),
+       grids = grids ?? startGrids(),
        ownedUpgrades = ownedUpgrades ?? {},
        releases =
            releases ??
@@ -165,10 +174,15 @@ class GameState {
 
   ModelRelease get currentModel => releases.last;
 
+  /// Id of the room you're in.
+  String get roomId => grids.keys.first;
+  RoomDef get room => roomById(roomId)!;
+
+  /// True only for the room you're in.
   bool ownsRoom(String roomId) => grids.containsKey(roomId);
 
-  /// Tile id at (x, y) of an owned room, or null (empty / not owned / out of
-  /// bounds).
+  /// Tile id at (x, y) of the current room, or null (empty / another room /
+  /// out of bounds).
   String? tileAt(String roomId, int x, int y) {
     final room = roomById(roomId);
     final cells = grids[roomId];
@@ -188,7 +202,7 @@ class GameState {
   /// Call after mutating [grids] directly.
   void touchGrid() => gridRevision++;
 
-  /// Count of each tile id across all rooms.
+  /// Count of each placed tile id.
   Map<String, int> get tileCounts {
     final out = <String, int>{};
     for (final room in rooms) {
@@ -206,6 +220,8 @@ class GameState {
     'users': users,
     'hype': hype,
     'powerTier': powerTier,
+    'networkTier': networkTier,
+    'coolingTier': coolingTier,
     'grids': {
       for (final r in rooms)
         if (grids.containsKey(r.id)) r.id: grids[r.id],
@@ -224,9 +240,9 @@ class GameState {
     'labName': labName,
   };
 
-  /// v3 saves load tolerantly (unknown ids dropped, missing fields default).
-  /// Anything older (v1 menu shop, v2 three-era grid) becomes a fresh game with
-  /// [startedFromOldSave] set.
+  /// v4 saves load tolerantly (unknown ids dropped, missing fields default).
+  /// Anything older (v1 menu shop, v2 three-era grid, v3 with several rooms
+  /// at once) becomes a fresh game with [startedFromOldSave] set.
   factory GameState.fromJson(Map<String, dynamic> j) {
     if ((j['v'] as num?)?.toInt() != saveVersion) {
       return GameState()..startedFromOldSave = true;
@@ -237,21 +253,21 @@ class GameState {
     Map<String, List<String?>>? grids;
     final rawGrids = j['grids'];
     if (rawGrids is Map) {
-      grids = {};
-      for (final room in rooms) {
+      // One room; if a save somehow holds several, the latest one wins.
+      for (final room in rooms.reversed) {
         final list = rawGrids[room.id];
         if (list is! List) continue;
-        grids[room.id] = [
-          for (var i = 0; i < room.cells; i++)
-            i < list.length &&
-                    list[i] is String &&
-                    tileById(list[i] as String)?.rooms.contains(room.id) == true
-                ? list[i] as String
-                : null,
-        ];
-      }
-      if (!grids.containsKey('garage')) {
-        grids['garage'] = emptyGrid(roomById('garage')!);
+        grids = {
+          room.id: [
+            for (var i = 0; i < room.cells; i++)
+              i < list.length &&
+                      list[i] is String &&
+                      tileById(list[i] as String) != null
+                  ? list[i] as String
+                  : null,
+          ],
+        };
+        break;
       }
     }
     return GameState(
@@ -260,6 +276,8 @@ class GameState {
       users: num_('users', 0),
       hype: num_('hype', 1),
       powerTier: ((j['powerTier'] as num?)?.toInt() ?? 0).clamp(0, powerTiers.length - 1),
+      networkTier: ((j['networkTier'] as num?)?.toInt() ?? 0).clamp(0, networkTiers.length - 1),
+      coolingTier: ((j['coolingTier'] as num?)?.toInt() ?? 0).clamp(0, coolingTiers.length - 1),
       grids: grids,
       ownedUpgrades: (j['upgrades'] as List?)?.cast<String>().where(upgradeIds.contains).toSet(),
       openReleases: (j['openReleases'] as num?)?.toInt() ?? 0,

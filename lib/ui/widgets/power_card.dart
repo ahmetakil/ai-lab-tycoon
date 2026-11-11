@@ -60,11 +60,18 @@ class PowerCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              Text('In use', style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
-              const Spacer(),
-              Text(
-                '${formatPower(g.powerUsedKw)} / ${formatPower(g.powerCapKw)}',
-                style: numStyle(size: 13, color: color),
+              const Expanded(
+                child: Text('In use', style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+              ),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '${formatPower(g.powerUsedKw)} / ${formatPower(g.powerCapKw)}',
+                    style: numStyle(size: 13, color: color),
+                  ),
+                ),
               ),
             ],
           ),
@@ -121,22 +128,29 @@ class PowerCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              Tag(
-                'cap ${formatPower(next.capacityKw)}',
-                color: AppColors.cyan,
-                icon: Icons.bolt,
-                mono: true,
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    Tag(
+                      'cap ${formatPower(next.capacityKw)}',
+                      color: AppColors.cyan,
+                      icon: Icons.bolt,
+                      mono: true,
+                    ),
+                    Tag(
+                      '×${formatNumber(next.capacityKw / g.powerCapKw)}',
+                      color: AppColors.neon,
+                      mono: true,
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(width: 6),
-              Tag(
-                '×${formatNumber(next.capacityKw / g.powerCapKw)}',
-                color: AppColors.neon,
-                mono: true,
-              ),
-              const Spacer(),
+              const SizedBox(width: 8),
               if (!unlocked)
                 Tag(
-                  'Unlocks in ${next.era.label}',
+                  'Locked',
                   color: eraColor(next.era),
                   icon: Icons.lock_outline,
                 )
@@ -156,6 +170,13 @@ class PowerCard extends StatelessWidget {
           if (unlocked && !affordable) ...[
             const SizedBox(height: 8),
             AffordBar(money: g.s.money, cost: next.cost),
+          ],
+          if (!unlocked) ...[
+            const SizedBox(height: 8),
+            Text(
+              g.eraLockReason(next.era),
+              style: const TextStyle(color: AppColors.amber, fontSize: 12.5, height: 1.3),
+            ),
           ],
         ],
       ),

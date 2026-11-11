@@ -4,11 +4,13 @@
 // models, handles viral crises and spends money on whatever buys the most
 // progress per dollar (saving up when something good is close).
 //
-// Placement (BotLayout.template): each room gets a fixed plan of GPU,
-// switch and cooler cells (rows/columns of switches with GPUs on both sides
-// and coolers between, or a staggered version of it), filled in an order that
-// keeps everything in one cluster. Coolers go in only where a GPU runs hot,
-// and switches are upgraded when a cluster outgrows them.
+// Placement (BotLayout.template): each room gets a fixed plan of GPU and
+// cooler cells (stripes of two GPUs with coolers between). Coolers go in only
+// where a GPU runs hot. The whole room is one training cluster; the network
+// tier is bought when it outgrows the cap, central cooling when it pays off
+// (then spare cooler cells take GPUs too). After moving to the
+// next room it re-lays its old tiles onto the new room's plan (moving tiles
+// is free), best GPUs first.
 import 'dart:math' as math;
 
 import 'balance.dart';
@@ -33,32 +35,28 @@ enum BotStrategy {
 
 /// How the bot places tiles.
 enum BotLayout {
-  /// Planned layout: switch spines, GPUs beside them, coolers where hot.
+  /// Planned layout: GPU stripes with cooler lines, coolers where hot.
   template,
 
-  /// GPUs only, dropped on random empty cells: no switches, no coolers.
+  /// GPUs only, dropped on random empty cells: no coolers.
   naive,
 
-  /// Buys a similar mix of GPUs, switches and coolers but drops each on a
-  /// random empty cell.
+  /// Buys a similar mix of GPUs and coolers but drops each on a random
+  /// empty cell.
   random,
 }
 
-enum _Role { gpu, net, cool }
+enum _Role { gpu, cool }
 
 /// A room's target layout.
 class _Plan {
   final RoomDef room;
   final List<_Role?> roles;
 
-  /// GPU cells in fill order (each one touches a switch reachable from the
-  /// earlier ones).
+  /// GPU cells in fill order (row-major).
   final List<int> gpuOrder;
 
-  /// BFS parent of each planned cell (−1 = root).
-  final List<int> parent;
-
-  _Plan(this.room, this.roles, this.gpuOrder, this.parent);
+  _Plan(this.room, this.roles, this.gpuOrder);
 }
 
 /// One grid write the bot wants to make.
@@ -81,100 +79,44 @@ List<int> _neighbours(RoomDef r, int i) {
   ];
 }
 
-/// Picks the best of a few repeating patterns for [room]: a row or column of
-/// switches with a GPU line on each side and a cooler line between pairs
-/// (G S G C), straight or staggered row to row, optionally with a
-/// perpendicular switch backbone that links the spines into one cluster.
+/// Picks the best phase/orientation of a repeating pattern for [room]:
+/// stripes two GPUs wide with a cooler line between them (G G C), so every
+/// GPU touches a cooler cell. (Where GPUs sit doesn't matter for training:
+/// the whole room is one cluster.)
 _Plan _makePlan(RoomDef room) {
-  const pattern = [_Role.gpu, _Role.net, _Role.gpu, _Role.cool];
+  const pattern = [_Role.gpu, _Role.gpu, _Role.cool];
   _Plan? best;
   var bestScore = -1000000000;
   for (final transpose in [false, true]) {
-    for (var phase = 0; phase < 4; phase++) {
-      for (var stagger = 0; stagger < 4; stagger++) {
-        for (final backbone in [-1, 0, 1, 2]) {
-          final len = transpose ? room.width : room.height;
-          final bRow = switch (backbone) {
-            0 => 0,
-            1 => len ~/ 2,
-            2 => len - 1,
-            _ => -1,
-          };
-          final roles = List<_Role?>.generate(room.cells, (i) {
-            var a = i % room.width, b = i ~/ room.width;
-            if (transpose) (a, b) = (b, a);
-            if (b == bRow) return _Role.net;
-            return pattern[(a + phase + stagger * (b % 2)) % 4];
-          });
-          // GPUs that can't reach a switch become coolers (or nothing);
-          // coolers next to no GPU are dropped.
-          for (var i = 0; i < room.cells; i++) {
-            if (roles[i] != _Role.gpu) continue;
-            final n = _neighbours(room, i);
-            if (!n.any((j) => roles[j] == _Role.net)) {
-              roles[i] =
-                  n.any((j) => roles[j] == _Role.gpu) ? _Role.cool : null;
-            }
-          }
-          for (var i = 0; i < room.cells; i++) {
-            if (roles[i] == _Role.cool &&
-                !_neighbours(room, i).any((j) => roles[j] == _Role.gpu)) {
-              roles[i] = null;
-            }
-          }
-          final plan = _order(room, roles);
-          var cooled = 0;
-          for (final i in plan.gpuOrder) {
-            if (_neighbours(room, i).any((j) => roles[j] == _Role.cool)) {
-              cooled++;
-            }
-          }
-          final roots =
-              [
-                for (var i = 0; i < room.cells; i++)
-                  if (roles[i] != null &&
-                      roles[i] != _Role.cool &&
-                      plan.parent[i] < 0)
-                    i,
-              ].length;
-          // Split clusters are what the template is meant to avoid.
-          final score =
-              plan.gpuOrder.length * 10 + cooled * 4 - (roots - 1) * 1000;
-          if (score > bestScore) {
-            bestScore = score;
-            best = plan;
-          }
+    for (var phase = 0; phase < 3; phase++) {
+      final roles = List<_Role?>.generate(room.cells, (i) {
+        var a = i % room.width;
+        if (transpose) a = i ~/ room.width;
+        return pattern[(a + phase) % 3];
+      });
+      // Coolers next to no GPU do nothing.
+      for (var i = 0; i < room.cells; i++) {
+        if (roles[i] == _Role.cool &&
+            !_neighbours(room, i).any((j) => roles[j] == _Role.gpu)) {
+          roles[i] = null;
         }
+      }
+      final order = [
+        for (var i = 0; i < room.cells; i++)
+          if (roles[i] == _Role.gpu) i,
+      ];
+      var cooled = 0;
+      for (final i in order) {
+        if (_neighbours(room, i).any((j) => roles[j] == _Role.cool)) cooled++;
+      }
+      final score = order.length * 10 + cooled * 6;
+      if (score > bestScore) {
+        bestScore = score;
+        best = _Plan(room, roles, order);
       }
     }
   }
   return best!;
-}
-
-/// BFS over GPU and switch cells (GPU–switch and switch–switch links) to get
-/// a fill order that grows one connected cluster.
-_Plan _order(RoomDef room, List<_Role?> roles) {
-  final parent = List<int>.filled(room.cells, -1);
-  final seen = List<bool>.filled(room.cells, false);
-  final gpuOrder = <int>[];
-  for (var start = 0; start < room.cells; start++) {
-    if (roles[start] != _Role.gpu || seen[start]) continue;
-    final queue = [start];
-    seen[start] = true;
-    for (var q = 0; q < queue.length; q++) {
-      final i = queue[q];
-      if (roles[i] == _Role.gpu) gpuOrder.add(i);
-      for (final j in _neighbours(room, i)) {
-        if (seen[j] || roles[j] == null || roles[j] == _Role.cool) continue;
-        // GPU–GPU adjacency doesn't link.
-        if (roles[i] == _Role.gpu && roles[j] == _Role.gpu) continue;
-        seen[j] = true;
-        parent[j] = i;
-        queue.add(j);
-      }
-    }
-  }
-  return _Plan(room, roles, gpuOrder, parent);
 }
 
 final Map<String, _Plan> _plans = {for (final r in rooms) r.id: _makePlan(r)};
@@ -394,43 +336,48 @@ class Bot {
   /// Moves (free) any tile that sits on a cell planned for another kind onto
   /// a free cell of its kind, e.g. the starting GPU.
   void _rearrange() {
-    for (final room in g.ownedRooms) {
-      final plan = _plans[room.id]!;
-      final cells = g.s.grids[room.id]!;
-      for (var i = 0; i < room.cells; i++) {
-        final def = cells[i] == null ? null : tileById(cells[i]!);
-        if (def == null) continue;
-        final role = _roleOf(def);
-        if (plan.roles[i] == role) continue;
-        final order =
-            role == _Role.gpu
-                ? plan.gpuOrder
-                : [for (var j = 0; j < room.cells; j++) j];
-        final to =
-            order
-                .where((j) => cells[j] == null && plan.roles[j] == role)
-                .firstOrNull;
-        if (to == null) continue;
-        g.moveTile(
-          room.id,
-          i % room.width,
-          i ~/ room.width,
-          to % room.width,
-          to ~/ room.width,
-        );
-      }
+    final room = g.currentRoom;
+    final plan = _plans[room.id]!;
+    final cells = g.s.grids[room.id]!;
+    for (var i = 0; i < room.cells; i++) {
+      final def = cells[i] == null ? null : tileById(cells[i]!);
+      if (def == null) continue;
+      final role = _roleOf(def);
+      if (plan.roles[i] == role) continue;
+      // GPUs the bundle put on spare cooler cells (central cooling) stay.
+      if (role == _Role.gpu && plan.roles[i] == _Role.cool) continue;
+      final order =
+          role == _Role.gpu
+              ? plan.gpuOrder
+              : [for (var j = 0; j < room.cells; j++) j];
+      final to =
+          order
+              .where((j) => cells[j] == null && plan.roles[j] == role)
+              .firstOrNull;
+      if (to == null) continue;
+      g.moveTile(
+        room.id,
+        i % room.width,
+        i ~/ room.width,
+        to % room.width,
+        to ~/ room.width,
+      );
     }
   }
 
-  static _Role _roleOf(TileDef t) => switch (t.kind) {
-    TileKind.gpu => _Role.gpu,
-    TileKind.network => _Role.net,
-    TileKind.cooling => _Role.cool,
-  };
+  static _Role _roleOf(TileDef t) => t.isGpu ? _Role.gpu : _Role.cool;
 
-  Iterable<TileDef> _unlocked(String roomId, TileKind kind) => tiles.where(
-    (t) => t.kind == kind && t.rooms.contains(roomId) && g.isTileUnlocked(t),
-  );
+  /// Parts sold for this room (a sensible player doesn't buy garage GPUs for
+  /// a datacenter), or, after moving ahead of the era, for the newest earlier
+  /// room whose parts are unlocked.
+  Iterable<TileDef> _unlocked(String roomId, TileKind kind) {
+    for (var i = roomIndex(roomId); i >= 0; i--) {
+      final id = rooms[i].id;
+      final ts = tiles.where((t) => t.kind == kind && t.nativeTo(id) && g.isTileUnlocked(t)).toList();
+      if (ts.isNotEmpty) return ts;
+    }
+    return const [];
+  }
 
   /// Power is nearly used up: adding GPUs needs a better tier or better
   /// GPUs per kW.
@@ -446,21 +393,6 @@ class Bot {
       if (best == null || score(t) > score(best)) best = t;
     }
     return best;
-  }
-
-  /// Cheapest switch that can feed the room's whole planned cluster, else
-  /// the biggest available.
-  TileDef? _bestSwitch(String roomId) {
-    final gpu = _bestGpu(roomId);
-    final need = _plans[roomId]!.gpuOrder.length * (gpu?.gpusPerTile ?? 1);
-    final all = _unlocked(roomId, TileKind.network).toList();
-    if (all.isEmpty) return null;
-    final enough =
-        all.where((t) => t.gpuCap >= need).toList()
-          ..sort((a, b) => a.cost.compareTo(b.cost));
-    if (enough.isNotEmpty) return enough.first;
-    all.sort((a, b) => b.gpuCap.compareTo(a.gpuCap));
-    return all.first;
   }
 
   String? _at(String roomId, int i) => g.s.grids[roomId]![i];
@@ -485,6 +417,10 @@ class Bot {
       }
     }
   }
+
+  int _gpuTiles() => g.s.grids[g.s.roomId]!
+      .where((id) => id != null && tileById(id)!.isGpu)
+      .length;
 
   double _opsCost(List<_Op> ops) => ops.fold(0.0, (a, op) {
     final old = g.s.tileAt(op.room, op.x, op.y);
@@ -549,36 +485,27 @@ class Bot {
 
   // --- Building candidates -------------------------------------------------
 
-  /// Next GPU for [roomId] with the switches and cooler it needs.
+  /// Next GPU for [roomId] on the plan, with the cooler it needs.
   List<_Op>? _templateBundle(String roomId) {
     final plan = _plans[roomId]!;
     final room = plan.room;
     final gpu = _bestGpu(roomId);
     if (gpu == null) return null;
-    final slot = plan.gpuOrder.where((i) => _at(roomId, i) == null).firstOrNull;
-    if (slot == null) return null;
-    final ops = <_Op>[];
-    final sw = _bestSwitch(roomId);
-    // Switch chain from this slot back to the placed network.
-    var p = plan.parent[slot];
-    while (p >= 0 && plan.roles[p] == _Role.net && _at(roomId, p) == null) {
-      if (sw == null) return null;
-      final (x, y) = _xy(roomId, p);
-      ops.add(_Op(roomId, x, y, sw.id));
-      p = plan.parent[p];
-    }
-    // The very first GPU of a room still gets its switch, ready for the next.
-    if (p < 0 && sw != null) {
-      final s0 =
-          _neighbours(
-            room,
-            slot,
-          ).where((j) => plan.roles[j] == _Role.net).firstOrNull;
-      if (s0 != null && _at(roomId, s0) == null) {
-        final (x, y) = _xy(roomId, s0);
-        ops.add(_Op(roomId, x, y, sw.id));
+    var slot = plan.gpuOrder.where((i) => _at(roomId, i) == null).firstOrNull;
+    if (slot == null) {
+      // Plan full: with central cooling, a GPU may not need its cooler cell.
+      for (var i = 0; i < room.cells && slot == null; i++) {
+        if (plan.roles[i] == _Role.gpu || _at(roomId, i) != null) continue;
+        final (x, y) = _xy(roomId, i);
+        final cool = _whatIf(
+          [_Op(roomId, x, y, gpu.id)],
+          () => g.tileStatus(roomId, x, y)!.netHeat <= 0,
+        );
+        if (cool) slot = i;
       }
+      if (slot == null) return null;
     }
+    final ops = <_Op>[];
     final (gx, gy) = _xy(roomId, slot);
     ops.add(_Op(roomId, gx, gy, gpu.id));
     // A cooler if it would run hot.
@@ -602,6 +529,57 @@ class Bot {
     return ops;
   }
 
+  /// After a move: lay every tile out again on the new room's plan (moves
+  /// are free). GPUs fill the plan's slots best-first, so they stay one
+  /// block; coolers go next to GPUs. The old room's coolers are sold (the new
+  /// room's free cooling beats them); leftovers go on spare cells, or are
+  /// sold if there's no floor left.
+  void _relayout() {
+    final room = g.currentRoom;
+    final plan = _plans[room.id]!;
+    final cells = g.s.grids[room.id]!;
+    final gpus = <TileDef>[], cools = <TileDef>[];
+    for (final id in cells) {
+      final d = id == null ? null : tileById(id);
+      if (d == null) continue;
+      if (d.isCooling && !d.nativeTo(room.id)) {
+        g.s.money += g.sellValue(d.id);
+        continue;
+      }
+      (d.isGpu ? gpus : cools).add(d);
+    }
+    gpus.sort((a, b) => b.tflops.compareTo(a.tflops));
+    cools.sort((a, b) => b.cooling.compareTo(a.cooling));
+    final out = List<String?>.filled(room.cells, null);
+    var gi = 0;
+    for (final slot in plan.gpuOrder) {
+      if (gi >= gpus.length) break;
+      out[slot] = gpus[gi++].id;
+    }
+    for (var i = 0; i < room.cells && cools.isNotEmpty; i++) {
+      if (plan.roles[i] != _Role.cool || out[i] != null) continue;
+      if (_neighbours(room, i).any((j) => tileById(out[j] ?? '')?.isGpu == true)) {
+        out[i] = cools.removeAt(0).id;
+      }
+    }
+    for (final t in [...gpus.skip(gi), ...cools]) {
+      final to =
+          [for (var i = 0; i < room.cells; i++) i]
+              .where((i) => out[i] == null && plan.roles[i] == null)
+              .firstOrNull ??
+          [for (var i = 0; i < room.cells; i++) i]
+              .where((i) => out[i] == null)
+              .firstOrNull;
+      if (to != null) {
+        out[to] = t.id;
+      } else {
+        g.s.money += g.sellValue(t.id);
+      }
+    }
+    g.s.grids[room.id] = out;
+    g.s.touchGrid();
+  }
+
   List<int> _emptyCells(String roomId) => [
     for (var i = 0; i < roomById(roomId)!.cells; i++)
       if (_at(roomId, i) == null) i,
@@ -610,7 +588,7 @@ class Bot {
   int _pickRandom(List<int> xs) =>
       xs[math.min(xs.length - 1, (_random() * xs.length).floor())];
 
-  /// GPU (and for BotLayout.random a switch/cooler) on random empty cells.
+  /// GPU (and for BotLayout.random a cooler) on random empty cells.
   List<_Op>? _randomBundle(String roomId) {
     final gpu = _bestGpu(roomId);
     if (gpu == null) return null;
@@ -627,34 +605,39 @@ class Bot {
 
     add(gpu);
     if (layout == BotLayout.random) {
-      final counts = {for (final k in TileKind.values) k: 0};
+      var gpus = 1, coolers = 0;
       for (final id in g.s.grids[roomId]!) {
-        final kind = id == null ? null : tileById(id)!.kind;
-        if (kind != null) counts[kind] = counts[kind]! + 1;
+        final d = id == null ? null : tileById(id)!;
+        if (d == null) continue;
+        if (d.isGpu) gpus++;
+        if (d.isCooling) coolers++;
       }
-      final gpus = counts[TileKind.gpu]! + 1;
-      final sw = _bestSwitch(roomId);
-      if (sw != null && counts[TileKind.network]! < gpus / 2) add(sw);
-      final coolers =
+      final cs =
           _unlocked(roomId, TileKind.cooling).toList()
             ..sort((a, b) => a.cost.compareTo(b.cost));
-      if (coolers.isNotEmpty && counts[TileKind.cooling]! < gpus / 2) {
-        add(coolers.first);
-      }
+      if (cs.isNotEmpty && coolers < gpus / 2) add(cs.first);
     }
     return ops;
   }
 
   /// Replace a room's weakest GPU tile with its best one (when it's full, or
-  /// when power is the limit: then the best per kW).
-  List<_Op>? _replaceWorstGpu(String roomId) {
+  /// when power is the limit: then the best per kW). [inCluster] looks only
+  /// at the training cluster, where a better GPU also speeds up training.
+  List<_Op>? _replaceWorstGpu(String roomId, {bool inCluster = false}) {
     final best = _bestGpu(roomId, perKw: _powerTight);
     if (best == null) return null;
+    final room = roomById(roomId)!;
     final cells = g.s.grids[roomId]!;
+    final train = inCluster ? g.trainingCluster : null;
+    if (inCluster && train == null) return null;
+    final allowed = train == null
+        ? null
+        : {for (final (x, y) in train.gpuCells) y * room.width + x};
     var worst = -1;
     for (var i = 0; i < cells.length; i++) {
       final d = cells[i] == null ? null : tileById(cells[i]!);
       if (d == null || !d.isGpu) continue;
+      if (allowed != null && !allowed.contains(i)) continue;
       if (worst < 0 || d.tflops < tileById(cells[worst]!)!.tflops) worst = i;
     }
     if (worst < 0 || best.tflops < 1.4 * tileById(cells[worst]!)!.tflops) {
@@ -662,23 +645,6 @@ class Bot {
     }
     final (x, y) = _xy(roomId, worst);
     return [_Op(roomId, x, y, best.id, replace: true)];
-  }
-
-  /// Upgrade the slow switches of a room's biggest cluster when it has
-  /// outgrown them.
-  List<_Op>? _switchUpgrade(String roomId) {
-    final cs = g.clusters(roomId).where((c) => c.networked).toList();
-    if (cs.isEmpty) return null;
-    cs.sort((a, b) => b.gpus.compareTo(a.gpus));
-    final c = cs.first;
-    if (c.gpus <= c.gpuCap) return null;
-    final sw = _bestSwitch(roomId);
-    if (sw == null || sw.gpuCap <= c.gpuCap) return null;
-    return [
-      for (final (x, y) in c.switchCells)
-        if (tileById(g.s.tileAt(roomId, x, y)!)!.gpuCap < sw.gpuCap)
-          _Op(roomId, x, y, sw.id, replace: true),
-    ];
   }
 
   /// Cool (or better cool) the hottest GPU in a room via its planned cooler
@@ -731,7 +697,10 @@ class Bot {
       maxUsers,
       demandBase * math.pow(10, (r - ratingBase) / demandRatingScale),
     );
-    final serving = g.effectiveTflops + extraTotal - 0.5 * train;
+    // Like Game.servingTflops: the run takes its share of the cluster's
+    // compute before scaling losses (the loss is wasted, not served).
+    final clusterEff = (g.trainingCluster?.effectiveTflops ?? 0) + extraTrain;
+    final serving = g.effectiveTflops + extraTotal - 0.5 * clusterEff;
     final cap =
         math.max(0.0, serving) /
         g.perUserTflops(math.max(effC, g.s.currentModel.effectiveCompute));
@@ -769,6 +738,8 @@ class Bot {
     final hwPrereqs = {
       for (final t in tiles)
         if (t.isGpu) ...t.requires,
+      for (final n in networkTiers) ...n.requires,
+      for (final c in coolingTiers) ...c.requires,
     };
     for (final u in _availableUpgrades) {
       if (strategy == BotStrategy.noUpgrades) break;
@@ -785,8 +756,7 @@ class Bot {
         dv += 2 * math.log(1 / u.effects.powerMult) * (powerTight ? 1 : 0.3);
       }
       // Unlocking better tiles is worth something too.
-      if (hwPrereqs.contains(u.id) ||
-          tiles.any((t) => t.requires.contains(u.id))) {
+      if (hwPrereqs.contains(u.id)) {
         dv += 0.05;
       }
       cands.add(
@@ -794,7 +764,7 @@ class Bot {
       );
     }
 
-    // Grid work, in each owned room.
+    // Grid work in the room.
     void addOps(List<_Op>? ops) {
       if (ops == null || ops.isEmpty) return;
       if (_opsKw(ops) > headroom + 1e-9) return;
@@ -811,53 +781,86 @@ class Bot {
       );
     }
 
-    final owned = g.ownedRooms;
-    var roomsFull = true;
-    for (final room in owned.reversed.take(3)) {
-      final bundle =
-          layout == BotLayout.template
-              ? _templateBundle(room.id)
-              : _randomBundle(room.id);
-      if (bundle != null) roomsFull = false;
-      addOps(bundle);
-      if (bundle == null || _powerTight) addOps(_replaceWorstGpu(room.id));
-      if (layout != BotLayout.naive) addOps(_switchUpgrade(room.id));
-      if (layout == BotLayout.template) addOps(_heatFix(room.id));
+    final room = g.currentRoom;
+    final bundle =
+        layout == BotLayout.template
+            ? _templateBundle(room.id)
+            : _randomBundle(room.id);
+    final roomsFull = bundle == null;
+    addOps(bundle);
+    if (roomsFull || _powerTight) {
+      addOps(_replaceWorstGpu(room.id));
+      addOps(_replaceWorstGpu(room.id, inCluster: true));
+    }
+    if (layout == BotLayout.template) addOps(_heatFix(room.id));
+
+    // Central cooling tier: worth it when GPUs throttle (or to free cooler
+    // cells for GPUs once the plan is full).
+    final cool = g.nextCoolingTier;
+    if (cool != null &&
+        g.isUnlocked(cool.era) &&
+        cool.requires.every(s.ownedUpgrades.contains)) {
+      s.coolingTier++;
+      var dv = _value() - v0;
+      s.coolingTier--;
+      if (roomsFull) dv += 0.05;
+      cands.add(_Cand(cool.cost, dv, g.buyNextCoolingTier, label: 'cooling'));
     }
 
-    // The best GPU we could place anywhere (for valuing power and rooms).
-    TileDef? bestGpu;
-    for (final r in owned) {
-      final t = _bestGpu(r.id);
-      if (t != null && (bestGpu == null || t.tflops > bestGpu.tflops)) {
-        bestGpu = t;
-      }
-    }
-
-    // Next room: worth it when it can hold better or more GPUs.
-    final nextRoom = rooms.where((r) => !s.ownsRoom(r.id)).firstOrNull;
-    if (nextRoom != null &&
-        g.isUnlocked(nextRoom.era) &&
-        s.powerTier >= nextRoom.minPowerTier) {
-      final t =
-          _bestGpu(nextRoom.id) ??
-          tiles.where((t) => t.isGpu && t.rooms.contains(nextRoom.id)).first;
-      final k = math.min(
-        math.min(
-          _plans[nextRoom.id]!.gpuOrder.length.toDouble(),
-          (headroom / g.tilePowerKw(t)).floorToDouble(),
+    // Network tier: worth it once the training cluster outgrows the cap.
+    final net = g.nextNetworkTier;
+    if (net != null &&
+        g.isUnlocked(net.era) &&
+        net.requires.every(s.ownedUpgrades.contains)) {
+      s.networkTier++;
+      final dv = _value() - v0;
+      s.networkTier--;
+      final c = g.trainingCluster;
+      cands.add(
+        _Cand(
+          net.cost,
+          dv,
+          g.buyNextNetworkTier,
+          label: 'network',
+          // A cluster far past the cap wastes most of a run: fix it first.
+          essential: c != null && c.scalingEfficiency < 0.7,
         ),
-        math.max(1.0, (nextRoom.cost / g.tilePrice(t)).floorToDouble()),
       );
-      if (k >= 1 && g.isTileUnlocked(t)) {
-        cands.add(
-          _Cand(
-            nextRoom.cost,
-            _virtualDv(t, k, v0),
-            () => g.buyRoom(nextRoom.id),
-            essential: roomsFull,
+    }
+
+    // The best GPU we could place (for valuing power and the next room).
+    final bestGpu = _bestGpu(room.id);
+
+    // Next room: worth it when it can hold better or more GPUs. Moving only
+    // costs money (no era gate); before its era it's just more floor and
+    // free cooling for today's GPUs. Moving takes everything along; the
+    // template bot then re-lays it on the new plan.
+    final nextRoom = g.nextRoom;
+    if (nextRoom != null) {
+      final native = _bestGpu(nextRoom.id);
+      final t = native != null && s.powerTier >= nextRoom.minPowerTier ? native : bestGpu;
+      if (t != null) {
+        final k = math.min(
+          math.min(
+            (_plans[nextRoom.id]!.gpuOrder.length - _gpuTiles()).toDouble(),
+            (headroom / g.tilePowerKw(t)).floorToDouble(),
           ),
+          math.max(1.0, (nextRoom.cost / g.tilePrice(t)).floorToDouble()),
         );
+        if (k >= 1) {
+          cands.add(
+            _Cand(
+              nextRoom.cost,
+              _virtualDv(t, k, v0),
+              () {
+                if (!g.moveTo(nextRoom.id)) return false;
+                if (layout == BotLayout.template) _relayout();
+                return true;
+              },
+              essential: roomsFull && g.isUnlocked(nextRoom.era),
+            ),
+          );
+        }
       }
     }
 
@@ -865,10 +868,21 @@ class Bot {
     // next room needs it). Value it as "tier + an equal spend on GPUs to
     // fill it".
     final next = g.nextPowerTier;
+    // The next room needs a power tier we don't have yet.
+    final roomNeedsPower =
+        nextRoom != null &&
+        g.isUnlocked(nextRoom.era) &&
+        s.powerTier < nextRoom.minPowerTier;
     if (bestGpu != null &&
         next != null &&
         g.isUnlocked(next.era) &&
-        (powerTight || roomsFull)) {
+        (powerTight ||
+            roomsFull ||
+            roomNeedsPower ||
+            // Moved ahead of the power: the room's own tier, or the best GPU
+            // doesn't fit in what's left.
+            s.powerTier < room.minPowerTier ||
+            g.tilePowerKw(bestGpu) > headroom)) {
       final unitKw = g.tilePowerKw(bestGpu);
       final k =
           math
@@ -891,7 +905,8 @@ class Bot {
           next.cost,
           _virtualDv(bestGpu, k, v0),
           g.buyNextPowerTier,
-          essential: blocked,
+          essential:
+              blocked || (roomsFull && roomNeedsPower) || g.tilePowerKw(bestGpu) > headroom,
         ),
       );
     }
@@ -1063,6 +1078,7 @@ PlaythroughResult runPlaythrough({
         case ModelReleased():
           r.releases++;
         case TrainingFinished():
+        case RoomMoved():
           break;
       }
       onEvent?.call(g, e);
@@ -1155,6 +1171,7 @@ PlaythroughResult runSchedule({
   bool stopWhenDone = true,
   void Function(Game g, GameEvent e, double wall)? onEvent,
   void Function(Game g, SessionStats s)? onSession,
+  void Function(Game g, double wall)? onTick,
   int seed = 12345,
   double thinkEvery = 3,
 }) {
@@ -1185,6 +1202,7 @@ PlaythroughResult runSchedule({
         case ModelReleased():
           r.releases++;
         case TrainingFinished():
+        case RoomMoved():
           break;
       }
       onEvent?.call(g, e, wallNow);
@@ -1236,6 +1254,7 @@ PlaythroughResult runSchedule({
         if (g.s.viralSecondsLeft > 0) r.overloadedViralSeconds += step;
       }
       collect(wall);
+      onTick?.call(g, wall);
       if (stopWhenDone && r.ladderDone) break;
     }
     bot.finish();
@@ -1267,7 +1286,7 @@ PlaythroughResult runSchedule({
   return r;
 }
 
-/// The template plan for a room as text (G = GPU, S = switch, C = cooler),
+/// The template plan for a room as text (G = GPU, C = cooler),
 /// for debugging and tests.
 String describePlan(String roomId) {
   final plan = _plans[roomId]!;
@@ -1276,7 +1295,6 @@ String describePlan(String roomId) {
     for (var x = 0; x < plan.room.width; x++) {
       b.write(switch (plan.roles[y * plan.room.width + x]) {
         _Role.gpu => 'G',
-        _Role.net => 'S',
         _Role.cool => 'C',
         null => '.',
       });

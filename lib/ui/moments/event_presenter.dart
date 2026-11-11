@@ -184,6 +184,9 @@ class _EventPresenterState extends State<EventPresenter> {
       case RivalBeaten():
         _queue.add(e);
         _advanceQueue();
+      case RoomMoved():
+        // The world map plays the move (truck, fade, tiles pop in).
+        Sound.play(Sfx.upgrade);
       case EraUnlocked():
         // Let the world map push the darkness back and pull the camera out
         // to the new plot first; then the era moment plays.

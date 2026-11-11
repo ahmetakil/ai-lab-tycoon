@@ -69,6 +69,8 @@ void main(List<String> args) {
           print(
             '$t  !!! viral spike (capacity ${fmt(g.capacity)}, users ${fmt(g.s.users)})',
           );
+        case RoomMoved(:final to):
+          print('$t  >>> MOVED to the ${to.name}');
         case ModelReleased():
         case TrainingFinished():
           break;
@@ -88,7 +90,7 @@ void main(List<String> args) {
         '${fmt(g.arr, 10)} | ${fmt(g.s.users, 10)} | ${g.rating.toStringAsFixed(0).padLeft(6)} | '
         '${fmt(gpus, 7)} | ${fmt(g.powerUsedKw, 7)}/${fmt(g.powerCapKw, 7)} | '
         '${g.utilization.toStringAsFixed(2)} | ${cluster.padRight(22)} | '
-        '${g.ownedRooms.length.toString().padLeft(5)} | '
+        '${g.currentRoom.id.padLeft(8)} | '
         'pb ${(g.hardwareValue / math.max(1e-9, g.revenuePerSecond) / 60).toStringAsFixed(0).padLeft(4)}m | ${g.s.era.label}'
         '${g.overloaded ? ' OVERLOADED' : ''}${g.dataLimited ? ' data-limited' : ''}',
       );
@@ -212,6 +214,8 @@ void scheduled(
           print('$t  >>> ERA: ${era.label}');
         case RivalBeaten(:final rival):
           print('$t  >>> BEAT ${rival.lab} ${rival.model} (${rival.year})');
+        case RoomMoved(:final to):
+          print('$t  >>> MOVED to the ${to.name}');
         default:
           break;
       }

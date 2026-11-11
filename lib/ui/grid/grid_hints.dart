@@ -1,14 +1,14 @@
-// Plain-language summaries of the grid that teach the two placement lessons:
-// the network bottleneck (slowest switch caps the cluster) and heat.
+// Plain-language summaries of the grid that teach the two lessons: the
+// network tier caps how many GPUs train together, and heat (coolers next to
+// hot GPUs, later central cooling).
 import 'package:flutter/material.dart';
 
-import '../../sim/content.dart';
 import '../../sim/game.dart';
 import '../format.dart';
 import '../theme.dart';
 
 class ClusterSummary {
-  /// "Training cluster: 24 GPUs on 5 Gbit switch (feeds 8) → 58% scaling".
+  /// "Training cluster: 24 GPUs on 10G copper (feeds 32)".
   final String line;
 
   /// What to do about it, if anything.
@@ -23,6 +23,20 @@ class ClusterSummary {
 
 String _gpus(double n) => '${formatNumber(n)} GPU${n == 1 ? '' : 's'}';
 
+/// "96 / 256 GPUs fed", the network meter.
+String networkMeterText(Game g) {
+  final c = g.trainingCluster;
+  return '${formatNumber(c?.gpus ?? 0)} / ${formatNumber(g.networkCap)} GPUs fed';
+}
+
+/// Meter colour: green under 80% of the cap, amber from 80%, red over it.
+Color networkMeterColor(Game g) {
+  final c = g.trainingCluster;
+  if (c == null) return AppColors.neon;
+  if (c.overCap) return AppColors.red;
+  return c.gpus >= 0.8 * g.networkCap ? AppColors.amber : AppColors.neon;
+}
+
 /// The training cluster, explained.
 ClusterSummary trainingSummary(Game g) {
   final c = g.trainingCluster;
@@ -30,40 +44,24 @@ ClusterSummary trainingSummary(Game g) {
     return const ClusterSummary('No GPUs yet: place one to start training.', null, false, 1);
   }
   final eff = c.scalingEfficiency;
-  if (!c.networked) {
-    return ClusterSummary(
-      'Training cluster: ${_gpus(c.gpus)}, no switch.',
-      'Put a switch between GPUs so they train together.',
-      false,
-      eff,
-    );
-  }
-  final sw = tileById(c.bottleneckTileId ?? '');
-  final swName = sw?.name ?? 'switch';
+  final net = g.network;
   final line =
-      'Training cluster: ${_gpus(c.gpus)} on $swName (feeds ${formatNumber(c.gpuCap)}) '
-      '→ ${formatPercent(eff)} scaling efficiency';
+      'Training cluster: ${_gpus(c.gpus)} on ${net.name} (feeds ${formatNumber(g.networkCap)})'
+      '${eff < 1 ? ' → ${formatPercent(eff)} scaling efficiency' : ''}';
   if (eff >= 1) return ClusterSummary(line, null, false, eff);
-  // Suggest the cheapest faster switch the player could use in that room.
-  final faster = [
-    for (final t in g.tilesForRoom(c.roomId))
-      if (t.isNetwork && t.gpuCap > c.gpuCap && g.isTileUnlocked(t)) t,
-  ];
-  final next = faster.isEmpty ? null : faster.first;
+  final next = g.nextNetworkTier;
   final hint =
       next == null
-          ? 'Your $swName can only keep ${formatNumber(c.gpuCap)} GPUs fed. '
-              'Research faster networking.'
-          : 'Your $swName can only keep ${formatNumber(c.gpuCap)} GPUs fed. '
-              'Swap it for a ${next.name} (feeds ${formatNumber(next.gpuCap)}).';
+          ? '${net.name} keeps ${formatNumber(g.networkCap)} GPUs fed; past that, runs slow down.'
+          : '${net.name} keeps only ${formatNumber(g.networkCap)} GPUs fed. Upgrade to '
+              '${next.name} (feeds ${formatNumber(next.gpuCap)}, ${formatMoney(next.cost)}) in Network.';
   return ClusterSummary(line, hint, true, eff);
 }
 
-/// GPU tiles throttling from heat, in one room (or every owned room).
+/// GPU tiles throttling from heat in the room.
 int throttlingTiles(Game g, {String? roomId}) {
   var n = 0;
   for (final room in g.ownedRooms) {
-    if (roomId != null && room.id != roomId) continue;
     for (var y = 0; y < room.height; y++) {
       for (var x = 0; x < room.width; x++) {
         final st = g.tileStatus(room.id, x, y);
@@ -78,7 +76,12 @@ String? heatHint(Game g, {String? roomId}) {
   final n = throttlingTiles(g, roomId: roomId);
   if (n == 0) return null;
   final what = n == 1 ? '1 GPU is' : '$n GPUs are';
-  return '$what throttling: put a cooler next to ${n == 1 ? 'it' : 'them'}.';
+  final plant = g.nextCoolingTier;
+  final central =
+      g.coolingTiersVisible && plant != null && g.isUnlocked(plant.era)
+          ? ' or buy ${plant.name} in Cooling'
+          : '';
+  return '$what throttling: put a cooler next to ${n == 1 ? 'it' : 'them'}$central.';
 }
 
 /// Compact card with the cluster line and the hints; used on the Lab tab and

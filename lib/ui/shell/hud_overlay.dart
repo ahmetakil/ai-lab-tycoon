@@ -7,20 +7,24 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
+import '../../sim/game.dart';
 import '../format.dart';
 import '../game_controller.dart';
+import '../grid/grid_hints.dart';
 import '../moments/release_sheet.dart';
 import '../sound.dart';
 import '../theme.dart';
 import '../widgets/effects.dart';
 import '../widgets/game_builder.dart';
+import '../widgets/goals.dart';
 import '../widgets/hud.dart';
 
 /// Wide layouts put the stats beside the project bar; narrow ones stack them.
 bool isWideHud(double width) => width >= 760;
 
-/// Height of the top HUD (below the safe area), for anything that must sit under it.
-double hudHeight(double width) => isWideHud(width) ? 76 : 136;
+/// Height of the top HUD (below the safe area, goal strip included), for
+/// anything that must sit under it.
+double hudHeight(double width) => isWideHud(width) ? 110 : 170;
 
 const _plate = Color(0xD90A101C);
 
@@ -40,12 +44,20 @@ BoxDecoration plateDecoration(Color accent, {double radius = 12, bool lit = fals
 class TopHud extends StatelessWidget {
   final GameController controller;
   final VoidCallback onPower;
+  final VoidCallback onNetwork;
+  final VoidCallback onCooling;
   final VoidCallback onProject;
+  final VoidCallback onGoal;
+  final VoidCallback onRivals;
   const TopHud({
     super.key,
     required this.controller,
     required this.onPower,
+    required this.onNetwork,
+    required this.onCooling,
     required this.onProject,
+    required this.onGoal,
+    required this.onRivals,
   });
 
   @override
@@ -58,9 +70,21 @@ class TopHud extends StatelessWidget {
           builder: (context) {
             final money = _MoneyStat(controller: controller);
             final users = _UsersStat(controller: controller);
-            final rating = _RatingStat(controller: controller);
+            final rating = _RatingStat(controller: controller, onTap: onRivals);
             final power = _PowerStat(controller: controller, onTap: onPower);
-            final project = ProjectBar(controller: controller, onTap: onProject);
+            final network = _NetworkStat(controller: controller, onTap: onNetwork);
+            final cooling =
+                controller.game.coolingTiersVisible
+                    ? _CoolingStat(controller: controller, onTap: onCooling)
+                    : null;
+            final project = Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ProjectBar(controller: controller, onTap: onProject),
+                const SizedBox(height: 4),
+                GoalStrip(controller: controller, onTap: onGoal),
+              ],
+            );
             if (wide) {
               return Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
@@ -81,11 +105,22 @@ class TopHud extends StatelessWidget {
                     SizedBox(width: 340, child: project),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(child: SizedBox(width: 160, child: rating)),
-                          const SizedBox(width: 8),
-                          Flexible(child: SizedBox(width: 190, child: power)),
+                          Row(
+                            children: [
+                              Flexible(child: SizedBox(width: 130, child: rating)),
+                              const SizedBox(width: 8),
+                              Flexible(child: SizedBox(width: 160, child: power)),
+                              const SizedBox(width: 8),
+                              Flexible(child: SizedBox(width: 160, child: network)),
+                            ],
+                          ),
+                          if (cooling != null) ...[
+                            const SizedBox(height: 4),
+                            SizedBox(width: 160, height: 40, child: cooling),
+                          ],
                         ],
                       ),
                     ),
@@ -107,6 +142,8 @@ class TopHud extends StatelessWidget {
                       Expanded(flex: 8, child: rating),
                       const SizedBox(width: 5),
                       Expanded(flex: 9, child: power),
+                      const SizedBox(width: 5),
+                      Expanded(flex: 9, child: network),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -129,6 +166,9 @@ class _StatPlate extends StatelessWidget {
   final Color? subColor;
   final bool lit;
   final Widget? extra;
+
+  /// Tiny caption above the value ("RATING").
+  final String? label;
   const _StatPlate({
     super.key,
     required this.icon,
@@ -138,6 +178,7 @@ class _StatPlate extends StatelessWidget {
     this.subColor,
     this.lit = false,
     this.extra,
+    this.label,
   });
 
   @override
@@ -169,7 +210,19 @@ class _StatPlate extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: value),
+                    if (label != null)
+                      Text(
+                        label!,
+                        maxLines: 1,
+                        style: labelStyle(size: tight ? 8 : 8.5, color: color).copyWith(height: 1),
+                      ),
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: value,
+                      ),
+                    ),
                     if (extra != null) extra!,
                     Text(
                       sub,
@@ -235,21 +288,53 @@ class _UsersStat extends StatelessWidget {
   }
 }
 
+/// "RATING 1293 · beat GPT-ish-4: 1339". Tap for the leaderboard.
 class _RatingStat extends StatelessWidget {
   final GameController controller;
-  const _RatingStat({required this.controller});
+  final VoidCallback onTap;
+  const _RatingStat({required this.controller, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final g = controller.game;
     final next = g.nextRival;
-    return _StatPlate(
-      icon: Icons.emoji_events_rounded,
-      color: AppColors.amber,
-      value: Text(formatRating(g.rating), style: _big(AppColors.amber)),
-      sub: next == null ? 'top lab' : 'vs ${formatRating(next.rating)}',
+    return Tooltip(
+      message:
+          next == null
+              ? 'Your model rating: ${formatRating(g.rating)}. You top the leaderboard.'
+              : 'Your model rating: ${formatRating(g.rating)}. Next rival to beat: '
+                  '${next.lab} ${next.model} at ${formatRating(next.rating)}. Tap for the leaderboard.',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          key: const ValueKey('rating-chip'),
+          onTap: () {
+            Sound.play(Sfx.click);
+            onTap();
+          },
+          child: _StatPlate(
+            icon: Icons.emoji_events_rounded,
+            color: AppColors.amber,
+            label: 'RATING',
+            value: Text(formatRating(g.rating), style: _big(AppColors.amber)),
+            sub: next == null ? 'top lab' : 'beat ${next.model}: ${formatRating(next.rating)}',
+            subColor: AppColors.muted,
+          ),
+        ),
+      ),
     );
   }
+}
+
+/// Is the next power tier worth a nudge: affordable and needed (power
+/// nearly full, or the next room needs it)?
+bool powerNudge(Game g) {
+  final next = g.nextPowerTier;
+  if (next == null || !g.isUnlocked(next.era)) return false;
+  final frac = g.powerCapKw <= 0 ? 0.0 : g.powerUsedKw / g.powerCapKw;
+  final room = g.nextRoom;
+  final roomNeeds = room != null && g.isUnlocked(room.era) && g.s.powerTier < room.minPowerTier;
+  return g.s.money >= next.cost && (frac >= 0.8 || roomNeeds);
 }
 
 class _PowerStat extends StatelessWidget {
@@ -269,42 +354,180 @@ class _PowerStat extends StatelessWidget {
             : const Color(0xFFFFE066);
     final next = g.nextPowerTier;
     final canUpgrade = next != null && g.isUnlocked(next.era) && g.s.money >= next.cost;
-    return GestureDetector(
-      key: const ValueKey('power-chip'),
-      onTap: onTap,
-      child: Tooltip(
-        message: 'Power: ${formatPower(g.powerUsedKw)} of ${formatPower(g.powerCapKw)}',
-        child: _StatPlate(
-          icon: Icons.bolt_rounded,
-          color: color,
-          lit: canUpgrade && frac >= 0.8,
-          value: Text(formatPower(g.powerUsedKw), style: _big(color)),
-          sub: canUpgrade ? 'upgrade ▲' : '/ ${formatPower(g.powerCapKw)}',
-          subColor: canUpgrade ? AppColors.neon : AppColors.muted,
-          extra: Padding(
-            padding: const EdgeInsets.only(bottom: 2, top: 1),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: SizedBox(
-                height: 4,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    const ColoredBox(color: Color(0x33FFFFFF)),
-                    FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: frac.clamp(0.0, 1.0),
-                      child: ColoredBox(color: color),
-                    ),
-                  ],
+    final nudge = powerNudge(g);
+    return Tooltip(
+      message:
+          'Power: ${formatPower(g.powerUsedKw)} of ${formatPower(g.powerCapKw)}. '
+          '${next == null ? 'Top tier.' : 'Tap to see or buy ${next.name} (${formatMoney(next.cost)}).'}',
+      child: GestureDetector(
+        key: const ValueKey('power-chip'),
+        onTap: onTap,
+        child: _TapPlate(
+          nudge: nudge,
+          badge: canUpgrade,
+          child: _StatPlate(
+            icon: Icons.bolt_rounded,
+            color: color,
+            lit: nudge,
+            value: Text(formatPower(g.powerUsedKw), style: _big(color)),
+            sub: canUpgrade ? 'upgrade ▲' : '/ ${formatPower(g.powerCapKw)}',
+            subColor: canUpgrade ? AppColors.neon : AppColors.muted,
+            extra: _MiniBar(frac: frac, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "96 / 256 GPUs fed": the network tier meter. Tap for the Network panel.
+class _NetworkStat extends StatelessWidget {
+  final GameController controller;
+  final VoidCallback onTap;
+  const _NetworkStat({required this.controller, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final g = controller.game;
+    final c = g.trainingCluster;
+    final color = networkMeterColor(g);
+    final gpus = c?.gpus ?? 0;
+    final frac = g.networkCap <= 0 ? 0.0 : gpus / g.networkCap;
+    final next = g.nextNetworkTier;
+    final canUpgrade = next != null && g.networkBlockReason() == null;
+    final over = c != null && c.overCap;
+    return Tooltip(
+      message:
+          'Network: ${networkMeterText(g)} on ${g.network.name}'
+          '${over ? ', training at ${formatPercent(c.scalingEfficiency)}' : ''}. Tap for Network.',
+      child: GestureDetector(
+        key: const ValueKey('network-chip'),
+        onTap: onTap,
+        child: _TapPlate(
+          nudge: over && canUpgrade,
+          badge: canUpgrade && (over || frac >= 0.8),
+          child: _StatPlate(
+            icon: Icons.cable_rounded,
+            color: color,
+            lit: over,
+            value: Text('${formatNumber(gpus)}/${formatNumber(g.networkCap)}', style: _big(color)),
+            sub: over ? '→ ${formatPercent(c.scalingEfficiency)} scaling' : 'GPUs fed',
+            subColor: over ? AppColors.red : AppColors.muted,
+            extra: _MiniBar(frac: frac, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Central cooling plate (Medium lab on): throttling tiles and the tier.
+class _CoolingStat extends StatelessWidget {
+  final GameController controller;
+  final VoidCallback onTap;
+  const _CoolingStat({required this.controller, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final g = controller.game;
+    final hot = throttlingTiles(g);
+    final color = hot > 0 ? AppColors.red : AppColors.cyan;
+    final canUpgrade = g.nextCoolingTier != null && g.coolingBlockReason() == null;
+    return Tooltip(
+      message: 'Central cooling: ${g.cooling.name}. Tap for Cooling.',
+      child: GestureDetector(
+        key: const ValueKey('cooling-chip'),
+        onTap: onTap,
+        child: _TapPlate(
+          nudge: hot > 0 && canUpgrade,
+          badge: canUpgrade,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: plateDecoration(color, lit: hot > 0),
+            child: Row(
+              children: [
+                Icon(Icons.ac_unit_rounded, size: 16, color: color),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    hot > 0 ? '$hot hot' : '−${formatNumber(g.cooling.perGpuTile)}/tile',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: numStyle(size: 13, color: color, weight: FontWeight.w800),
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ),
       ),
     );
   }
+}
+
+/// A plate that reads as a button: optional gentle pulse and an "▲" badge.
+class _TapPlate extends StatelessWidget {
+  final bool nudge;
+  final bool badge;
+  final Widget child;
+  const _TapPlate({required this.nudge, required this.badge, required this.child});
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    child: Nudge(
+      active: nudge,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          child,
+          if (badge)
+            Positioned(
+              right: -3,
+              top: -4,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.neon,
+                  border: Border.all(color: Colors.black, width: 1.5),
+                ),
+                child: const Icon(Icons.arrow_upward_rounded, size: 11, color: Colors.black),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MiniBar extends StatelessWidget {
+  final double frac;
+  final Color color;
+  const _MiniBar({required this.frac, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 2, top: 1),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(3),
+      child: SizedBox(
+        height: 4,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const ColoredBox(color: Color(0x33FFFFFF)),
+            FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: frac.clamp(0.0, 1.0),
+              child: ColoredBox(color: color),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 /// Top-centre project bar: the current run, or what to do next.
@@ -341,10 +564,10 @@ class ProjectBar extends StatelessWidget {
       color = run.paused ? AppColors.amber : AppColors.cyan;
       icon = Icons.model_training_rounded;
     } else {
-      title = 'No run';
-      sub = 'tap to train a model';
+      title = 'No training run';
+      sub = 'idle GPUs · tap to train a model';
       progress = null;
-      color = AppColors.muted;
+      color = AppColors.amber;
       icon = Icons.play_arrow_rounded;
     }
     final bar = GestureDetector(
@@ -434,7 +657,9 @@ class ProjectBar extends StatelessWidget {
         ),
       ),
     );
-    return pending ? Pulse(scale: 1.03, child: bar) : bar;
+    if (pending) return Pulse(scale: 1.03, child: bar);
+    // Nothing training and nothing to ship: a gentle nudge.
+    return Nudge(active: run == null, child: bar);
   }
 }
 
@@ -449,6 +674,9 @@ class ToolSpec {
   final bool active;
   final bool badge;
   final bool pulse;
+
+  /// Gentler than [pulse]: a slow, small breathe (e.g. idle GPUs).
+  final bool nudge;
   final VoidCallback onTap;
   const ToolSpec({
     required this.id,
@@ -460,6 +688,7 @@ class ToolSpec {
     this.active = false,
     this.badge = false,
     this.pulse = false,
+    this.nudge = false,
   });
 }
 
@@ -590,7 +819,8 @@ class _ToolButtonState extends State<_ToolButton> {
         ),
       ),
     );
-    return t.pulse ? Pulse(scale: 1.06, child: btn) : btn;
+    if (t.pulse) return Pulse(scale: 1.06, child: btn);
+    return Nudge(active: t.nudge, child: btn);
   }
 }
 

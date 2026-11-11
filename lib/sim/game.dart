@@ -5,7 +5,7 @@ import 'content.dart';
 import 'game_state.dart';
 import 'grid.dart';
 
-export 'grid.dart' show TileStatus, Cluster;
+export 'grid.dart' show TileStatus, Cluster, minThrottleSpeed;
 
 /// Transient notifications for the UI (not saved).
 sealed class GameEvent {
@@ -30,6 +30,15 @@ class TrainingFinished extends GameEvent {
   final double effectiveCompute;
   final double predictedRating;
   const TrainingFinished(this.effectiveCompute, this.predictedRating);
+}
+
+/// You moved to the next room; every tile came along, shifted by [offset]
+/// (cells) so the old layout sits centred in the bigger floor.
+class RoomMoved extends GameEvent {
+  final RoomDef from;
+  final RoomDef to;
+  final (int, int) offset;
+  const RoomMoved(this.from, this.to, this.offset);
 }
 
 class ModelReleased extends GameEvent {
@@ -58,6 +67,46 @@ class EraGoal {
     if (current <= 1) return 0;
     return (math.log(current) / math.log(target)).clamp(0.0, 1.0);
   }
+}
+
+/// What a requirement row's button should open.
+enum RequirementAction { none, power, train }
+
+/// One line of a "what do I still need" checklist (moving to the next room).
+class Requirement {
+  /// 'era' | 'power' | 'cash'.
+  final String kind;
+
+  /// E.g. "Startup era", "Power: Office with 3-phase power", "Cash".
+  final String title;
+
+  /// Progress text, e.g. "1.2k / 3k users", "\$4k / \$15k", "done".
+  final String detail;
+
+  /// How to make progress, e.g. "grow users by releasing better models".
+  final String? hint;
+  final bool done;
+
+  /// 0..1.
+  final double progress;
+  final RequirementAction action;
+
+  /// False for "good to have" rows that don't block (the era, power).
+  final bool required;
+
+  const Requirement({
+    required this.kind,
+    required this.title,
+    required this.detail,
+    required this.done,
+    required this.progress,
+    this.hint,
+    this.action = RequirementAction.none,
+    this.required = true,
+  });
+
+  /// One line, e.g. "Startup era: 1.2k / 3k users (grow users by ...)".
+  String get line => '$title: $detail${hint == null || done ? '' : ' ($hint)'}';
 }
 
 class OfflineReport {
@@ -112,16 +161,96 @@ class Game {
 
   GridStats? _grid;
   int _gridRevision = -1;
+  int _gridNetwork = -1;
+  int _gridCooling = -1;
 
-  /// Derived grid data, recomputed only when the grid changes
-  /// (GameState.gridRevision). Utilization is applied on top, so upgrades
-  /// don't invalidate it.
+  /// Derived grid data, recomputed only when the grid or the network /
+  /// cooling tier changes. Utilization is applied on top, so upgrades don't
+  /// invalidate it.
   GridStats get grid {
-    if (_grid == null || _gridRevision != s.gridRevision) {
-      _grid = computeGridStats(s);
+    if (_grid == null ||
+        _gridRevision != s.gridRevision ||
+        _gridNetwork != s.networkTier ||
+        _gridCooling != s.coolingTier) {
+      _grid = computeGridStats(s, networkCap, cooling.perGpuTile);
       _gridRevision = s.gridRevision;
+      _gridNetwork = s.networkTier;
+      _gridCooling = s.coolingTier;
     }
     return _grid!;
+  }
+
+  // --- Central cooling -------------------------------------------------------
+
+  CoolingDef get cooling => coolingTiers[s.coolingTier];
+
+  CoolingDef? get nextCoolingTier =>
+      s.coolingTier + 1 < coolingTiers.length
+          ? coolingTiers[s.coolingTier + 1]
+          : null;
+
+  /// Why the next central cooling tier can't be bought, or null if it can.
+  String? coolingBlockReason() {
+    final next = nextCoolingTier;
+    if (next == null) return 'You have the best cooling plant.';
+    if (!isUnlocked(next.era)) return eraLockReason(next.era);
+    final missing = [
+      for (final id in next.requires)
+        if (!s.ownedUpgrades.contains(id))
+          upgrades.firstWhere((u) => u.id == id).name,
+    ];
+    if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
+    if (s.money < next.cost) {
+      return 'Costs ${_money(next.cost)}. You have ${_money(s.money)}.';
+    }
+    return null;
+  }
+
+  bool buyNextCoolingTier() {
+    if (coolingBlockReason() != null) return false;
+    s.money -= nextCoolingTier!.cost;
+    s.coolingTier++;
+    return true;
+  }
+
+  /// Central cooling matters from the Medium lab on (the panel shows then).
+  bool get coolingTiersVisible =>
+      s.coolingTier > 0 || isUnlocked(coolingTiers[1].era);
+
+  // --- Network ---------------------------------------------------------------
+
+  NetworkDef get network => networkTiers[s.networkTier];
+
+  /// GPUs one cluster keeps fed at full training efficiency.
+  double get networkCap => network.gpuCap;
+
+  NetworkDef? get nextNetworkTier =>
+      s.networkTier + 1 < networkTiers.length
+          ? networkTiers[s.networkTier + 1]
+          : null;
+
+  /// Why the next network tier can't be bought, or null if it can.
+  String? networkBlockReason() {
+    final next = nextNetworkTier;
+    if (next == null) return 'You have the fastest network.';
+    if (!isUnlocked(next.era)) return eraLockReason(next.era);
+    final missing = [
+      for (final id in next.requires)
+        if (!s.ownedUpgrades.contains(id))
+          upgrades.firstWhere((u) => u.id == id).name,
+    ];
+    if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
+    if (s.money < next.cost) {
+      return 'Costs ${_money(next.cost)}. You have ${_money(s.money)}.';
+    }
+    return null;
+  }
+
+  bool buyNextNetworkTier() {
+    if (networkBlockReason() != null) return false;
+    s.money -= nextNetworkTier!.cost;
+    s.networkTier++;
+    return true;
   }
 
   /// Sum of GPU tile TFLOPS ignoring heat.
@@ -131,14 +260,14 @@ class Game {
   double get rawTflops => grid.rawTflops;
   double get effectiveTflops => rawTflops * utilization;
 
-  /// GPUs across all rooms (a server tile counts 8, a rack 32–72...).
+  /// GPUs in the room (a server tile counts 8, a rack 32–72...).
   double get totalGpus => grid.totalGpus;
 
-  /// The cluster that trains: the best effective TFLOPS × scaling efficiency
-  /// across all rooms. Null only with no GPUs at all.
+  /// The cluster that trains: every GPU tile in the room (cabled overhead).
+  /// Null only with no GPUs at all.
   Cluster? get trainingCluster => grid.training?.withUtilization(utilization);
 
-  /// Clusters in one room (lone unnetworked GPU tiles are clusters of one).
+  /// The room's cluster (one, or none without GPUs), as a list.
   List<Cluster> clusters(String roomId) => [
     for (final c in grid.clusters)
       if (c.roomId == roomId) c.withUtilization(utilization),
@@ -171,6 +300,7 @@ class Game {
       inTrainingCluster: ci >= 0 && ci == grid.trainingIndex,
       effectiveTflops: def.tflops * rs.speed[i] * utilization,
       ambientCooling: rs.ambient[i],
+      plantCooling: rs.plant[i],
       adjacentCooling: rs.adjCooling[i],
       adjacentGpus: rs.coolerGpus[i],
     );
@@ -206,8 +336,8 @@ class Game {
   double get trainingTflops =>
       training ? trainingClusterTflops * s.run!.fraction : 0;
 
-  /// Every GPU not committed to training serves users: other clusters, lone
-  /// GPUs and the training cluster's unused fraction.
+  /// The compute not committed to training serves users: the cluster's
+  /// unused fraction (plus rented cloud GPUs).
   double get servingTflops =>
       effectiveTflops -
       (training ? _trainingClusterEffective * s.run!.fraction : 0) +
@@ -314,6 +444,43 @@ class Game {
     };
   }
 
+  /// "Unlocks in Small lab: reach rating 1,000 (you're at 998)." Spells out
+  /// the gate for the next era; later eras say which era comes first.
+  String eraLockReason(Era era) {
+    if (isUnlocked(era)) return 'Unlocked.';
+    final goal = nextEraGoal;
+    if (goal != null && goal.era == era) {
+      return 'Unlocks in ${era.label}: ${goalText(goal)}.';
+    }
+    return 'Unlocks in ${era.label} (after ${Era.values[era.index - 1].label}).';
+  }
+
+  /// "reach rating 1,000 (you're at 998)" / "reach 3k users (you have 1.2k)".
+  static String goalText(EraGoal goal) => switch (goal.metric) {
+    'users' =>
+      'reach ${_num(goal.target)} users (you have ${_num(goal.current)})',
+    'rating' =>
+      'reach rating ${_int(goal.target)} (you\'re at ${_int(goal.current.floorToDouble())})',
+    _ => 'reach ${_money(goal.target)} ARR (you have ${_money(goal.current)})',
+  };
+
+  /// How to make progress on a gate, for hints.
+  static String goalHint(String metric) => switch (metric) {
+    'users' => 'release better models and add serving GPUs',
+    'rating' => 'train & release a better model',
+    _ => 'grow revenue: more users, better pricing',
+  };
+
+  static String _int(double v) {
+    final s = v.round().toString();
+    final b = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
+      b.write(s[i]);
+    }
+    return b.toString();
+  }
+
   /// Can [r] be beaten now (its era reached, rating and users matched)?
   bool canBeat(RivalSnapshot r) =>
       isUnlocked(r.era) && rating >= r.rating && s.users >= r.users;
@@ -323,23 +490,103 @@ class Game {
   // ---------------------------------------------------------------------------
 
   // --- Rooms -----------------------------------------------------------------
+  // You live in one room at a time. Moving to the next one takes every tile
+  // with you (same layout, centred in the bigger floor); the old room is gone.
 
+  RoomDef get currentRoom => s.room;
+
+  /// The next room you can move to, or null in the last one.
+  RoomDef? get nextRoom => roomAfter(s.roomId);
+
+  /// True only for the room you're in.
   bool isRoomOwned(String roomId) => s.ownsRoom(roomId);
 
-  List<RoomDef> get ownedRooms => [
-    for (final r in rooms)
-      if (s.ownsRoom(r.id)) r,
-  ];
+  /// The room you're in, as a list (kept for callers that loop over rooms).
+  List<RoomDef> get ownedRooms => [currentRoom];
 
-  /// Why [roomId] can't be bought right now, or null if it can.
+  /// Cell offset that centres [from]'s layout in [to] (deterministic: extra
+  /// odd columns/rows go to the right/bottom).
+  static (int, int) moveOffset(RoomDef from, RoomDef to) =>
+      ((to.width - from.width) ~/ 2, (to.height - from.height) ~/ 2);
+
+  /// The move checklist for [roomId]: the cash (the only thing that blocks
+  /// a move), then what the room's era brings (not required: moving early
+  /// just gives more floor and free cooling; new parts, power and network
+  /// tiers and research still wait for the era's goal). Empty for rooms you
+  /// can't move to at all (see [roomBlockReason]).
+  List<Requirement> moveRequirements(String roomId) {
+    final room = roomById(roomId);
+    if (room == null || room.id != nextRoom?.id) return const [];
+    final out = <Requirement>[];
+    final cashOk = s.money >= room.cost;
+    out.add(Requirement(
+      kind: 'cash',
+      title: 'Cash',
+      detail: cashOk ? _money(room.cost) : '${_money(s.money)} / ${_money(room.cost)}',
+      hint: cashOk ? null : 'earn it by serving users',
+      done: cashOk,
+      progress: room.cost <= 0 ? 1 : (s.money / room.cost).clamp(0.0, 1.0),
+    ));
+    // Era (optional): its parts, power, network and research.
+    final eraOk = isUnlocked(room.era);
+    final goal = nextEraGoal;
+    if (eraOk) {
+      out.add(Requirement(
+        kind: 'era',
+        title: '${room.era.label} era',
+        detail: 'reached: its parts are unlocked',
+        done: true,
+        progress: 1,
+        required: false,
+      ));
+    } else if (goal != null && goal.era == room.era) {
+      final users = goal.metric == 'users';
+      out.add(Requirement(
+        kind: 'era',
+        title: '${room.era.label} era',
+        detail: users
+            ? '${_num(goal.current)} / ${_num(goal.target)} users'
+            : 'rating ${goal.current.floor()} / ${goal.target.round()}',
+        hint: users
+            ? 'grow users by releasing better models; unlocks the new parts'
+            : 'train & release a better model; unlocks the new parts',
+        done: false,
+        progress: goal.progress,
+        action: RequirementAction.train,
+        required: false,
+      ));
+    }
+    // Power (optional): the new parts need it.
+    if (room.minPowerTier > 0 && s.powerTier < room.minPowerTier) {
+      final need = powerTiers[room.minPowerTier];
+      final next = nextPowerTier!;
+      final steps = room.minPowerTier - s.powerTier;
+      out.add(Requirement(
+        kind: 'power',
+        title: 'Power: ${need.name}',
+        detail: steps == 1
+            ? _money(need.cost)
+            : 'next ${next.name} (${_money(next.cost)}), then ${steps - 1} more',
+        hint: 'for the new parts; buy it in Power',
+        done: false,
+        progress: s.powerTier / room.minPowerTier,
+        action: RequirementAction.power,
+        required: false,
+      ));
+    }
+    return out;
+  }
+
+  /// Why you can't move to [roomId] right now (one actionable sentence), or
+  /// null if you can. [moveRequirements] has the full checklist.
   String? roomBlockReason(String roomId) {
     final room = roomById(roomId);
     if (room == null) return 'Unknown room.';
-    if (s.ownsRoom(roomId)) return 'You already have the ${room.name}.';
-    if (!isUnlocked(room.era)) return 'Unlocks in the ${room.era.label} era.';
-    if (s.powerTier < room.minPowerTier) {
-      return 'Needs the ${powerTiers[room.minPowerTier].name} power tier.';
-    }
+    if (s.ownsRoom(roomId)) return 'You\'re already in the ${room.name}.';
+    final i = roomIndex(roomId), cur = roomIndex(s.roomId);
+    if (i < cur) return 'You moved out of the ${room.name}.';
+    if (i > cur + 1) return 'Move to the ${nextRoom!.name} first.';
+    // Money is the only gate.
     if (s.money < room.cost) {
       return 'Costs ${_money(room.cost)}. You have ${_money(s.money)}.';
     }
@@ -348,12 +595,29 @@ class Game {
 
   bool canBuyRoom(String roomId) => roomBlockReason(roomId) == null;
 
-  bool buyRoom(String roomId) {
+  /// Move to [roomId] (the next room; money is the only gate): pay for it,
+  /// carry every tile over with
+  /// the same relative layout (centred, see [moveOffset]) and leave the old
+  /// room behind. Training, users and upgrades carry on unchanged.
+  bool moveTo(String roomId) {
     if (!canBuyRoom(roomId)) return false;
-    final room = roomById(roomId)!;
-    s.money -= room.cost;
-    s.grids[roomId] = GameState.emptyGrid(room);
+    final from = currentRoom;
+    final to = roomById(roomId)!;
+    final (ox, oy) = moveOffset(from, to);
+    final old = s.grids[from.id]!;
+    final cells = GameState.emptyGrid(to);
+    for (var i = 0; i < old.length; i++) {
+      final id = old[i];
+      if (id == null) continue;
+      final x = i % from.width + ox, y = i ~/ from.width + oy;
+      cells[y * to.width + x] = id;
+    }
+    s.money -= to.cost;
+    s.grids
+      ..clear()
+      ..[to.id] = cells;
     s.touchGrid();
+    events.add(RoomMoved(from, to, (ox, oy)));
     return true;
   }
 
@@ -366,28 +630,40 @@ class Game {
 
   /// Why [t] is locked (era / upgrade / power tier), or null.
   String? tileLockReason(TileDef t) {
-    if (!isUnlocked(t.era)) return 'Unlocks in the ${t.era.label} era.';
+    if (!isUnlocked(t.era)) return eraLockReason(t.era);
     final missing = [
       for (final id in t.requires)
         if (!s.ownedUpgrades.contains(id))
           upgrades.firstWhere((u) => u.id == id).name,
     ];
-    if (missing.isNotEmpty) return 'Requires ${missing.join(' + ')}.';
+    if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
     if (s.powerTier < t.minPowerTier) {
-      return 'Needs the ${powerTiers[t.minPowerTier].name} power tier.';
+      return 'Needs power: ${powerTiers[t.minPowerTier].name}.';
     }
     return null;
   }
 
-  /// Tiles that can go in [roomId] (locked or not), in content order.
-  List<TileDef> tilesForRoom(String roomId) => [
-    for (final t in tiles)
-      if (t.rooms.contains(roomId)) t,
-  ];
+  /// Tiles for the tray in [roomId] (locked or not): every tile can go in
+  /// any room once unlocked. The room's own era and newer first, then the
+  /// older parts, each in content order.
+  List<TileDef> tilesForRoom(String roomId) {
+    final era = roomById(roomId)?.era.index ?? 0;
+    return [
+      for (final t in tiles)
+        if (t.era.index >= era) t,
+      for (final t in tiles)
+        if (t.era.index < era) t,
+    ];
+  }
+
+  /// A part from an era before [roomId]'s: placeable, grouped as "older".
+  bool isOlderPart(TileDef t, String roomId) =>
+      t.era.index < (roomById(roomId)?.era.index ?? 0);
 
   /// Human-readable reason [tileId] can't be placed at (x, y), or null.
-  /// Checks, in order: room owned, bounds, empty cell, allowed room, era /
-  /// upgrades / power tier, power headroom, money ([ignoreMoney] skips it).
+  /// Checks, in order: the room you're in, bounds, empty cell, era /
+  /// research / power tier unlocks, power headroom, money ([ignoreMoney]
+  /// skips it). Never the room size: any unlocked tile goes anywhere.
   String? placeBlockReason(
     String roomId,
     int x,
@@ -451,7 +727,7 @@ class Game {
     if (tile == null) return 'Unknown tile.';
     final room = roomById(roomId);
     if (room == null) return 'Unknown room.';
-    if (!s.ownsRoom(roomId)) return 'Buy the ${room.name} first.';
+    if (!s.ownsRoom(roomId)) return 'You\'re not in the ${room.name}.';
     if (x < 0 || y < 0 || x >= room.width || y >= room.height) {
       return 'That spot is outside the ${room.name}.';
     }
@@ -459,14 +735,6 @@ class Game {
     if (replacing == null && here != null) {
       return 'That spot is taken. Move or sell the '
           '${tileById(here)?.name ?? here} first.';
-    }
-    if (!tile.rooms.contains(roomId)) {
-      final where = [
-        for (final r in rooms)
-          if (tile.rooms.contains(r.id)) r.name,
-      ].join(' or ');
-      return '${tile.name} doesn\'t fit in the ${room.name}. It goes in the '
-          '$where.';
     }
     final locked = tileLockReason(tile);
     if (locked != null) return locked;
@@ -476,7 +744,7 @@ class Game {
     final freeKw = powerCapKw - powerUsedKw;
     if (needKw > freeKw + 1e-9) {
       return 'Not enough power: needs ${_kw(needKw)}, ${_kw(math.max(0, freeKw))} '
-          'free. Upgrade your power supply.';
+          'free. Tap ⚡ Power to upgrade.';
     }
     final price =
         tilePrice(tile) - (oldDef == null ? 0 : sellValue(oldDef.id));
@@ -514,7 +782,7 @@ class Game {
     final id = tileAt(roomId, x, y);
     if (id == null) return 'There is nothing there to sell.';
     final def = tileById(id)!;
-    if (def.isGpu && grid.rooms.values.fold(0, (a, r) => a + r.gpuTiles) <= 1) {
+    if (def.isGpu && (grid.rooms[roomId]?.gpuTiles ?? 0) <= 1) {
       return 'You can\'t sell your last GPU.';
     }
     return null;
@@ -531,6 +799,17 @@ class Game {
       kw >= 1000
           ? '${(kw / 1000).toStringAsFixed(kw >= 1e5 ? 0 : 1)} MW'
           : '${kw.toStringAsFixed(kw >= 10 ? 0 : 2)} kW';
+
+  static String _num(double v) {
+    final a = v.abs();
+    String f(double x) => x >= 10 || x == x.roundToDouble()
+        ? x.toStringAsFixed(0)
+        : x.toStringAsFixed(1);
+    if (a >= 1e9) return '${f(v / 1e9)}B';
+    if (a >= 1e6) return '${f(v / 1e6)}M';
+    if (a >= 1e3) return '${f(v / 1e3)}k';
+    return v.toStringAsFixed(0);
+  }
 
   static String _money(double v) {
     final a = v.abs();

@@ -92,8 +92,8 @@ void main() {
     await withApp(tester, (c) async {
       expect(find.byType(WorldMap), findsOneWidget);
       expect(find.text(formatMoney(c.game.s.money)), findsOneWidget);
-      expect(find.text('No run'), findsOneWidget);
-      for (final t in ['Build', 'Research', 'Train', 'Rivals', 'Lab', 'Settings']) {
+      expect(find.text('No training run'), findsOneWidget);
+      for (final t in ['Build', 'Research', 'Train', 'Power', 'Rivals', 'Lab', 'Settings']) {
         expect(
           find.descendant(
             of: find.byKey(ValueKey('tool-${t == 'Lab' ? 'stats' : t.toLowerCase()}')),
@@ -104,7 +104,7 @@ void main() {
       }
       expect(find.byTooltip('Research upgrades (R)'), findsOneWidget);
       expect(find.byKey(const ValueKey('room-floor-garage')), findsOneWidget);
-      // The next plot is a faint silhouette with its unlock sign.
+      // The next plot is a faint silhouette with its "move here" sign.
       expect(find.byKey(const ValueKey('plot-closet')), findsOneWidget);
       expect(find.byKey(const ValueKey('unlock-closet')), findsOneWidget);
       expect(find.byKey(const ValueKey('founder')), findsOneWidget);
@@ -146,7 +146,7 @@ void main() {
     });
   });
 
-  testWidgets('tutorial walks through train, second GPU, switch', (tester) async {
+  testWidgets('tutorial walks through train, second GPU, release', (tester) async {
     await withApp(tester, (c) async {
       Future<void> settle() async {
         await tester.pump(const Duration(milliseconds: 300));
@@ -154,6 +154,7 @@ void main() {
       }
 
       expect(find.text('Train your first model'), findsOneWidget);
+      expect(find.text('TUTORIAL 1/3'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('tutorial-action')));
       await settle();
       expect(find.byType(TrainingPanel), findsOneWidget);
@@ -167,19 +168,18 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('tutorial-action')));
       await settle();
       expect(find.text('Tap a glowing floor cell'), findsOneWidget);
-      await tapCell(tester, 'garage', 3, 1);
+      // Anywhere works: the whole room is one cluster.
+      await tapCell(tester, 'garage', 3, 0);
       await settle();
-      expect(c.game.tileAt('garage', 3, 1), 'gpu_old');
-
-      expect(find.text('Link your GPUs with a switch'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('tutorial-action')));
-      await settle();
-      expect(find.text('Place it touching both GPUs'), findsOneWidget);
-      await tapCell(tester, 'garage', 2, 1);
-      await settle();
-      expect(c.game.tileAt('garage', 2, 1), 'net_home');
+      expect(c.game.tileAt('garage', 3, 0), 'gpu_old');
       expect(c.game.trainingCluster!.gpus, 2);
-      expect(find.textContaining('Linked!'), findsOneWidget);
+      expect(find.textContaining('Cabled!'), findsOneWidget);
+      expect(find.text('TUTORIAL 3/3'), findsOneWidget);
+
+      // The run finishes: step 3 is the release.
+      c.act((g) => g.advance(600));
+      await settle();
+      expect(find.text('Your model is trained!'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('tutorial-skip')));
       await settle();
@@ -187,42 +187,54 @@ void main() {
     }, tutorial: true);
   });
 
-  testWidgets('build: place a GPU and a switch by tapping floor cells', (tester) async {
+  testWidgets('build: place a GPU and a cooler, drag to paint, older parts', (tester) async {
     await withApp(tester, (c) async {
       await openTool(tester, 'build');
       final before = c.game.s.money;
       final gpu = tileById('gpu_gamer')!;
-      final sw = tileById('net_5g')!;
+      final fan = tileById('cool_fan')!;
 
-      // Pick the RTX 4090, tap an empty cell: placed.
+      // Pick the RTX 4090, tap an empty cell: placed and cabled in.
       await tester.tap(find.byKey(const ValueKey('part-gpu_gamer')));
       await tester.pump(const Duration(milliseconds: 200));
       await tapCell(tester, 'garage', 3, 1);
       expect(c.game.tileAt('garage', 3, 1), 'gpu_gamer');
+      expect(c.game.trainingCluster!.gpus, 2);
 
       // Tapping a taken cell explains why instead of placing.
       await tapCell(tester, 'garage', 1, 1);
       expect(find.textContaining('That spot is taken'), findsOneWidget);
 
-      // Network tab, 5 Gbit switch between the two GPUs.
-      await tester.tap(find.byKey(const ValueKey('kind-network')));
+      // Cooling tab (no Network tab any more), a fan between the two GPUs.
+      expect(find.byKey(const ValueKey('kind-network')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('kind-cooling')));
       await tester.pump(const Duration(milliseconds: 300));
-      await tester.tap(find.byKey(const ValueKey('part-net_5g')));
+      await tester.tap(find.byKey(const ValueKey('part-cool_fan')));
       await tester.pump(const Duration(milliseconds: 200));
       await tapCell(tester, 'garage', 2, 1);
-      expect(c.game.tileAt('garage', 2, 1), 'net_5g');
-      // Revenue keeps ticking during pumps, so allow a little drift.
-      expect(c.game.s.money, closeTo(before - gpu.cost - sw.cost, 5));
+      expect(c.game.tileAt('garage', 2, 1), 'cool_fan');
+      expect(c.game.s.money, closeTo(before - gpu.cost - fan.cost, 5));
+      expect(find.textContaining('Training cluster: 2 GPUs on Copper Ethernet 1G'), findsWidgets);
+      expect(find.byKey(const ValueKey('cluster-label')), findsOneWidget);
 
-      final cluster = c.game.trainingCluster!;
-      expect(cluster.networked, isTrue);
-      expect(cluster.gpus, 2);
-      expect(find.textContaining('Training cluster: 2 GPUs on 5 Gbit switch'), findsWidgets);
+      // Drag to paint fans along a row.
+      final from = cellOnScreen(tester, 'garage', 0, 0);
+      final to = cellOnScreen(tester, 'garage', 3, 0);
+      final gesture = await tester.startGesture(from);
+      for (var i = 1; i <= 8; i++) {
+        await gesture.moveTo(Offset.lerp(from, to, i / 8)!);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 300));
+      for (var x = 0; x < 4; x++) {
+        expect(c.game.tileAt('garage', x, 0), 'cool_fan', reason: 'painted $x');
+      }
+      expect(find.textContaining('Placed 4 ×'), findsOneWidget);
 
       // Done leaves build mode; tapping a tile then opens its info card.
       await tester.tap(find.byKey(const ValueKey('cancel-mode')));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.byKey(const ValueKey('part-net_5g')), findsNothing);
       await tapCell(tester, 'garage', 3, 1);
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text(gpu.blurb), findsOneWidget);
@@ -239,6 +251,30 @@ void main() {
     }, state: GameState(money: 10000));
   });
 
+  testWidgets('a later room offers every unlocked part, older ones grouped', (tester) async {
+    final hall = List<String?>.filled(14 * 14, null)..[0] = 'rack_h_class';
+    await withApp(tester, (c) async {
+      await openTool(tester, 'build');
+      expect(find.byKey(const ValueKey('part-rack_h_class')), findsOneWidget);
+      expect(find.byKey(const ValueKey('part-gpu_gamer')), findsNothing);
+      await tester.dragUntilVisible(
+        find.byKey(const ValueKey('tray-older')),
+        find.byKey(const ValueKey('tray-hall-gpu')),
+        const Offset(-200, 0),
+      );
+      await tester.tap(find.byKey(const ValueKey('tray-older')));
+      await tester.pump(const Duration(milliseconds: 300));
+      // An old gaming card is still placeable in the hall (just a poor deal).
+      await tester.dragUntilVisible(
+        find.byKey(const ValueKey('part-gpu_gamer')),
+        find.byKey(const ValueKey('tray-hall-gpu')),
+        const Offset(-200, 0),
+      );
+      expect(find.textContaining('TF/kW'), findsWidgets);
+      expect(c.game.placeBlockReason('hall', 5, 5, 'gpu_gamer'), isNull);
+    }, state: GameState(money: 1e9, era: Era.mediumLab, powerTier: 4, grids: {'hall': hall}));
+  });
+
   testWidgets('move swaps tiles', (tester) async {
     await withApp(tester, (c) async {
       await tapCell(tester, 'garage', 1, 1);
@@ -253,7 +289,7 @@ void main() {
     });
   });
 
-  testWidgets('power-blocked GPUs and the locked room explain themselves', (tester) async {
+  testWidgets('power-blocked GPUs and the move checklist explain themselves', (tester) async {
     final garage = List<String?>.filled(16, null);
     for (var i = 0; i < 4; i++) {
       garage[i] = 'gpu_gamer'; // 4 × 0.45 kW fills the 1.8 kW outlet
@@ -266,33 +302,102 @@ void main() {
       await tapCell(tester, 'garage', 0, 2);
       expect(find.textContaining('Not enough power'), findsOneWidget);
       expect(c.game.tileAt('garage', 0, 2), isNull);
+      await tester.tap(find.byKey(const ValueKey('cancel-mode')));
+      await tester.pump(const Duration(milliseconds: 300));
 
-      // The next room says why it's locked.
-      await tester.tap(find.byKey(const ValueKey('room-closet')));
+      // The next place has a checklist: cash (the only must), then what the
+      // era brings, each with progress and a button.
+      await tester.tap(find.byKey(const ValueKey('unlock-closet')));
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump(const Duration(milliseconds: 400));
-      expect(find.text(c.game.roomBlockReason('closet')!), findsWidgets);
-    }, state: GameState(money: 1e6, grids: {'garage': garage}));
+      expect(find.byKey(const ValueKey('move-checklist')), findsOneWidget);
+      expect(find.byKey(const ValueKey('req-cash')), findsOneWidget);
+      expect(find.byKey(const ValueKey('req-era')), findsOneWidget);
+      expect(find.byKey(const ValueKey('req-power')), findsOneWidget);
+      expect(find.textContaining('/ 3k users'), findsOneWidget);
+      expect(find.textContaining('grow users by releasing better models'), findsOneWidget);
+      expect(find.textContaining('Office with 3-phase power'), findsOneWidget);
+      expect(find.textContaining('power power'), findsNothing);
+      expect(find.text('Move to Server closet'), findsOneWidget);
+      // "Open power" goes to the Power card.
+      await tester.ensureVisible(find.byKey(const ValueKey('req-go-power')));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(const ValueKey('req-go-power')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('CURRENT SUPPLY'), findsOneWidget);
+    }, state: GameState(money: 1000, grids: {'garage': garage}));
   });
 
-  testWidgets('unlock area: buying the closet reveals it and pulls the camera back', (
-    tester,
-  ) async {
+  testWidgets('moving to the closet: money only, everything comes along', (tester) async {
     await withApp(tester, (c) async {
       final cam = tester.state<WorldMapState>(find.byType(WorldMap)).camera;
       final z0 = cam.zoom;
+      expect(find.byKey(const ValueKey('room-garage')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('unlock-closet')));
       await tester.pump(const Duration(milliseconds: 400));
+      // Still the garage era: moving only needs the cash.
+      expect(find.byKey(const ValueKey('req-cash')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const ValueKey('buy-room')));
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(find.byKey(const ValueKey('buy-room')));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(c.game.isRoomOwned('closet'), isTrue);
-      await tester.pump(const Duration(seconds: 2));
+      expect(c.game.currentRoom.id, 'closet');
+      // The starting GPU moved with you, centred: (1,1) → (2,2).
+      expect(c.game.tileAt('closet', 2, 2), 'gpu_gamer');
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byKey(const ValueKey('move-banner')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.byKey(const ValueKey('move-banner')), findsNothing);
       expect(find.byKey(const ValueKey('room-closet')), findsOneWidget);
       expect(find.byKey(const ValueKey('room-floor-closet')), findsOneWidget);
-      expect(cam.zoom, lessThan(z0));
-      // The next plot along the road is now the colo.
+      expect(find.byKey(const ValueKey('room-garage')), findsNothing);
+      expect(cam.zoom, isNot(z0));
+      // The next place along the road is now the colo.
       expect(find.byKey(const ValueKey('unlock-colo')), findsOneWidget);
-    }, state: GameState(money: 1e5, era: Era.startup, powerTier: 2));
+    }, state: GameState(money: 1e5));
+  });
+
+  testWidgets('HUD: network meter, goal strip and the leaderboard', (tester) async {
+    final garage = List<String?>.filled(16, 'gpu_old')..[15] = null;
+    await withApp(tester, (c) async {
+      Future<void> settle() async {
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+
+      // 15 GPUs on copper 1G (feeds 4): over the cap, red, scaling shown.
+      expect(find.text('15/4'), findsOneWidget);
+      expect(find.textContaining('scaling'), findsWidgets);
+      await tester.tap(find.byKey(const ValueKey('network-chip')));
+      await settle();
+      expect(find.byKey(const ValueKey('network-explain')), findsOneWidget);
+      expect(find.textContaining('keeps 4 GPUs fed'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('buy-network')));
+      await settle();
+      expect(c.game.network.id, 'copper10g');
+      await tester.tap(find.byKey(const ValueKey('modal-close')).last);
+      await settle();
+      expect(find.text('15/32'), findsOneWidget);
+
+      // Goal strip: the next era and how to get there.
+      expect(find.textContaining('Next era: Startup'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('goal-strip')));
+      await settle();
+      expect(find.byKey(const ValueKey('next-era-title')), findsOneWidget);
+      expect(find.textContaining('Move to the Server closet'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('modal-close')).last);
+      await settle();
+
+      // Rating plate: "RATING" + the rival to beat; tap opens the leaderboard.
+      expect(find.text('RATING'), findsOneWidget);
+      expect(find.textContaining('beat Tiny-Transformer'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('rating-chip')));
+      await settle();
+      expect(find.byKey(const ValueKey('leaderboard')), findsOneWidget);
+      expect(find.byKey(const ValueKey('leaderboard-you')), findsOneWidget);
+      expect(find.textContaining('rating to pass Tiny-Transformer'), findsOneWidget);
+    }, state: GameState(money: 1e4, powerTier: 1, grids: {'garage': garage}));
   });
 
   testWidgets('research shows blurbs and buys an upgrade', (tester) async {
@@ -312,6 +417,50 @@ void main() {
       expect(find.text('Researched: ${mp.name}'), findsOneWidget);
       expect(find.text('WHAT CHANGED'), findsOneWidget);
       expect(find.text('Training compute'), findsOneWidget);
+    }, state: GameState(money: 2e6));
+  });
+
+  testWidgets('research tabs: available now, then one track per category', (tester) async {
+    await withApp(tester, (c) async {
+      await openTool(tester, 'research');
+      final data = upgrades.firstWhere((u) => u.category == UpgradeCategory.data && u.era == Era.garage);
+      final soft = upgrades.firstWhere((u) => u.category == UpgradeCategory.software && u.era == Era.garage);
+      final later = upgrades.firstWhere((u) => u.category == UpgradeCategory.data && u.era == Era.startup);
+      // "Available now" is the default tab and lists garage research of every track.
+      for (final cat in [null, ...UpgradeCategory.values]) {
+        expect(find.byKey(ValueKey('research-tab-chip-${cat?.name ?? 'available'}')), findsOneWidget);
+      }
+      expect(find.byKey(const ValueKey('research-tab-available')), findsOneWidget);
+      expect(find.text(soft.name), findsWidgets);
+      expect(find.text(later.name), findsNothing);
+      // Counts on the chips: what you can research now in each track.
+      final nData = upgrades.where((u) => u.category == UpgradeCategory.data && u.era == Era.garage).length;
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('research-tab-chip-data')),
+          matching: find.text('$nData'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.ensureVisible(find.byKey(const ValueKey('research-tab-chip-data')));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(const ValueKey('research-tab-chip-data')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const ValueKey('research-tab-data')), findsOneWidget);
+      expect(find.text(data.name), findsWidgets);
+      expect(find.text(soft.name), findsNothing);
+      // The data track also shows what unlocks later, with the gate spelled out.
+      await tester.scrollUntilVisible(find.text(later.name), 200, scrollable: modalScrollable);
+      expect(find.textContaining('Unlocks in Startup: reach 3k users'), findsWidgets);
+
+      await tester.ensureVisible(find.byKey(const ValueKey('research-tab-chip-software')));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(const ValueKey('research-tab-chip-software')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text(soft.name), findsWidgets);
+      expect(find.text(data.name), findsNothing);
+      expect(tester.takeException(), isNull);
     }, state: GameState(money: 2e6));
   });
 

@@ -1,5 +1,6 @@
-// Build mode's bottom drawer: room picker, the training-cluster summary and
-// the parts tray (pick a part, then tap glowing floor cells).
+// Build mode's bottom drawer: the room you're in with the Power / Network /
+// Cooling chips, the training-cluster summary and the parts tray (pick a
+// part, then tap glowing floor cells).
 import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
@@ -20,9 +21,9 @@ class BuildDrawer extends StatelessWidget {
   final VoidCallback onDone;
   final ValueChanged<TileKind> onKind;
   final ValueChanged<TileDef> onPick;
-  final ValueChanged<String> onSelectRoom;
-  final ValueChanged<RoomDef> onNextRoom;
   final VoidCallback onPower;
+  final VoidCallback onNetwork;
+  final VoidCallback onCooling;
 
   const BuildDrawer({
     super.key,
@@ -33,9 +34,9 @@ class BuildDrawer extends StatelessWidget {
     required this.onDone,
     required this.onKind,
     required this.onPick,
-    required this.onSelectRoom,
-    required this.onNextRoom,
     required this.onPower,
+    required this.onNetwork,
+    required this.onCooling,
   });
 
   @override
@@ -54,12 +55,11 @@ class BuildDrawer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            RoomStrip(
+            TierStrip(
               game: game,
-              selected: room.id,
-              onSelect: onSelectRoom,
-              onNextRoom: onNextRoom,
               onPower: onPower,
+              onNetwork: onNetwork,
+              onCooling: onCooling,
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
@@ -82,187 +82,180 @@ class BuildDrawer extends StatelessWidget {
   }
 }
 
-// --- Room strip -------------------------------------------------------------------
+// --- Room + tier strip ----------------------------------------------------------
 
-class RoomStrip extends StatelessWidget {
+/// The room you're in, then the Power, Network and (from the Medium lab)
+/// Cooling chips.
+class TierStrip extends StatelessWidget {
   final Game game;
-  final String selected;
-  final ValueChanged<String> onSelect;
-  final ValueChanged<RoomDef> onNextRoom;
   final VoidCallback onPower;
+  final VoidCallback onNetwork;
+  final VoidCallback onCooling;
 
-  const RoomStrip({
+  const TierStrip({
     super.key,
     required this.game,
-    required this.selected,
-    required this.onSelect,
-    required this.onNextRoom,
     required this.onPower,
+    required this.onNetwork,
+    required this.onCooling,
   });
 
   @override
   Widget build(BuildContext context) {
     final g = game;
-    final owned = g.ownedRooms;
-    final next = rooms.where((r) => !g.isRoomOwned(r.id)).firstOrNull;
+    final room = g.currentRoom;
     return SizedBox(
       height: 50,
-      child: Row(
-        children: [
-          Expanded(
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(12, 8, 6, 0),
-              children: [
-                for (final r in owned)
-                  _RoomChip(
-                    key: ValueKey('room-${r.id}'),
-                    room: r,
-                    selected: r.id == selected,
-                    onTap: () => onSelect(r.id),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                key: const ValueKey('drawer-room'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    room.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                   ),
-                if (next != null)
-                  _RoomChip(
-                    key: ValueKey('room-${next.id}'),
-                    room: next,
-                    selected: false,
-                    locked: true,
-                    buyable: g.canBuyRoom(next.id),
-                    price: next.cost,
-                    onTap: () => onNextRoom(next),
+                  Text(
+                    '${room.width}×${room.height} · 1 GPU tile = ${room.tileScaleLabel}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: numStyle(size: 10, color: AppColors.muted),
                   ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(0, 8, 12, 0),
-            child: _PowerChip(game: g, onTap: onPower),
-          ),
-        ],
+            _PowerChip(game: g, onTap: onPower),
+            const SizedBox(width: 6),
+            _NetworkChip(game: g, onTap: onNetwork),
+            if (g.coolingTiersVisible) ...[
+              const SizedBox(width: 6),
+              _CoolingChip(game: g, onTap: onCooling),
+            ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _RoomChip extends StatelessWidget {
-  final RoomDef room;
-  final bool selected;
-  final bool locked;
-  final bool buyable;
-  final double? price;
+class _NetworkChip extends StatelessWidget {
+  final Game game;
   final VoidCallback onTap;
-
-  const _RoomChip({
-    super.key,
-    required this.room,
-    required this.selected,
-    required this.onTap,
-    this.locked = false,
-    this.buyable = false,
-    this.price,
-  });
+  const _NetworkChip({required this.game, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final accent =
-        selected
-            ? AppColors.neon
-            : buyable
-            ? AppColors.amber
-            : AppColors.border;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Pulse(
-          active: buyable,
-          scale: 1.04,
-          child: Container(
-            width: 116,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: accent, width: selected ? 2 : 1),
-              boxShadow: [
-                if (selected || buyable)
-                  BoxShadow(color: accent.withValues(alpha: 0.3), blurRadius: 10),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(11),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Opacity(
-                    opacity: locked && !buyable ? 0.35 : 1,
-                    child: Image.asset(
-                      GameArt.roomBanner(room.id),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const ColoredBox(color: AppColors.surfaceHi),
-                    ),
-                  ),
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Color(0x22000000), Color(0xDD060A12)],
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 4, 6, 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Text(
-                          room.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
-                            color: selected ? AppColors.neon : AppColors.text,
-                          ),
-                        ),
-                        if (locked)
-                          Row(
-                            children: [
-                              Icon(
-                                buyable ? Icons.add_circle : Icons.lock,
-                                size: 11,
-                                color: buyable ? AppColors.amber : AppColors.muted,
-                              ),
-                              const SizedBox(width: 3),
-                              Flexible(
-                                child: Text(
-                                  formatMoney(price ?? 0),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: numStyle(
-                                    size: 10.5,
-                                    color: buyable ? AppColors.amber : AppColors.muted,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          )
-                        else
-                          Text(
-                            '${room.width}×${room.height}',
-                            style: numStyle(size: 10.5, color: AppColors.muted),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    final g = game;
+    final c = g.trainingCluster;
+    final color = networkMeterColor(g);
+    final frac = c == null ? 0.0 : c.gpus / g.networkCap;
+    final canUpgrade = g.nextNetworkTier != null && g.networkBlockReason() == null;
+    return _Chip(
+      key: const ValueKey('drawer-network'),
+      icon: Icons.cable_rounded,
+      text: '${formatNumber(c?.gpus ?? 0)}/${formatNumber(g.networkCap)}',
+      color: color,
+      frac: frac,
+      canUpgrade: canUpgrade,
+      pulse: canUpgrade && (c?.overCap ?? false),
+      onTap: onTap,
     );
   }
+}
+
+class _CoolingChip extends StatelessWidget {
+  final Game game;
+  final VoidCallback onTap;
+  const _CoolingChip({required this.game, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final g = game;
+    final hot = throttlingTiles(g);
+    final canUpgrade = g.nextCoolingTier != null && g.coolingBlockReason() == null;
+    return _Chip(
+      key: const ValueKey('drawer-cooling'),
+      icon: Icons.ac_unit_rounded,
+      text: hot > 0 ? '$hot hot' : 'cool',
+      color: hot > 0 ? AppColors.red : AppColors.cyan,
+      frac: g.s.coolingTier / (coolingTiers.length - 1),
+      canUpgrade: canUpgrade,
+      pulse: canUpgrade && hot > 0,
+      onTap: onTap,
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color color;
+  final double frac;
+  final bool canUpgrade;
+  final bool pulse;
+  final VoidCallback onTap;
+  const _Chip({
+    super.key,
+    required this.icon,
+    required this.text,
+    required this.color,
+    required this.frac,
+    required this.canUpgrade,
+    required this.pulse,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Pulse(
+      active: pulse,
+      child: Container(
+        width: 76,
+        padding: const EdgeInsets.fromLTRB(7, 5, 6, 6),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceHi,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: canUpgrade ? AppColors.neon.withValues(alpha: 0.7) : AppColors.border,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 14, color: color),
+                const SizedBox(width: 2),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(text, style: numStyle(size: 12, color: color)),
+                  ),
+                ),
+                Icon(
+                  canUpgrade ? Icons.arrow_circle_up : Icons.chevron_right,
+                  size: 15,
+                  color: canUpgrade ? AppColors.neon : AppColors.muted,
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
+            MeterBar(value: frac.clamp(0.0, 1.0), color: color, height: 6),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _PowerChip extends StatelessWidget {
@@ -283,7 +276,7 @@ class _PowerChip extends StatelessWidget {
     final next = g.nextPowerTier;
     final canUpgrade = next != null && g.isUnlocked(next.era) && g.s.money >= next.cost;
     return GestureDetector(
-      key: const ValueKey('power-chip'),
+      key: const ValueKey('drawer-power'),
       onTap: onTap,
       child: Pulse(
         active: canUpgrade && frac >= 0.8,
@@ -331,7 +324,7 @@ class _PowerChip extends StatelessWidget {
 
 // --- Parts tray -------------------------------------------------------------------
 
-class PartsTray extends StatelessWidget {
+class PartsTray extends StatefulWidget {
   final Game game;
   final RoomDef room;
   final TileKind kind;
@@ -354,10 +347,31 @@ class PartsTray extends StatelessWidget {
   });
 
   @override
+  State<PartsTray> createState() => _PartsTrayState();
+}
+
+class _PartsTrayState extends State<PartsTray> {
+  /// Parts from earlier rooms still fit but are tucked into one card.
+  bool _older = false;
+
+  @override
   Widget build(BuildContext context) {
-    final g = game;
-    final all = g.tilesForRoom(room.id);
+    final w = widget;
+    final g = w.game;
+    final room = w.room, kind = w.kind, placing = w.placing;
+    // Current era's parts (and anything newer) first; older unlocked parts
+    // in a collapsed group, still placeable.
+    final all = [
+      for (final t in g.tilesForRoom(room.id))
+        if (!g.isOlderPart(t, room.id)) t,
+    ];
     final parts = all.where((t) => t.kind == kind).toList();
+    final older = [
+      for (final t in g.tilesForRoom(room.id))
+        if (t.kind == kind && g.isOlderPart(t, room.id) && g.isTileUnlocked(t)) t,
+    ];
+    final onKind = w.onKind, onPick = w.onPick, onCancel = w.onCancel;
+    final modeActive = w.modeActive;
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -430,7 +444,22 @@ class PartsTray extends StatelessWidget {
                     selected: placing == t.id,
                     onTap: () => onPick(t),
                   ),
-                if (parts.isEmpty)
+                if (older.isNotEmpty)
+                  _OlderToggle(
+                    count: older.length,
+                    open: _older || older.any((t) => t.id == placing),
+                    onTap: () => setState(() => _older = !_older),
+                  ),
+                if (_older || older.any((t) => t.id == placing))
+                  for (final t in older)
+                    _PartCard(
+                      key: ValueKey('part-${t.id}'),
+                      game: g,
+                      tile: t,
+                      selected: placing == t.id,
+                      onTap: () => onPick(t),
+                    ),
+                if (parts.isEmpty && older.isEmpty)
                   const Center(
                     child: Text(
                       'Nothing of this kind fits in this room.',
@@ -444,6 +473,43 @@ class PartsTray extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "Older parts (3)": expands the earlier rooms' parts in the tray.
+class _OlderToggle extends StatelessWidget {
+  final int count;
+  final bool open;
+  final VoidCallback onTap;
+  const _OlderToggle({required this.count, required this.open, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 8),
+    child: GestureDetector(
+      key: const ValueKey('tray-older'),
+      onTap: onTap,
+      child: Container(
+        width: 76,
+        decoration: BoxDecoration(
+          color: AppColors.bg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(open ? Icons.chevron_left : Icons.inventory_2_outlined, color: AppColors.muted, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              open ? 'Hide older' : 'Older parts ($count)',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.muted, fontSize: 11, height: 1.15),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _KindTab extends StatelessWidget {

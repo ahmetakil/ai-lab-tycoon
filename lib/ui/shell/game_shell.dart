@@ -3,6 +3,7 @@
 // centered modal cards for everything else. Build mode slides up the parts
 // tray; tap glowing floor cells to place.
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -25,9 +26,11 @@ import '../theme.dart';
 import '../widgets/buy.dart';
 import '../widgets/effects.dart';
 import '../widgets/game_builder.dart';
+import '../widgets/goals.dart';
 import '../widgets/hud.dart';
 import '../widgets/panel.dart';
 import '../widgets/power_card.dart';
+import '../widgets/tier_cards.dart';
 import '../world/room_grid.dart';
 import '../world/world_map.dart';
 import 'build_drawer.dart';
@@ -47,7 +50,6 @@ class _GameShellState extends State<GameShell> {
   final _world = GlobalKey<WorldMapState>();
 
   bool _build = false;
-  String? _room; // active room for building
   String? _placing;
   (String, int, int)? _moveFrom;
   TileKind _trayKind = TileKind.gpu;
@@ -65,11 +67,7 @@ class _GameShellState extends State<GameShell> {
   GameController get c => widget.controller;
   Game get g => c.game;
 
-  String get _roomId {
-    final r = _room;
-    if (r != null && g.isRoomOwned(r)) return r;
-    return g.trainingCluster?.roomId ?? g.ownedRooms.last.id;
-  }
+  String get _roomId => g.currentRoom.id;
 
   @override
   void initState() {
@@ -129,18 +127,6 @@ class _GameShellState extends State<GameShell> {
     });
   }
 
-  void _selectRoom(String id) {
-    if (id == _roomId) return;
-    Sound.play(Sfx.click);
-    setState(() {
-      _room = id;
-      _moveFrom = null;
-      final p = _placing == null ? null : tileById(_placing!);
-      if (p != null && !p.rooms.contains(id)) _placing = null;
-    });
-    _world.currentState?.focusRoom(id);
-  }
-
   void _selectPart(TileDef t) {
     final locked = g.tileLockReason(t);
     if (locked != null) {
@@ -160,11 +146,6 @@ class _GameShellState extends State<GameShell> {
     final here = g.tileAt(roomId, x, y);
     final move = _moveFrom;
     if (move != null) {
-      if (move.$1 != roomId) {
-        Sound.play(Sfx.error);
-        _toast('Tiles move within their own room.', color: AppColors.red);
-        return;
-      }
       if ((move.$2, move.$3) == (x, y)) {
         Sound.play(Sfx.click);
         setState(() => _moveFrom = null);
@@ -190,7 +171,6 @@ class _GameShellState extends State<GameShell> {
       HapticFeedback.mediumImpact();
       return;
     }
-    if (_build && roomId != _roomId) setState(() => _room = roomId);
     Sound.play(Sfx.click);
     if (here != null) {
       _openTileSheet(roomId, x, y);
@@ -203,11 +183,37 @@ class _GameShellState extends State<GameShell> {
     }
   }
 
+  /// Drag-to-paint: place the selected part on every crossed cell that
+  /// allows it (blocked cells are skipped quietly); one toast at the end.
+  int _painted = 0;
+
+  void _onCellPaint(String roomId, int x, int y) {
+    final placing = _placing;
+    if (placing == null || g.placeBlockReason(roomId, x, y, placing) != null) return;
+    if (c.act((g) => g.placeTile(roomId, x, y, placing))) {
+      _painted++;
+      if (_painted == 1) Sound.play(Sfx.purchase);
+      HapticFeedback.selectionClick();
+    }
+  }
+
+  void _onPaintEnd() {
+    final n = _painted;
+    _painted = 0;
+    if (n > 1 && _placing != null) {
+      Sound.play(Sfx.purchase);
+      _toast('Placed $n × ${tileById(_placing!)!.name}.', color: AppColors.neon);
+    }
+  }
+
   // --- Tutorial -------------------------------------------------------------
-  // A short guided path, derived from game state: train → add a GPU → link
-  // with a switch → release. Each step says why and has a "do it" button.
+  // A short guided path, derived from game state: train → add a GPU →
+  // release. Each step says why and has a "do it" button. (Every GPU in the
+  // room is cabled into one cluster, so there's no linking step; the garage
+  // network already feeds the first 4 GPUs.)
 
   static const _tutorialKey = 'tutorial_done_v1';
+  static const _tutorialSteps = 3;
   bool _tutorialDone = false;
 
   void _loadTutorialFlag() {
@@ -243,14 +249,12 @@ class _GameShellState extends State<GameShell> {
   _TutorialStep? _tutorialStep() {
     if (_tutorialDone || _moveFrom != null) return null;
     final s = g.s;
-    final counts = s.tileCounts;
-    final hasSwitch = counts.keys.any((id) => tileById(id)?.isNetwork ?? false);
-    final gpus = counts.entries
+    final gpus = s.tileCounts.entries
         .where((e) => tileById(e.key)?.isGpu ?? false)
         .fold(0, (a, e) => a + e.value);
     final released = s.releases.length > 1;
-    if (released || g.ownedRooms.length > 1) {
-      // Finished (or clearly past the basics): never show again.
+    if (released || s.roomId != 'garage') {
+      // Finished (or clearly past the basics, e.g. moved out): never again.
       WidgetsBinding.instance.addPostFrameCallback((_) => _finishTutorial());
       return null;
     }
@@ -258,7 +262,7 @@ class _GameShellState extends State<GameShell> {
 
     if (s.pendingEffectiveCompute != null) {
       return _TutorialStep(
-        step: 4,
+        step: 3,
         title: 'Your model is trained!',
         body: 'Release it: a better model raises your rating, which brings more users and money.',
         action: 'Release',
@@ -283,7 +287,9 @@ class _GameShellState extends State<GameShell> {
         return _TutorialStep(
           step: 2,
           title: 'Tap a glowing floor cell',
-          body: 'Put it right next to your first GPU; you\'ll link them in the next step.',
+          body:
+              'Anywhere works: every GPU in the room is cabled into one training cluster. '
+              'Leave room for a cooler next to it if it gets hot.',
         );
       }
       final short = gpu.cost - s.money;
@@ -299,31 +305,12 @@ class _GameShellState extends State<GameShell> {
         onAction: short > 0 ? null : () => _guideToPart(TileKind.gpu, gpu.id),
       );
     }
-    if (!hasSwitch) {
-      final sw = tileById('net_home')!;
-      if (_placing != null && tileById(_placing!)!.isNetwork) {
-        return _TutorialStep(
-          step: 3,
-          title: 'Place it touching both GPUs',
-          body: 'A switch links every GPU next to it (up, down, left, right) into one cluster.',
-        );
-      }
-      return _TutorialStep(
-        step: 3,
-        title: 'Link your GPUs with a switch',
-        body:
-            'Side by side isn\'t enough: GPUs only train together through a network '
-            'switch. Unlinked GPUs just serve users.',
-        action: s.money >= sw.cost ? 'Pick ${sw.name}' : null,
-        onAction: s.money >= sw.cost ? () => _guideToPart(TileKind.network, sw.id) : null,
-      );
-    }
     return _TutorialStep(
-      step: 4,
-      title: 'Linked! Training… $pct',
+      step: 3,
+      title: 'Cabled! Training… $pct',
       body:
-          'Your cluster trains faster now. When the run finishes, release the model. '
-          'Tap any tile to learn what it does.',
+          'Your GPUs train together now. When the run finishes, release the model. '
+          'Hot GPUs throttle: a fan next to one cools it. Tap any tile to learn more.',
     );
   }
 
@@ -341,7 +328,7 @@ class _GameShellState extends State<GameShell> {
 
   void _openRivals() => showGameModal<void>(
     context,
-    title: 'Rivals',
+    title: 'Leaderboard',
     icon: Icons.leaderboard_rounded,
     color: AppColors.amber,
     maxWidth: 680,
@@ -398,6 +385,66 @@ class _GameShellState extends State<GameShell> {
     );
   }
 
+  void _openNetwork() {
+    Sound.play(Sfx.click);
+    showGameModal<void>(
+      context,
+      title: 'Network',
+      icon: Icons.cable_rounded,
+      color: AppColors.cyan,
+      maxWidth: 520,
+      child: GameBuilder(controller: c, builder: (context) => NetworkCard(controller: c)),
+    );
+  }
+
+  void _openCooling() {
+    Sound.play(Sfx.click);
+    showGameModal<void>(
+      context,
+      title: 'Cooling',
+      icon: Icons.ac_unit_rounded,
+      color: AppColors.cyan,
+      maxWidth: 520,
+      child: GameBuilder(controller: c, builder: (context) => CoolingCard(controller: c)),
+    );
+  }
+
+  void _openGoal() {
+    showGameModal<void>(
+      context,
+      title: 'What\'s next',
+      icon: Icons.flag_rounded,
+      color: AppColors.neon,
+      maxWidth: 520,
+      child: Builder(
+        builder:
+            (sheet) => GameBuilder(
+              controller: c,
+              builder:
+                  (_) => NextEraSheet(
+                    controller: c,
+                    onTrain: () {
+                      Navigator.of(sheet).pop();
+                      _openTrain();
+                    },
+                  ),
+            ),
+      ),
+    );
+  }
+
+  void _onRequirement(BuildContext sheet, RequirementAction a) {
+    Navigator.of(sheet).pop();
+    switch (a) {
+      case RequirementAction.power:
+        _openPower();
+      case RequirementAction.train:
+        _openTrain();
+      case RequirementAction.none:
+        break;
+    }
+  }
+
   void _openRoom(RoomDef room) {
     Sound.play(Sfx.click);
     showGameModal<void>(
@@ -447,39 +494,44 @@ class _GameShellState extends State<GameShell> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    if (!owned)
+                    if (!owned) ...[
+                      Text(
+                        'Everything you\'ve built comes with you: same layout, centred in the bigger floor. '
+                        'Moving only takes the cash; the ${room.era.label} era still unlocks the new parts.',
+                        style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.3),
+                      ),
+                      const SizedBox(height: 10),
+                      Text('TO MOVE HERE', style: labelStyle(size: 10, color: AppColors.neon)),
+                      const SizedBox(height: 6),
+                      RequirementList(
+                        key: const ValueKey('move-checklist'),
+                        requirements: g.moveRequirements(room.id),
+                        onAction: (a) => _onRequirement(sheet, a),
+                      ),
+                      if (reason != null && g.moveRequirements(room.id).isEmpty)
+                        Text(reason, style: const TextStyle(color: AppColors.amber, fontSize: 13)),
+                      const SizedBox(height: 4),
                       BuyButton(
                         key: const ValueKey('buy-room'),
-                        label: 'Unlock ${room.name}',
+                        label: 'Move to ${room.name}',
                         sublabel: formatMoney(room.cost),
-                        icon: Icons.lock_open_rounded,
+                        icon: Icons.local_shipping_rounded,
                         expand: true,
                         dense: false,
                         enabled: reason == null,
                         onBuy: () {
-                          final ok = c.act((g) => g.buyRoom(room.id));
+                          final ok = c.act((g) => g.moveTo(room.id));
                           Sound.play(ok ? Sfx.upgrade : Sfx.error);
                           if (ok) {
                             Navigator.of(sheet).pop();
                             setState(() {
-                              _room = room.id;
+                              _build = false;
                               _placing = null;
                               _moveFrom = null;
                             });
                           }
                         },
                       ),
-                    if (reason != null && !owned) ...[
-                      gap8,
-                      Text(
-                        reason,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppColors.amber, fontSize: 13),
-                      ),
-                      if (g.s.money < room.cost) ...[
-                        gap8,
-                        AffordBar(money: g.s.money, cost: room.cost),
-                      ],
                     ],
                   ],
                 );
@@ -567,13 +619,24 @@ class _GameShellState extends State<GameShell> {
         tooltip: pending ? 'Release your new model (T)' : 'Training run (T)',
         icon: pending ? Icons.rocket_launch_rounded : Icons.model_training_rounded,
         color: pending ? AppColors.neon : AppColors.cyan,
-        pulse: pending || (g.s.run == null && g.s.releases.length <= 1),
+        pulse: pending,
+        // Idle GPUs: a gentle nudge (no run, nothing to ship).
+        nudge: !pending && g.s.run == null,
         onTap: _openTrain,
+      ),
+      ToolSpec(
+        id: 'power',
+        label: 'Power',
+        tooltip: 'Power supply: see and buy the next tier (P)',
+        icon: Icons.bolt_rounded,
+        color: const Color(0xFFFFE066),
+        badge: powerNudge(g),
+        onTap: _openPower,
       ),
       ToolSpec(
         id: 'rivals',
         label: 'Rivals',
-        tooltip: 'The rival ladder',
+        tooltip: 'Leaderboard: you vs the rival labs',
         icon: Icons.leaderboard_rounded,
         color: AppColors.amber,
         onTap: _openRivals,
@@ -608,6 +671,7 @@ class _GameShellState extends State<GameShell> {
             const SingleActivator(LogicalKeyboardKey.keyB): _toggleBuild,
             const SingleActivator(LogicalKeyboardKey.keyR): _openResearch,
             const SingleActivator(LogicalKeyboardKey.keyT): _openTrain,
+            const SingleActivator(LogicalKeyboardKey.keyP): _openPower,
             const SingleActivator(LogicalKeyboardKey.escape): () {
               if (_build || _placing != null || _moveFrom != null) _exitModes();
             },
@@ -625,7 +689,14 @@ class _GameShellState extends State<GameShell> {
     final top = mq.padding.top + hudHeight(w);
     final toolW = compact ? 50.0 : 60.0;
     final drawerH = _build ? _drawerH : 0.0;
-    final safe = EdgeInsets.fromLTRB(toolW + 16, top + 6, 8, drawerH + 8);
+    // The tutorial card sits above the drawer: keep the room clear of it.
+    final coachH = _tutorialStep() == null ? 0.0 : 150.0;
+    final safe = EdgeInsets.fromLTRB(
+      toolW + 16,
+      top + 6,
+      8,
+      drawerH + 8 + (_build ? coachH : math.max(0.0, coachH - 80)),
+    );
     final room = roomById(_roomId)!;
     if (_placing != null && !g.isTileUnlocked(tileById(_placing!)!)) _placing = null;
     final mv = _moveFrom;
@@ -646,6 +717,8 @@ class _GameShellState extends State<GameShell> {
               moveFrom: _moveFrom,
             ),
             onCellTap: _onCellTap,
+            onCellPaint: _onCellPaint,
+            onPaintEnd: _onPaintEnd,
             onPlotTap: _openRoom,
           ),
         ),
@@ -685,7 +758,15 @@ class _GameShellState extends State<GameShell> {
           left: 0,
           right: 0,
           top: mq.padding.top,
-          child: TopHud(controller: c, onPower: _openPower, onProject: _openTrain),
+          child: TopHud(
+            controller: c,
+            onPower: _openPower,
+            onNetwork: _openNetwork,
+            onCooling: _openCooling,
+            onProject: _openTrain,
+            onGoal: _openGoal,
+            onRivals: _openRivals,
+          ),
         ),
         if (c.speed != 1)
           Positioned(
@@ -788,9 +869,9 @@ class _GameShellState extends State<GameShell> {
                                   setState(() => _trayKind = k);
                                 },
                                 onPick: _selectPart,
-                                onSelectRoom: _selectRoom,
-                                onNextRoom: _openRoom,
                                 onPower: _openPower,
+                                onNetwork: _openNetwork,
+                                onCooling: _openCooling,
                               ),
                         ),
                       ),
@@ -817,7 +898,7 @@ class _GameShellState extends State<GameShell> {
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  'Placing ${t.name} · ${formatMoney(g.tilePrice(t))} · tap glowing cells',
+                  'Placing ${t.name} · ${formatMoney(g.tilePrice(t))} · tap or drag across cells',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
@@ -947,7 +1028,7 @@ class _TutorialStep {
     this.onAction,
   });
 
-  bool get pulseBuild => action != null && (step == 2 || step == 3);
+  bool get pulseBuild => action != null && step == 2;
 }
 
 class _CoachMark extends StatelessWidget {
@@ -976,7 +1057,7 @@ class _CoachMark extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('TUTORIAL ${step.step}/4', style: labelStyle(size: 10, color: AppColors.neon)),
+              Text('TUTORIAL ${step.step}/${_GameShellState._tutorialSteps}', style: labelStyle(size: 10, color: AppColors.neon)),
               const Spacer(),
               TextButton(
                 key: const ValueKey('tutorial-skip'),

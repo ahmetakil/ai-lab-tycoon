@@ -1,6 +1,7 @@
 // OWNER: ui-moments agent.
-// The rival ladder as a timeline: beaten, current target, and the mysterious
-// future. Your own lab card (with the share button) sits on top.
+// The leaderboard (your lab ranked among the rival labs by rating) on top of
+// the rival ladder as a timeline: beaten, current target, and the mysterious
+// future. Your own lab card (with the share button) sits above both.
 import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
@@ -57,6 +58,8 @@ class RivalsScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _MyLabCard(controller: controller),
+                    const SizedBox(height: 18),
+                    Leaderboard(game: g),
                     const SizedBox(height: 22),
                     Row(
                       children: [
@@ -558,6 +561,172 @@ class _VersusBar extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+
+/// Your lab ranked among the rivals by rating: a window of rows around you
+/// (lab, model, rating, users, year), your row highlighted, beaten rivals
+/// marked, and the gap to the next one.
+class Leaderboard extends StatelessWidget {
+  final Game game;
+  const Leaderboard({super.key, required this.game});
+
+  @override
+  Widget build(BuildContext context) {
+    final g = game;
+    final scheme = Theme.of(context).colorScheme;
+    // (rival or null for you, ladder index)
+    final rows = <(RivalSnapshot?, int)>[
+      for (final (i, r) in rivalLadder.indexed) (r, i),
+      (null, -1),
+    ];
+    double ratingOf((RivalSnapshot?, int) e) => e.$1?.rating ?? g.rating;
+    rows.sort((a, b) {
+      final c = ratingOf(b).compareTo(ratingOf(a));
+      if (c != 0) return c;
+      return a.$1 == null ? -1 : (b.$1 == null ? 1 : 0); // ties: you first
+    });
+    final me = rows.indexWhere((e) => e.$1 == null);
+    final from = (me - 4).clamp(0, rows.length);
+    final to = (me + 4).clamp(0, rows.length);
+    final next = g.nextRival;
+    String gap() {
+      if (next == null) return 'You top the leaderboard.';
+      final dr = next.rating - g.rating;
+      final du = next.users - g.s.users;
+      if (!g.isUnlocked(next.era)) {
+        return 'Next: ${next.model} (${next.lab}). Reach the ${next.era.label} era first.';
+      }
+      if (dr > 0) return '+${dr.ceil()} rating to pass ${next.model} (${next.lab})';
+      if (du > 0) return '+${formatNumber(du)} users to pass ${next.model} (${next.lab})';
+      return 'Passing ${next.model} now…';
+    }
+
+    Widget cell(String t, {double? w, TextAlign align = TextAlign.right, TextStyle? style, int flex = 0}) {
+      final text = Text(t, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: align, style: style);
+      return flex > 0 ? Expanded(flex: flex, child: text) : SizedBox(width: w, child: text);
+    }
+
+    final head = mono(context, 10.5, color: scheme.onSurfaceVariant);
+    return Container(
+      key: const ValueKey('leaderboard'),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.emoji_events_rounded, size: 18, color: Color(0xFFFFB547)),
+              const SizedBox(width: 6),
+              Expanded(child: Text('Leaderboard', style: display(context, 18))),
+              Text('#${me + 1} of ${rows.length}', style: mono(context, 13, color: scheme.primary)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            gap(),
+            key: const ValueKey('leaderboard-gap'),
+            style: mono(context, 12.5, color: const Color(0xFF39FF9F), weight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              cell('#', w: 26, align: TextAlign.left, style: head),
+              cell('LAB · MODEL', flex: 1, align: TextAlign.left, style: head),
+              cell('RATING', w: 50, style: head),
+              cell('USERS', w: 54, style: head),
+              cell('YEAR', w: 40, style: head),
+            ],
+          ),
+          const Divider(height: 10),
+          for (var i = from; i < to; i++)
+            _LeaderRow(
+              rank: i + 1,
+              rival: rows[i].$1,
+              beaten: rows[i].$1 != null && rows[i].$2 < g.s.rivalIndex,
+              target: rows[i].$1 != null && rows[i].$2 == g.s.rivalIndex,
+              game: g,
+              cell: cell,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LeaderRow extends StatelessWidget {
+  final int rank;
+  final RivalSnapshot? rival;
+  final bool beaten;
+  final bool target;
+  final Game game;
+  final Widget Function(String t, {double? w, TextAlign align, TextStyle? style, int flex}) cell;
+
+  const _LeaderRow({
+    required this.rank,
+    required this.rival,
+    required this.beaten,
+    required this.target,
+    required this.game,
+    required this.cell,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final r = rival;
+    final you = r == null;
+    final scheme = Theme.of(context).colorScheme;
+    final color =
+        you
+            ? const Color(0xFF39FF9F)
+            : beaten
+            ? scheme.onSurfaceVariant
+            : scheme.onSurface;
+    final style = mono(context, 12, color: color, weight: you ? FontWeight.w800 : FontWeight.w500);
+    final name =
+        you
+            ? '${game.s.labName} · ${game.s.releases.last.name}'
+            : '${r.lab} · ${r.model}';
+    return Container(
+      key: you ? const ValueKey('leaderboard-you') : null,
+      margin: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
+      decoration: BoxDecoration(
+        color: you ? const Color(0x2239FF9F) : (target ? const Color(0x14FFB547) : null),
+        borderRadius: BorderRadius.circular(8),
+        border: you ? Border.all(color: const Color(0xAA39FF9F)) : null,
+      ),
+      child: Row(
+        children: [
+          cell('$rank', w: 22, align: TextAlign.left, style: style),
+          if (beaten)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Icon(Icons.check_circle, size: 13, color: Color(0xFF39FF9F)),
+            )
+          else if (target)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Icon(Icons.gps_fixed, size: 13, color: Color(0xFFFFB547)),
+            ),
+          cell(
+            beaten ? '$name · beaten' : (target ? '$name · next' : name),
+            flex: 1,
+            align: TextAlign.left,
+            style: style,
+          ),
+          cell(formatRating(r?.rating ?? game.rating), w: 50, style: style),
+          cell(formatNumber(r?.users ?? game.s.users), w: 54, style: style),
+          cell(you ? 'now' : '${r.year}', w: 40, style: style),
+        ],
+      ),
     );
   }
 }

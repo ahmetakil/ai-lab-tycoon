@@ -14,7 +14,11 @@ beat rival labs.
 ## Resources (keep it to these)
 - Money: the only currency.
 - Compute: GPUs x TFLOPS x utilization (the MFU bar; software raises it).
-- Power cap (kW/MW): limits how many GPUs you can run. Cooling is flavour only.
+- Power cap (kW/MW): limits how many GPUs you can run.
+- Network tier: how many GPUs your one training cluster keeps fed (all GPUs in
+  the room are cabled together; past the cap a run scales at √(cap/GPUs)).
+- Heat: coolers next to hot GPUs (the early placement puzzle); from the Medium
+  lab a central cooling plant cools every GPU tile.
 - Model rating: an Arena-style score from effective training compute
   (log scale) + post-training bonuses (instruction tuning, RLHF...). The data budget caps
   useful compute Chinchilla-style (compute past ~0.3*D^2 has diminishing returns).
@@ -26,22 +30,30 @@ beat rival labs.
 - Release: open vs closed choice, plus a launch stunt (cryptic tweet / risky live demo).
 - Viral spike: demand x4 for 90s. Fix: pause training, rent cloud, quantize.
 - Rival ladder: parody labs at historical snapshots; beat rating AND users to pass.
+- One place at a time: buying the next room *moves* you there with all your
+  tiles (same layout, centred in the bigger floor); the old room is gone.
+  Moving only costs money; an era's goal still unlocks its parts and tiers.
+  Moving is a short moment (truck along the road, fade, tiles pop in;
+  tap to skip). Rules: docs/GRID.md.
 - Eras (six, one new room each; gates and unlocks in docs/BALANCE.md):
 
-  | era | room | gate | rivals |
+  | era | room (size) | gate | rivals |
   |---|---|---|---|
-  | Parents' garage | Garage | start | Tiny-Transformer, GPT-ish-1 |
-  | Startup | Server closet | 3k users | BURT, GPT-ish-2 |
-  | Small lab | Colocation cage | rating 1000 | Meenie, GPT-ish-3 |
-  | Medium lab | Datacenter hall | rating 1120 | Mixtrawl, ChatGPT-ish |
-  | Big lab | Datacenter campus | rating 1260 | GPT-ish-4 → GPT-ish-4.5 (the big labs) |
-  | Frontier lab | Gigawatt site | rating 1500 | GPT-ish-5 → GPT-ish-6 Astral |
+  | Parents' garage | Garage 4×4 | start | Tiny-Transformer, GPT-ish-1 |
+  | Startup | Server closet 7×7 | 3k users | BURT, GPT-ish-2 |
+  | Small lab | Colocation cage 10×10 | rating 1000 | Meenie, GPT-ish-3 |
+  | Medium lab | Datacenter hall 14×14 | rating 1130 | Mixtrawl, ChatGPT-ish |
+  | Big lab | Datacenter campus 18×18 | rating 1260 | GPT-ish-4 → GPT-ish-4.5 (the big labs) |
+  | Frontier lab | Gigawatt site 22×22 | rating 1490 | GPT-ish-5 → GPT-ish-6 Astral |
 
 - Pacing: a 2–3 day casual game (3–4 sessions of 30–60 min a day). Startup
-  in the first session (~12 min), final rival at ~51 h wall-clock. Training
+  in the first session (~12 min), final rival at ~55 h wall-clock. Training
   runs grow from minutes to hours (1m/3m/10m in the garage, 2h/4h/8h at the
   frontier) so a run finishes while you're away; time compression per era
   keeps their FLOPs realistic.
+- Always-visible goal: a strip under the project bar ("Next era: Small lab ·
+  rating 998 / 1,000 · train & release a better model"); the rating plate
+  ("RATING 1293 · beat GPT-ish-4: 1339") opens the leaderboard.
 - GPU supply crunch: each GPU of a type you own makes the next pricier (×4 cap).
 - Offline progress capped at 8h, with a "while you were away" summary.
 - Settings has a "Playtest speed" control (1×, 10×, 60×, 600×), in all builds

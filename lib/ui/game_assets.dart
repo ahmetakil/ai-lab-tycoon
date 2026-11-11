@@ -17,6 +17,20 @@ abstract final class GameArt {
   static const tileHeatOverlay = 'assets/images/tile_overlay_heat.png';
   static const tileLinkOverlay = 'assets/images/tile_overlay_link.png';
   static String power(String id) => 'assets/images/power_$id.png';
+
+  /// Network tier icon (NetworkDef.id: copper1g ... optical).
+  static String networkTier(String id) => 'assets/images/net_tier_$id.png';
+
+  /// Central cooling tier icon and the plant prop beside the room
+  /// (CoolingDef.id: chiller, tower, liquid, dry).
+  static String coolingTier(String id) => 'assets/images/cool_tier_$id.png';
+  static String coolingPlant(String id) => 'assets/images/plant_$id.png';
+
+  /// Moving day props.
+  static const moveTruck = 'assets/images/move_truck.png';
+  static const moveTruckFlip = 'assets/images/move_truck_flip.png';
+  static const moveBoxes = 'assets/images/move_boxes.png';
+  static const moveBanner = 'assets/images/move_banner.png';
   static String upgrade(String id) => 'assets/images/up_$id.png';
   static String upgradeCategory(UpgradeCategory c) => 'assets/images/cat_${c.name}.png';
   static String rivalLogo(String lab) =>

@@ -69,9 +69,31 @@ const _categoryInfo = {
   ),
 };
 
-class ResearchScreen extends StatelessWidget {
+class ResearchScreen extends StatefulWidget {
   final GameController controller;
   const ResearchScreen({super.key, required this.controller});
+
+  @override
+  State<ResearchScreen> createState() => _ResearchScreenState();
+}
+
+/// null = "Available now" across every category.
+class _ResearchScreenState extends State<ResearchScreen> {
+  UpgradeCategory? _tab;
+
+  GameController get controller => widget.controller;
+
+  bool _availableNow(Game g, UpgradeDef u) =>
+      !g.s.ownedUpgrades.contains(u.id) &&
+      g.isUnlocked(u.era) &&
+      u.requires.every(g.s.ownedUpgrades.contains);
+
+  int _rank(Game g, UpgradeDef u) {
+    if (g.s.ownedUpgrades.contains(u.id)) return 3;
+    if (!g.isUnlocked(u.era)) return 2;
+    if (!u.requires.every(g.s.ownedUpgrades.contains)) return 1;
+    return 0;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -79,23 +101,133 @@ class ResearchScreen extends StatelessWidget {
       controller: controller,
       builder: (context) {
         final g = controller.game;
-        return TabScroll(children: [for (final cat in UpgradeCategory.values) ..._section(g, cat)]);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _tabChip(g, null),
+                    for (final cat in UpgradeCategory.values) _tabChip(g, cat),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: TabScroll(
+                key: ValueKey('research-tab-${_tab?.name ?? 'available'}'),
+                children: _tab == null ? _available(g) : _section(g, _tab!),
+              ),
+            ),
+          ],
+        );
       },
     );
   }
 
+  Widget _tabChip(Game g, UpgradeCategory? cat) {
+    final list = upgrades.where((u) => cat == null || u.category == cat);
+    final available = list.where((u) => _availableNow(g, u)).length;
+    final affordable = list.any((u) => g.canBuyUpgrade(u));
+    final (label, icon, color) =
+        cat == null
+            ? ('Available now', Icons.bolt_rounded, AppColors.neon)
+            : (_categoryInfo[cat]!.$1, _categoryInfo[cat]!.$3, _categoryInfo[cat]!.$4);
+    final selected = _tab == cat;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        key: ValueKey('research-tab-chip-${cat?.name ?? 'available'}'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          Sound.play(Sfx.click);
+          setState(() => _tab = cat);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? color.withValues(alpha: 0.18) : AppColors.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? color : AppColors.border,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: selected ? AppColors.text : AppColors.muted,
+                ),
+              ),
+              if (available > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: affordable ? AppColors.neon : AppColors.surfaceHi,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$available',
+                    style: numStyle(
+                      size: 11,
+                      weight: FontWeight.w800,
+                      color: affordable ? AppColors.bg : AppColors.muted,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _available(Game g) {
+    final list = upgrades.where((u) => _availableNow(g, u)).toList()
+      ..sort((a, b) => a.cost.compareTo(b.cost));
+    return [
+      const Padding(
+        padding: EdgeInsets.only(left: 4, bottom: 10),
+        child: Text(
+          'Everything you can research right now, cheapest first. '
+          'Use the tabs to see each track, including what unlocks later.',
+          style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.3),
+        ),
+      ),
+      if (list.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Text(
+            'Nothing new to research in this era. Reach the next era for more.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.muted),
+          ),
+        ),
+      for (final u in list) ...[
+        UpgradeCard(controller: controller, u: u, accent: _categoryInfo[u.category]!.$4),
+        const SizedBox(height: 10),
+      ],
+    ];
+  }
+
   List<Widget> _section(Game g, UpgradeCategory cat) {
     final (title, subtitle, icon, color) = _categoryInfo[cat]!;
-    int rank(UpgradeDef u) {
-      if (g.s.ownedUpgrades.contains(u.id)) return 3;
-      if (!g.isUnlocked(u.era)) return 2;
-      if (!u.requires.every(g.s.ownedUpgrades.contains)) return 1;
-      return 0;
-    }
-
     final list =
         upgrades.where((u) => u.category == cat).toList()..sort((a, b) {
-          final r = rank(a).compareTo(rank(b));
+          final r = _rank(g, a).compareTo(_rank(g, b));
           return r != 0 ? r : a.cost.compareTo(b.cost);
         });
     final owned = list.where((u) => g.s.ownedUpgrades.contains(u.id)).length;
@@ -163,14 +295,14 @@ class UpgradeCard extends StatelessWidget {
         children: [
           Text(formatMoney(u.cost), style: numStyle(size: 13, color: AppColors.muted)),
           const SizedBox(width: 8),
+          const Icon(Icons.lock_outline, size: 15, color: AppColors.muted),
+          const SizedBox(width: 4),
           Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Tag(
-                'Unlocks in ${u.era.label}',
-                color: eraColor(u.era),
-                icon: Icons.lock_outline,
-              ),
+            child: Text(
+              // Names the gate: "Unlocks in Small lab: reach rating 1,000 (you're at 998)."
+              g.eraLockReason(u.era),
+              textAlign: TextAlign.right,
+              style: TextStyle(color: eraColor(u.era), fontSize: 12, height: 1.25),
             ),
           ),
         ],

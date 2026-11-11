@@ -96,30 +96,52 @@ void main() {
       Game(s).advance(60);
     });
 
-    test('v2 save drops unknown ids and misplaced tiles, keeps the rest', () {
+    test('a save drops unknown ids, keeps the rest', () {
       final s = GameState.fromJson({
         'v': saveVersion,
         'money': 1,
         'era': 'not_an_era',
         'upgrades': ['batching', 'made_up'],
+        'networkTier': 99,
+        'coolingTier': 2,
         'grids': {
           'garage': ['gpu_gamer', 'quantum_toaster', 'srv_a_class', null],
           'moon_base': ['gpu_gamer'],
-          'closet': List.filled(36, 'srv_a_class'),
         },
       });
       expect(s.startedFromOldSave, isFalse);
       expect(s.era, Era.garage);
       expect(s.ownedUpgrades, {'batching'});
-      expect(s.grids.keys, unorderedEquals(['garage', 'closet']));
+      expect(s.grids.keys, ['garage']);
       expect(s.grids['garage'], hasLength(16));
-      expect(s.grids['garage']!.whereType<String>(), ['gpu_gamer']);
-      expect(s.tileCounts['srv_a_class'], 36);
+      // Unknown ids drop; any known tile loads in any room.
+      expect(s.grids['garage']!.whereType<String>(), ['gpu_gamer', 'srv_a_class']);
+      expect(s.networkTier, networkTiers.length - 1);
+      expect(s.coolingTier, 2);
       expect(s.releases, hasLength(1));
       Game(s).advance(10);
     });
 
-    test('a v2 save without grids gets the starting garage', () {
+    test('one room per save, any known tile in it', () {
+      final s = GameState.fromJson({
+        'v': saveVersion,
+        'grids': {
+          'closet': ['gpu_gamer', 'srv_a_class', 'made_up', ...List.filled(46, null)],
+        },
+      });
+      expect(s.roomId, 'closet');
+      expect(s.grids['closet']!.whereType<String>(), ['gpu_gamer', 'srv_a_class']);
+      final back = GameState.fromJson(jsonDecode(jsonEncode(s.toJson())) as Map<String, dynamic>);
+      expect(back.roomId, 'closet');
+    });
+
+    test('v3 saves (several rooms at once) start fresh', () {
+      final s = GameState.fromJson({'v': 3, 'grids': {'garage': [], 'closet': []}});
+      expect(s.startedFromOldSave, isTrue);
+      expect(s.roomId, 'garage');
+    });
+
+    test('a save without grids gets the starting garage', () {
       final s = GameState.fromJson({'v': saveVersion});
       expect(s.grids.keys, ['garage']);
       expect(s.tileAt('garage', 1, 1), 'gpu_gamer');
@@ -152,7 +174,8 @@ void main() {
       expect(a.s.users, closeTo(fine.s.users, fine.s.users * 0.01));
       // The 3 h run finished while away and waits to be released.
       expect(ra.trainingFinished, isTrue);
-      expect(a.s.pendingEffectiveCompute, closeTo(fine.s.pendingEffectiveCompute!, fine.s.pendingEffectiveCompute! * 0.01));
+      // (Coarse steps end the run up to a step late: within 2%.)
+      expect(a.s.pendingEffectiveCompute, closeTo(fine.s.pendingEffectiveCompute!, fine.s.pendingEffectiveCompute! * 0.02));
     });
 
     test('negative offline time does nothing', () {
@@ -173,15 +196,12 @@ void main() {
     });
 
     test('rack-scale GPUs need liquid cooling and a big enough site', () {
-      final g = gameWith({
-        'garage': ['G...', '....', '....', '....'],
-        'hall': List.filled(12, '............'),
-      }, powerTier: 4);
+      final g = gameIn('hall', List.filled(14, '..............'), powerTier: 4);
       expect(g.placeBlockReason('hall', 0, 0, 'rack_b_class'), contains('Liquid cooling'));
       g.s.ownedUpgrades.add('liquid_cooling');
       expect(
         g.placeBlockReason('hall', 0, 0, 'rack_b_class'),
-        contains('Datacenter campus power tier'),
+        'Needs power: Datacenter campus.',
       );
       g.s.powerTier = 5;
       expect(g.placeTile('hall', 0, 0, 'rack_b_class'), isTrue);
@@ -191,15 +211,10 @@ void main() {
   group('era unlocks', () {
     test('Startup at the users threshold, then one rating gate after another', () {
       // Four gaming GPUs can serve the users the unlock needs.
-      final g = gameWith(
-        {
-          'garage': ['G.G.', '....', 'G.G.', '....'],
-        },
-        era: Era.garage,
-        powerTier: 0,
-      );
+      final g = gameWith(['G.G.', '....', 'G.G.', '....'], era: Era.garage, powerTier: 0);
       expect(g.capacity, greaterThan(startupUnlockUsers));
-      expect(g.roomBlockReason('closet'), contains('Startup era'));
+      expect(g.moveRequirements('closet').firstWhere((r) => r.kind == 'era').detail, contains('/ 3k users'));
+      expect(g.eraLockReason(Era.startup), contains('Unlocks in Startup: reach 3k users'));
       expect(g.nextEraGoal!.era, Era.startup);
       expect(g.nextEraGoal!.metric, 'users');
 
@@ -288,7 +303,7 @@ void main() {
     });
 
     test('a run keeps the time compression it started with', () {
-      final g = gameWith({'garage': ['G...', '....', '....', '....']}, era: Era.garage, powerTier: 1);
+      final g = gameWith(['G...', '....', '....', '....'], era: Era.garage, powerTier: 1);
       final before = g.trainingFlopsPerSecond(1);
       expect(g.startTraining(fraction: 1, durationSeconds: 600), isTrue);
       expect(g.s.run!.timeScale, Era.garage.computeTimeScale);
@@ -301,10 +316,7 @@ void main() {
 
   group('GPU supply crunch', () {
     test('each GPU of a type makes the next pricier, capped, and selling refunds list', () {
-      final g = gameWith({
-        'garage': ['G...', '....', '....', '....'],
-        'closet': List.filled(6, '......'),
-      }, era: Era.startup);
+      final g = gameIn('closet', List.filled(7, '.......'), era: Era.startup);
       final a = tileById('srv_a_class')!;
       expect(g.tilePrice(a), a.cost);
       expect(g.placeTile('closet', 0, 0, 'srv_a_class'), isTrue);
@@ -318,7 +330,7 @@ void main() {
       expect(g.sellValue('srv_a_class'), a.cost * 0.5);
       // Garage GPUs and non-GPU gear have no crunch.
       expect(g.tilePrice(tileById('gpu_gamer')!), tileById('gpu_gamer')!.cost);
-      expect(g.tilePrice(tileById('net_100g')!), tileById('net_100g')!.cost);
+      expect(g.tilePrice(tileById('cool_crac')!), tileById('cool_crac')!.cost);
     });
   });
 

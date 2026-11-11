@@ -13,17 +13,18 @@ const c30 = 0.8660254037844386;
 Offset isoPt(double x, double y, [double z = 0]) => Offset((x - y) * c30, (x + y) * 0.5 - z);
 
 /// Story layout: the garage beside the parents' house, the strip-mall
-/// closet, the colo building, then the datacenter plots further out and at a
-/// bigger scale. Values are the world position of each floor's centre and
-/// world units per SVG unit.
+/// closet, the colo building, then the datacenter plots further out. You
+/// only ever see the room you're in and the next one, so each consecutive
+/// pair must not overlap. Values are the world position of each floor's
+/// centre and world units per SVG unit.
 const _placements = <String, (Offset, double)>{
   'house': (Offset(470, 800), 0.62),
   'garage': (Offset(1080, 960), 0.62),
   'closet': (Offset(2000, 820), 0.55),
   'colo': (Offset(3040, 960), 0.5),
   'hall': (Offset(3520, 1880), 0.45),
-  'campus': (Offset(2280, 2200), 0.5),
-  'gigasite': (Offset(860, 2330), 0.56),
+  'campus': (Offset(2200, 2350), 0.42),
+  'gigasite': (Offset(640, 3250), 0.42),
 };
 
 /// Geometry of one room (or decor piece) on the world map.
