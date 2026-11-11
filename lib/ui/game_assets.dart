@@ -10,6 +10,10 @@ abstract final class GameArt {
   static String tile(String tileId) => 'assets/images/tile_$tileId.png';
   static String floor(String roomId) => 'assets/images/floor_$roomId.png';
   static String roomBanner(String roomId) => 'assets/images/room_$roomId.png';
+
+  /// Cutaway isometric room (floor, back walls, props) for the world map, or
+  /// decor ('house'). Made by tool/art/generate_rooms.py.
+  static String world(String id) => 'assets/images/world_$id.webp';
   static const tileHeatOverlay = 'assets/images/tile_overlay_heat.png';
   static const tileLinkOverlay = 'assets/images/tile_overlay_link.png';
   static String power(String id) => 'assets/images/power_$id.png';

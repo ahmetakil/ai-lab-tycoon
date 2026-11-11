@@ -2,6 +2,7 @@
 // Called by the overview screen when a trained model is pending release.
 import 'package:flutter/material.dart';
 
+import '../shell/game_modal.dart';
 import '../../sim/balance.dart';
 import '../../sim/content.dart';
 import '../../sim/game.dart';
@@ -21,14 +22,13 @@ String defaultModelName(Game g) {
 Future<void> showReleaseSheet(BuildContext context, GameController controller) async {
   if (controller.game.s.pendingEffectiveCompute == null) return;
   Sound.play(Sfx.click);
-  final released = await showModalBottomSheet<bool>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    showDragHandle: true,
-    backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
-    constraints: const BoxConstraints(maxWidth: 720),
-    builder: (_) => ReleaseSheet(controller: controller),
+  final released = await showGameModal<bool>(
+    context,
+    title: 'Release model',
+    icon: Icons.rocket_launch_rounded,
+    maxWidth: 620,
+    selfScrolling: true,
+    child: ReleaseSheet(controller: controller),
   );
   if (released == true && context.mounted) {
     final data = ReleaseCardData.fromGame(controller.game);
@@ -97,7 +97,7 @@ class _ReleaseSheetState extends State<ReleaseSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -209,14 +209,19 @@ class _ReleaseSheetState extends State<ReleaseSheet> {
                   label: const Text('Discard'),
                   style: TextButton.styleFrom(foregroundColor: scheme.error),
                 ),
-                const Spacer(),
-                FilledButton.icon(
-                  onPressed: _release,
-                  icon: const Icon(Icons.rocket_launch_rounded),
-                  label: const Text('Release'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-                    textStyle: display(context, 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.icon(
+                      onPressed: _release,
+                      icon: const Icon(Icons.rocket_launch_rounded),
+                      label: const Text('Release'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                        textStyle: display(context, 18),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -253,12 +258,22 @@ class _RatingCompare extends StatelessWidget {
       ),
       child: Row(
         children: [
-          col('SERVING NOW', current),
-          const SizedBox(width: 14),
-          Icon(Icons.arrow_forward_rounded, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 14),
-          col('NEW MODEL', predicted, color: deltaColor),
-          const Spacer(),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                children: [
+                  col('SERVING NOW', current),
+                  const SizedBox(width: 14),
+                  Icon(Icons.arrow_forward_rounded, color: scheme.onSurfaceVariant),
+                  const SizedBox(width: 14),
+                  col('NEW MODEL', predicted, color: deltaColor),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(

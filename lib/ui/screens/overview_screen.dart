@@ -31,19 +31,6 @@ class OverviewScreen extends StatefulWidget {
 }
 
 class _OverviewScreenState extends State<OverviewScreen> {
-  double _fraction = 0.5;
-  double? _duration;
-
-  /// The picked run length if this era offers it, else the era's middle one.
-  double _dur(Game g) {
-    final opts = g.runDurations;
-    final d = _duration;
-    return d != null && opts.contains(d) ? d : opts[opts.length ~/ 2];
-  }
-
-  static String _short(double seconds) =>
-      seconds < 3600 ? '${(seconds / 60).round()}m' : '${(seconds / 3600).round()}h';
-
   GameController get c => widget.controller;
 
   @override
@@ -62,13 +49,13 @@ class _OverviewScreenState extends State<OverviewScreen> {
             ],
             // A finished model waiting to ship is the top call to action.
             if (g.s.pendingEffectiveCompute != null) ...[
-              _trainingCard(g),
+              TrainingPanel(controller: c),
               gap12,
               _CapacityCard(controller: c),
             ] else ...[
               _CapacityCard(controller: c),
               gap12,
-              _trainingCard(g),
+              TrainingPanel(controller: c),
             ],
             gap12,
             _ComputeCard(game: g),
@@ -83,6 +70,37 @@ class _OverviewScreenState extends State<OverviewScreen> {
       },
     );
   }
+}
+
+/// The training run card: set up a run, watch it train, or ship the result.
+/// Used on the Lab stats panel and in the Train modal.
+class TrainingPanel extends StatefulWidget {
+  final GameController controller;
+  const TrainingPanel({super.key, required this.controller});
+
+  @override
+  State<TrainingPanel> createState() => _TrainingPanelState();
+}
+
+class _TrainingPanelState extends State<TrainingPanel> {
+  double _fraction = 0.5;
+  double? _duration;
+
+  /// The picked run length if this era offers it, else the era's middle one.
+  double _dur(Game g) {
+    final opts = g.runDurations;
+    final d = _duration;
+    return d != null && opts.contains(d) ? d : opts[opts.length ~/ 2];
+  }
+
+  static String _short(double seconds) =>
+      seconds < 3600 ? '${(seconds / 60).round()}m' : '${(seconds / 3600).round()}h';
+
+  GameController get c => widget.controller;
+
+  @override
+  Widget build(BuildContext context) =>
+      GameBuilder(controller: c, builder: (context) => _trainingCard(c.game));
 
   // --- Training ---------------------------------------------------------------
 

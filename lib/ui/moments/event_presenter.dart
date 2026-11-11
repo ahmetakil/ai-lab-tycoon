@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../sim/balance.dart';
 import '../../sim/content.dart';
 import '../../sim/game.dart';
+import '../shell/hud_overlay.dart' show hudHeight;
 import '../format.dart';
 import '../game_controller.dart';
 import '../sound.dart';
@@ -22,6 +23,9 @@ import 'release_card.dart';
 import 'release_sheet.dart';
 
 const kIntroSeenKey = 'intro_seen_v1';
+
+/// How long the world map's reveal fly-over gets before the era moment.
+const kEraRevealDelay = Duration(milliseconds: 1900);
 
 class EventPresenter extends StatefulWidget {
   final GameController controller;
@@ -178,9 +182,16 @@ class _EventPresenterState extends State<EventPresenter> {
         Sound.play(Sfx.viralAlarm);
         _bump();
       case RivalBeaten():
-      case EraUnlocked():
         _queue.add(e);
         _advanceQueue();
+      case EraUnlocked():
+        // Let the world map push the darkness back and pull the camera out
+        // to the new plot first; then the era moment plays.
+        Future.delayed(kEraRevealDelay, () {
+          if (!mounted) return;
+          _queue.add(e);
+          _advanceQueue();
+        });
     }
   }
 
@@ -251,7 +262,7 @@ class _EventPresenterState extends State<EventPresenter> {
           children: [
             // Viral banner (top).
             Positioned(
-              top: 0,
+              top: hudHeight(MediaQuery.sizeOf(ctx).width) + 4,
               left: 0,
               right: 0,
               child: SafeArea(
@@ -283,7 +294,7 @@ class _EventPresenterState extends State<EventPresenter> {
             Positioned(
               left: 12,
               right: 12,
-              bottom: 92,
+              bottom: 24,
               child: SafeArea(
                 top: false,
                 child: Center(

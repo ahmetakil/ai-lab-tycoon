@@ -79,6 +79,8 @@ void main() {
       expect(find.text('ERA UNLOCKED'), findsNothing, reason: 'queued, not stacked');
       await tester.tap(find.text('Continue'));
       await tester.pump(const Duration(milliseconds: 300));
+      // The era moment waits for the world map's reveal fly-over.
+      await tester.pump(kEraRevealDelay);
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.text('ERA UNLOCKED'), findsOneWidget);
     });
