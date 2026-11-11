@@ -1,0 +1,27 @@
+name: ai_lab_tycoon
+description: "An idle tycoon game: grow an AI lab from one GPU in a garage to a frontier datacenter."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  audioplayers: ^6.6.0
+  flutter:
+    sdk: flutter
+  share_plus: ^12.0.2
+  shared_preferences: ^2.5.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/audio/
+
