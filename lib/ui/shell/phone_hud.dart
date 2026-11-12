@@ -360,6 +360,8 @@ class _PhoneProjectCard extends StatelessWidget {
       sub =
           run.paused
               ? 'paused'
+              : run.awaitingPhase != null
+              ? 'checkpoint'
               : '${formatPercent(run.progress)} · ${formatDuration(left)}';
       progress = run.progress;
       color = run.paused ? AppColors.amber : AppColors.cyan;
@@ -424,8 +426,11 @@ class _PhoneProjectCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  _MiniBar(frac: progress ?? 0, color: color),
+                  const SizedBox(height: 2),
+                  if (run != null && !pending)
+                    PhaseTrack(key: const ValueKey('hud-phase-track'), run: run, color: color, height: 4)
+                  else
+                    _MiniBar(frac: progress ?? 0, color: color),
                 ],
               ),
             ),

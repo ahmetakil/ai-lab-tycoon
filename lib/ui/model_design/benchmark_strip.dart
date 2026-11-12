@@ -3,7 +3,9 @@
 import 'package:flutter/material.dart';
 
 import '../../sim/model_design.dart';
+import '../../sim/run_phases.dart';
 import '../theme.dart';
+import 'run_phases_ui.dart' show phaseColor;
 
 class BenchmarkStrip extends StatelessWidget {
   final BenchmarkStrengths strengths;
@@ -14,7 +16,11 @@ class BenchmarkStrip extends StatelessWidget {
   /// Strength that fills a bar completely.
   final double fullScale;
 
-  const BenchmarkStrip({super.key, required this.strengths, this.headline, this.fullScale = 3});
+  /// The run's phase decisions, listed under the bars ("Annealed on math &
+  /// code: math ×1.2").
+  final List<PhaseOption> phases;
+
+  const BenchmarkStrip({super.key, required this.strengths, this.headline, this.fullScale = 3, this.phases = const []});
 
   static Color colorFor(double v) =>
       v >= 1.15
@@ -60,6 +66,28 @@ class BenchmarkStrip extends StatelessWidget {
               highlight: e.key == best && e.value >= 1.15,
             ),
           ),
+        if (phases.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          for (final p in phases)
+            Padding(
+              key: ValueKey('phase-line-${p.name}'),
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                children: [
+                  Icon(Icons.flag_circle_rounded, size: 12, color: phaseColor(p.phase)),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      p.summary,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ],
     );
   }

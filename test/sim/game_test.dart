@@ -7,6 +7,7 @@ import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/sim/model_design.dart';
+import 'package:ai_lab_tycoon/sim/run_phases.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'grid_helpers.dart';
@@ -88,13 +89,16 @@ void main() {
       final g = midGame();
       final good = ModelSpec.bestGuessFor(g.designContext);
       g.startTraining(fraction: 0.5, durationSeconds: g.runDurations.first, spec: good);
-      g.advance(g.runDurations.first + 1);
+      // Online, each checkpoint waits up to phaseDecisionTimeout.
+      g.advance(g.runDurations.first + 2 * phaseDecisionTimeout + 1);
       final predicted = g.pendingRating!;
       expect(g.s.pendingDesign!.spec, good);
       expect(g.release(open: false), isTrue);
       final m = g.s.currentModel;
       expect(m.rating, closeTo(predicted, 1e-9));
-      expect(m.design!.serveCostMult, closeTo(evaluate(good, g.designContext).serveCostMult, 1e-9));
+      final phaseServe = m.design!.phases.fold(1.0, (a, o) => a * o.serve);
+      expect(m.design!.phases, hasLength(3));
+      expect(m.design!.serveCostMult, closeTo(evaluate(good, g.designContext).serveCostMult * phaseServe, 1e-9));
       expect(g.currentPerUserTflops,
           closeTo(g.perUserTflops(m.design!.serveCompute) * m.design!.serveCostMult, 1e-12));
       expect(m.design!.strengths.coding, greaterThan(1));
@@ -124,7 +128,7 @@ void main() {
           durationSeconds: g.runDurations.first,
           spec: const ModelSpec(architecture: Architecture.moe),
         );
-        g.advance(g.runDurations.first + 1);
+        g.advance(g.runDurations.first + 2 * phaseDecisionTimeout + 1);
         final done = g.events.whereType<TrainingFinished>().single;
         if (done.mishaps.isNotEmpty) collapses++;
       }

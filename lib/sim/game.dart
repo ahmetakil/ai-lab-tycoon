@@ -7,6 +7,7 @@ import 'grid.dart';
 import 'model_design.dart';
 import 'news.dart';
 import 'reviews.dart';
+import 'run_phases.dart';
 
 export 'grid.dart' show TileStatus, Cluster, minThrottleSpeed;
 
@@ -972,11 +973,13 @@ class Game {
 
   /// Start a run with [spec] (default: [nextSpec], the remembered setup).
   /// Locked choices are swapped for the safe default; the spec is
-  /// remembered for the next run.
+  /// remembered for the next run. [early] is the early-phase data emphasis
+  /// (default: defaultPhaseOption for the spec).
   bool startTraining({
     required double fraction,
     required double durationSeconds,
     ModelSpec? spec,
+    PhaseOption? early,
   }) {
     if (!canStartTraining) return false;
     final used = (spec ?? s.lastSpec).clampTo(designContext);
@@ -986,7 +989,22 @@ class Game {
       durationSeconds: durationSeconds,
       spec: used,
       timeScale: s.era.computeTimeScale,
+      phaseChoices: {
+        RunPhase.early: early?.phase == RunPhase.early ? early! : defaultPhaseOption(RunPhase.early, used),
+      },
     );
+    return true;
+  }
+
+  /// The run's checkpoint waiting for a decision, or null.
+  RunPhase? get awaitingPhase => s.run?.awaitingPhase;
+
+  /// Answer the waiting checkpoint with [option]; false if it isn't for the
+  /// phase the run is waiting at.
+  bool choosePhase(PhaseOption option) {
+    final run = s.run;
+    if (run == null || run.awaitingPhase != option.phase) return false;
+    run.choosePhase(option);
     return true;
   }
 
@@ -1057,8 +1075,10 @@ class Game {
     // Training.
     final run = s.run;
     if (run != null && !run.paused) {
-      run.computeFlops += trainingFlopsPerSecond(run.fraction) * dt;
-      run.elapsedSeconds += dt;
+      // Checkpoints (run_phases.dart) may hold the run for a decision.
+      final trainDt = run.stepPhases(dt, offline: offline);
+      run.computeFlops += trainingFlopsPerSecond(run.fraction) * trainDt;
+      run.elapsedSeconds += trainDt;
       if (run.done) _finishRun(run);
     }
 
@@ -1141,7 +1161,7 @@ class Game {
       }
     }
     final effC = e.effectiveCompute(run.computeFlops * trainEffMult * cemHit, dataTokens);
-    final design = DesignOutcome(
+    final design = applyPhases(DesignOutcome(
       spec: run.spec,
       ratingAdd: e.ratingAdd,
       serveCostMult: e.serveCostMult,
@@ -1153,7 +1173,7 @@ class Game {
         for (final n in e.notes)
           if (n.tone != NoteTone.neutral) n.text,
       ].take(4).toList(),
-    );
+    ), run.phaseChoices);
     s.pendingEffectiveCompute = effC;
     s.pendingDesign = design;
     s.run = null;

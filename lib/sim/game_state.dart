@@ -3,6 +3,7 @@ import 'content.dart';
 import 'model_design.dart';
 import 'news.dart';
 import 'reviews.dart';
+import 'run_phases.dart';
 
 class TrainingRun {
   /// Fraction of effective compute committed to training (0..1).
@@ -19,6 +20,16 @@ class TrainingRun {
   /// The model design chosen when the run started.
   final ModelSpec spec;
 
+  /// Phase decisions so far (run_phases.dart). The early one is set when
+  /// the run starts; the others at their checkpoints.
+  final PhaseChoices phaseChoices;
+
+  /// Phases the game picked by default (no player decision).
+  final Set<RunPhase> autoPhases;
+
+  /// Seconds the run has waited at the current checkpoint.
+  double phaseWaitSeconds;
+
   TrainingRun({
     required this.fraction,
     required this.durationSeconds,
@@ -27,7 +38,11 @@ class TrainingRun {
     this.elapsedSeconds = 0,
     this.computeFlops = 0,
     this.paused = false,
-  });
+    PhaseChoices? phaseChoices,
+    Set<RunPhase>? autoPhases,
+    this.phaseWaitSeconds = 0,
+  }) : phaseChoices = phaseChoices ?? {},
+       autoPhases = autoPhases ?? {};
 
   bool get done => elapsedSeconds >= durationSeconds;
   double get progress => (elapsedSeconds / durationSeconds).clamp(0, 1);
@@ -40,6 +55,9 @@ class TrainingRun {
     'flops': computeFlops,
     'paused': paused,
     'spec': spec.toJson(),
+    'phases': phaseChoicesToJson(phaseChoices),
+    if (autoPhases.isNotEmpty) 'autoPhases': [for (final p in autoPhases) p.name],
+    if (phaseWaitSeconds > 0) 'phaseWait': phaseWaitSeconds,
   };
 
   factory TrainingRun.fromJson(Map<String, dynamic> j) => TrainingRun(
@@ -50,6 +68,12 @@ class TrainingRun {
     elapsedSeconds: (j['elapsed'] as num).toDouble(),
     computeFlops: (j['flops'] as num).toDouble(),
     paused: j['paused'] as bool? ?? false,
+    phaseChoices: phaseChoicesFromJson(j['phases']),
+    autoPhases: {
+      for (final n in (j['autoPhases'] as List?) ?? const [])
+        if (RunPhase.values.asNameMap()[n] case final p?) p,
+    },
+    phaseWaitSeconds: (j['phaseWait'] as num?)?.toDouble() ?? 0,
   );
 }
 
@@ -81,6 +105,10 @@ class DesignOutcome {
   /// Short lines for the release card: risks that fired, the biggest effects.
   final List<String> highlights;
 
+  /// The run's phase decisions, in phase order (empty for models trained
+  /// before run phases).
+  final List<PhaseOption> phases;
+
   const DesignOutcome({
     required this.spec,
     required this.ratingAdd,
@@ -89,6 +117,7 @@ class DesignOutcome {
     required this.serveCompute,
     this.strengths = const BenchmarkStrengths(),
     this.highlights = const [],
+    this.phases = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -99,6 +128,7 @@ class DesignOutcome {
     'serveC': serveCompute,
     'bench': strengths.toJson(),
     'notes': highlights,
+    if (phases.isNotEmpty) 'phases': [for (final p in phases) p.name],
   };
 
   /// Tolerant: missing fields default.
@@ -117,6 +147,10 @@ class DesignOutcome {
           ? BenchmarkStrengths.fromJson(bench.cast<String, dynamic>())
           : const BenchmarkStrengths(),
       highlights: (j['notes'] as List?)?.whereType<String>().toList() ?? const [],
+      phases: [
+        for (final n in (j['phases'] as List?) ?? const [])
+          if (PhaseOption.values.asNameMap()[n] case final o?) o,
+      ],
     );
   }
 }

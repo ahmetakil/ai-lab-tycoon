@@ -8,9 +8,11 @@ import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
 import '../../sim/game.dart';
+import '../../sim/run_phases.dart';
 import '../format.dart';
 import '../game_controller.dart';
 import '../grid/grid_hints.dart';
+import '../model_design/run_phases_ui.dart';
 import '../moments/release_sheet.dart';
 import '../sound.dart';
 import '../theme.dart';
@@ -582,9 +584,12 @@ class ProjectBar extends StatelessWidget {
     } else if (run != null) {
       final left = math.max(0.0, (run.durationSeconds - run.elapsedSeconds) / controller.speed);
       title = 'Training ${defaultModelName(g)}';
+      final waiting = run.awaitingPhase;
       sub =
           run.paused
               ? 'paused · tap to resume'
+              : waiting != null
+              ? 'checkpoint · ${waiting.label.toLowerCase()} · decide'
               : '${formatPercent(run.progress)} · ETA ${formatDuration(left)}';
       progress = run.progress;
       color = run.paused ? AppColors.amber : AppColors.cyan;
@@ -644,32 +649,35 @@ class ProjectBar extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(
-                      height: 6,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          const ColoredBox(color: Color(0x33FFFFFF)),
-                          if (progress != null)
-                            FractionallySizedBox(
-                              alignment: Alignment.centerLeft,
-                              widthFactor: progress.clamp(0.0, 1.0),
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [color.withValues(alpha: 0.7), color],
+                  const SizedBox(height: 2),
+                  if (run != null && !pending)
+                    PhaseTrack(key: const ValueKey('hud-phase-track'), run: run, color: color, height: 6)
+                  else
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: SizedBox(
+                        height: 6,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            const ColoredBox(color: Color(0x33FFFFFF)),
+                            if (progress != null)
+                              FractionallySizedBox(
+                                alignment: Alignment.centerLeft,
+                                widthFactor: progress.clamp(0.0, 1.0),
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [color.withValues(alpha: 0.7), color],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text(
                     sub,
                     maxLines: 1,

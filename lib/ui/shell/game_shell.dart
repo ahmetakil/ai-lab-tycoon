@@ -16,6 +16,7 @@ import '../format.dart';
 import '../game_assets.dart';
 import '../game_controller.dart';
 import '../grid/grid_hints.dart';
+import '../model_design/run_phases_ui.dart';
 import '../moments/event_presenter.dart';
 import '../moments/release_sheet.dart';
 import '../moments/rivals_screen.dart';
@@ -834,10 +835,27 @@ class _GameShellState extends State<GameShell> {
             controller: c,
             builder: (context) {
               final step = _tutorialStep();
-              return step == null
+              // A checkpoint decision takes this slot while it's open.
+              return step == null || g.awaitingPhase != null
                   ? const SizedBox.shrink()
                   : _CoachMark(step: step, onSkip: _skipTutorial);
             },
+          ),
+        ),
+        // Mid-run checkpoint (run_phases.dart): one quick decision.
+        Positioned(
+          left: toolW + 12,
+          right: 12,
+          bottom: drawerH + 12,
+          child: GameBuilder(
+            controller: c,
+            builder:
+                (context) => Center(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: PhaseDecisionCard(key: ValueKey(g.awaitingPhase), controller: c),
+                  ),
+                ),
           ),
         ),
         if (_placing != null)

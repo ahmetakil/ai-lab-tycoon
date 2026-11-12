@@ -14,6 +14,7 @@ import '../../sim/content.dart';
 import '../../sim/game.dart';
 import '../../sim/game_state.dart';
 import '../../sim/model_design.dart';
+import '../../sim/run_phases.dart';
 import '../format.dart';
 import '../game_assets.dart';
 import '../model_design/benchmark_strip.dart';
@@ -50,6 +51,8 @@ class ReleaseCardData {
   /// Launch reviews' average score and verdict (null without reviews).
   final double? reviewAverage;
   final String? reviewVerdict;
+  /// The run's phase decisions (run_phases.dart), empty for older models.
+  final List<PhaseOption> phases;
 
   const ReleaseCardData({
     required this.labName,
@@ -67,6 +70,7 @@ class ReleaseCardData {
     this.designHeadline,
     this.reviewAverage,
     this.reviewVerdict,
+    this.phases = const [],
   });
 
   /// Card for [release] (default: the model currently serving).
@@ -92,9 +96,10 @@ class ReleaseCardData {
       rivalRating: rival.rating,
       era: g.s.era,
       strengths: r.design?.strengths,
-      designHeadline: r.design == null ? null : strengthHeadline(r.design!.spec, r.design!.strengths),
       reviewAverage: r.review?.average,
       reviewVerdict: r.review?.verdict,
+      designHeadline: r.design == null ? null : phaseAwareHeadline(r.design!),
+      phases: r.design?.phases ?? const [],
     );
   }
 
@@ -644,6 +649,7 @@ class _ReleaseCardDialogState extends State<_ReleaseCardDialog> {
                           key: const ValueKey('release-benchmark-strip'),
                           strengths: widget.data.strengths!,
                           headline: widget.data.designHeadline,
+                          phases: widget.data.phases,
                         ),
                       ),
                     ],
