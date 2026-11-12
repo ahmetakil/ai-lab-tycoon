@@ -5,7 +5,7 @@
 //   dart run tool/balance_sim.dart [minutes=360] [--log-every=10]
 //       [--strategy=balanced|hardware-only|software-first|no-upgrades]
 //       [--layout=template|naive|random] [--seed=12345]
-//       [--compare] [--schedule=casual|continuous] [--dt=1]
+//       [--compare] [--schedule=casual|continuous] [--dt=1] [--phases]
 //
 // --compare runs every strategy (template layout) plus the naive and random
 // layouts, and prints a summary table only.
@@ -13,6 +13,8 @@
 // PlaySchedule.casual) for [minutes] of wall-clock time and prints the
 // wall-clock timeline plus a per-session table. With --compare it compares
 // strategies on that schedule.
+// --phases: the bot specializes at run-phase checkpoints (lib/sim/run_phases.dart)
+// instead of taking the all-rounder defaults.
 import 'dart:math' as math;
 
 import 'package:ai_lab_tycoon/sim/balance.dart';
@@ -21,7 +23,11 @@ import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/model_design.dart';
 
+/// --phases (see the header).
+var _specializePhases = false;
+
 void main(List<String> args) {
+  _specializePhases = args.contains('--phases');
   final minutes =
       args.isNotEmpty && !args.first.startsWith('--')
           ? double.parse(args.first)
@@ -59,6 +65,7 @@ void main(List<String> args) {
     stopWhenDone: false,
     seed: seed,
     dt: dt,
+    specializePhases: _specializePhases,
     onEvent: (g, e) {
       final t = fmtTime(g.s.time);
       switch (e) {
@@ -160,6 +167,7 @@ void compare(
             maxSeconds: minutes * 60,
             seed: seed,
             dt: dt,
+            specializePhases: _specializePhases,
           )
           : runSchedule(
             schedule: schedule,
@@ -168,6 +176,7 @@ void compare(
             maxWallSeconds: minutes * 60,
             seed: seed,
             dt: dt,
+            specializePhases: _specializePhases,
           );
   final results = [
     for (final s in BotStrategy.values) run(s, BotLayout.template),
@@ -208,6 +217,7 @@ void scheduled(
     maxWallSeconds: minutes * 60,
     seed: seed,
     dt: dt,
+    specializePhases: _specializePhases,
     onEvent: (g, e, wall) {
       final t = '${fmtTime(wall)} (sim ${fmtTime(g.s.time)})';
       switch (e) {

@@ -155,6 +155,51 @@ collapse penalties), long context (see above). Reasoning multiplies math and cod
 `designScore = ratingDelta + 30·log2(demand) − 6·log2(serve) + E[risk]`. Raise `serveWeight`
 when capacity-limited, so the bot picks over-training or INT4.
 
+## Run phases (mid-run decisions)
+Game Dev Tycoon's development stages, for training runs. Code: `lib/sim/run_phases.dart`
+(pure Dart), `lib/ui/model_design/run_phases_ui.dart` (`PhaseDecisionCard`, `PhaseTrack`,
+`PhaseChoicesLine`, `EarlyFocusPicker`). Tests: `test/sim/run_phases_test.dart`,
+`test/ui/run_phases_test.dart`.
+
+A run has three phases. The early data emphasis is picked in the run setup ("Data mix" row).
+The other two are **checkpoints** at fixed fractions of the run (1/3 and 2/3, so they
+survive pacing changes). At a checkpoint the run holds (no compute is added) and the
+checkpoint card asks once, so there are at most 2 prompts per run. With no answer the default
+lands after `phaseDecisionTimeout` (10 s of sim time). Offline it lands at once, so a
+checkpoint never blocks offline progress.
+
+| Phase | Option | Benchmarks | Rating | Demand | Serving | Source |
+|---|---|---|---|---|---|---|
+| Early mix | **Web** | chat ×1.06, coding/math ×0.97 | | | | FineWeb, Penedo 2024 |
+| | Code | coding ×1.2, math ×1.05, chat ×0.95 | | | | To Code, or Not To Code, Aryabumi 2024 |
+| | Math | math ×1.25, coding ×1.03, chat ×0.95 | | | | DeepSeekMath, Shao 2024 |
+| Annealing (1/3) | **Quality data** | coding, math, chat ×1.04 | | | | MiniCPM (WSD), Hu 2024 |
+| | Long context | long context ×1.3 | −1 | ×1.04 | ×1.03 | Effective Long-Context Scaling, Xiong 2023 |
+| | Reasoning | math ×1.2, coding ×1.1, chat ×0.96 | +1 | ×0.97 | | Llama 3 Herd of Models, Dubey 2024 |
+| Post-training (2/3) | **Helpful** | chat ×1.1 | | | | InstructGPT, Ouyang 2022 |
+| | Safety | chat ×0.94 | −3 | ×1.07 | | XSTest, Röttger 2023 |
+| | Reasoning RL | math ×1.25, coding ×1.15, chat ×0.97 | +2 | | ×1.05 | DeepSeek-R1, 2025 |
+
+All numbers are **Design**, set to the direction of the cited result.
+
+- **Defaults** (bold) only shape the benchmark profile. The early default follows the design:
+  a code-heavy mix gets Code and RL reasoning gets Math. A lab that never decides plays exactly
+  as it did before run phases.
+- **Balance**: on the bot's design score (`rating + 30·log2 demand − 6·log2 serve`) every
+  option sits within about ±2 rating of zero. Over 10 casual-schedule seeds the bot finishes
+  at a mean of ~61 h on the defaults and ~63 h when it specializes by what blocks it
+  (`dart run tool/balance_sim.dart --phases`).
+- **Effects** apply when the run ends (`applyPhases` on the `DesignOutcome`): strengths
+  multiply, rating adds to `ratingAdd`, serving and demand multiply. `DesignOutcome.phases`
+  carries the picks to the release. `phaseAwareHeadline` credits a phase when it, not the
+  design, won the best benchmark ("Annealed on math & code won math").
+- **Saves**: `TrainingRun` stores `phases`, `autoPhases` and `phaseWait`; `DesignOutcome` stores
+  `phases`. All of them are optional, so older v4 saves load. An old in-flight run gets the
+  early default and asks at the next checkpoint it has already passed.
+- **Bot**: answers a checkpoint the tick it appears. By default it takes the defaults (with the
+  early mix matched to its design). `Bot(specializePhases: true)` picks with `bestPhaseOption`,
+  using the design weights; serving counts fully while it's capacity-limited.
+
 ## Research
 New entries in `designUpgrades` (identity `Effects`; their value is the option they unlock):
 

@@ -7,11 +7,13 @@ import '../../sim/balance.dart' show maxUtilization, ratingBase;
 import '../../sim/content.dart';
 import '../../sim/game.dart';
 import '../../sim/model_design.dart';
+import '../../sim/run_phases.dart';
 import '../format.dart';
 import '../game_assets.dart';
 import '../game_controller.dart';
 import '../grid/grid_hints.dart';
 import '../model_design/benchmark_strip.dart';
+import '../model_design/run_phases_ui.dart';
 import '../model_design/run_setup.dart';
 import '../moments/release_sheet.dart';
 import '../sound.dart';
@@ -92,6 +94,9 @@ class _TrainingPanelState extends State<TrainingPanel> {
   /// The model design being edited; null = the remembered one
   /// (Game.nextSpec), so "Start training" stays one tap.
   ModelSpec? _draft;
+
+  /// Early-phase data emphasis; null = the default for the spec.
+  PhaseOption? _early;
   bool _designOpen = false;
 
   /// The picked run length if this era offers it, else the era's middle one.
@@ -129,6 +134,7 @@ class _TrainingPanelState extends State<TrainingPanel> {
     final dataLimited = g.isDataLimited(rawCompute, spec);
     final delta = predicted - current;
     final canStart = g.effectiveTflops > 0;
+    final early = _early ?? defaultPhaseOption(RunPhase.early, spec);
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -163,6 +169,17 @@ class _TrainingPanelState extends State<TrainingPanel> {
               onSelectionChanged: (v) {
                 Sound.play(Sfx.click);
                 setState(() => _duration = v.first);
+              },
+            ),
+          ),
+          gap8,
+          _OptionRow(
+            label: 'Data mix',
+            child: EarlyFocusPicker(
+              selected: early,
+              onChanged: (o) {
+                Sound.play(Sfx.click);
+                setState(() => _early = o);
               },
             ),
           ),
@@ -278,6 +295,7 @@ class _TrainingPanelState extends State<TrainingPanel> {
                           fraction: _fraction,
                           durationSeconds: duration,
                           spec: spec,
+                          early: early,
                         ),
                       );
                       Sound.play(ok ? Sfx.trainingStart : Sfx.error);
@@ -306,7 +324,8 @@ class _TrainingPanelState extends State<TrainingPanel> {
     final projectedFlops =
         run.computeFlops +
         g.trainingFlopsPerSecond(run.fraction) * (run.durationSeconds - run.elapsedSeconds);
-    final projected = g.predictRatingForFlops(projectedFlops, run.spec);
+    final projected = g.predictRatingForFlops(projectedFlops, run.spec) + phaseRating(run.phaseChoices);
+    final waiting = run.awaitingPhase;
     final accent = run.paused ? AppColors.amber : AppColors.neon;
     return Panel(
       accent: accent,
@@ -314,7 +333,11 @@ class _TrainingPanelState extends State<TrainingPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           PanelHeader(
-            run.paused ? 'Training paused' : 'Training · ${formatPercent(run.fraction)} compute',
+            run.paused
+                ? 'Training paused'
+                : waiting != null
+                ? 'Checkpoint: ${waiting.label}'
+                : 'Training · ${formatPercent(run.fraction)} compute',
             icon: Icons.model_training,
             color: accent,
             trailing: Text(
@@ -349,7 +372,7 @@ class _TrainingPanelState extends State<TrainingPanel> {
             style: const TextStyle(color: AppColors.muted, fontSize: 12, height: 1.3),
           ),
           gap8,
-          MeterBar(value: run.progress, color: accent, height: 10),
+          PhaseTrack(key: const ValueKey('run-phase-track'), run: run, color: accent, height: 10),
           const SizedBox(height: 6),
           Row(
             children: [
@@ -368,6 +391,9 @@ class _TrainingPanelState extends State<TrainingPanel> {
               ),
             ],
           ),
+          gap8,
+          PhaseChoicesLine(run: run),
+          if (waiting != null) ...[gap8, PhaseDecisionCard(controller: c)],
           if (g.dataLimited) ...[
             gap8,
             const _Callout(
@@ -487,7 +513,8 @@ class _TrainingPanelState extends State<TrainingPanel> {
             BenchmarkStrip(
               key: const ValueKey('pending-benchmark-strip'),
               strengths: d.strengths,
-              headline: strengthHeadline(d.spec, d.strengths),
+              headline: phaseAwareHeadline(d),
+              phases: d.phases,
             ),
           ],
           const SizedBox(height: 14),

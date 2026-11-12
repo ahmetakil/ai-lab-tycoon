@@ -18,6 +18,7 @@ import 'content.dart';
 import 'game.dart';
 import 'game_state.dart';
 import 'model_design.dart';
+import 'run_phases.dart';
 
 enum BotStrategy {
   /// Scores every purchase by progress per dollar (hardware, power, software).
@@ -168,6 +169,10 @@ class Bot {
   /// instead of [ModelSpec.bestGuessFor]: for testing bad choices.
   final ModelSpec? fixedSpec;
 
+  /// Answer run-phase checkpoints by what blocks progress instead of with
+  /// the all-rounder defaults (see _decidePhase).
+  final bool specializePhases;
+
   /// bestGuessFor per lab state (owned research, era, network tier, serving
   /// pressure, data budget bucket), so what-ifs stay cheap.
   final Map<String, ModelSpec> _specCache = {};
@@ -182,6 +187,7 @@ class Bot {
     this.layout = BotLayout.template,
     this.thinkEvery = 3,
     this.fixedSpec,
+    this.specializePhases = false,
     int seed = 1,
   }) : _rng = seed & 0x7fffffff;
 
@@ -254,6 +260,8 @@ class Bot {
 
 
   void act() {
+    // A checkpoint is a quick call: answer it right away (it holds the run).
+    _decidePhase();
     if (g.s.time < _nextThink) return;
     _nextThink = g.s.time + thinkEvery;
     _release();
@@ -355,6 +363,33 @@ class Bot {
     }
   }
 
+  // --- Run phases ------------------------------------------------------------
+  /// Weights for a phase pick: the design pick's, except that serving cost
+  /// always counts fully while capacity is what limits users (a phase pick
+  /// can't make up lost capacity the way the design's rating can).
+  (double, double) get _phaseWeights {
+    final w = _serveWeight;
+    final capLimited = g.s.users >= 0.9 * g.capacity;
+    return (capLimited ? math.max(w, 23.0) : w, w <= 4 && !capLimited ? 8.0 : 30.0);
+  }
+
+  /// Checkpoints are answered at once (they hold the run). By default the
+  /// bot matches the early data emphasis to its design and takes the
+  /// all-rounder at the checkpoints, which only shape the benchmark profile;
+  /// with [specializePhases] it trades rating, demand and serving by what
+  /// blocks progress (for balance checks: tool/balance_sim.dart --phases).
+  void _decidePhase() {
+    final phase = g.awaitingPhase;
+    if (phase == null) return;
+    g.choosePhase(_phasePick(phase, g.s.run!.spec));
+  }
+
+  PhaseOption _phasePick(RunPhase phase, ModelSpec spec) {
+    if (!specializePhases || fixedSpec != null) return defaultPhaseOption(phase, spec);
+    final (sw, dw) = _phaseWeights;
+    return bestPhaseOption(phase, spec: spec, serveWeight: sw, demandWeight: dw);
+  }
+
   // --- Training --------------------------------------------------------------
   /// Uses only the run lengths the UI offers in this era. Continuous play
   /// takes the middle one early and the longest from the Small lab on. On a
@@ -411,10 +446,12 @@ class Bot {
     // UI choices: 25% / 50% / 75%.
     final fraction = spare >= 0.75 ? 0.75 : 0.5;
     final duration = _runFor(fraction);
+    final sp = specFor(g.plannedFlops(fraction, duration));
     if (g.startTraining(
       fraction: fraction,
       durationSeconds: duration,
-      spec: specFor(g.plannedFlops(fraction, duration)),
+      spec: sp,
+      early: _phasePick(RunPhase.early, sp),
     )) {
       _meaningful();
     }
@@ -1180,6 +1217,7 @@ PlaythroughResult runPlaythrough({
   int seed = 12345,
   double thinkEvery = 3,
   ModelSpec? fixedSpec,
+  bool specializePhases = false,
 }) {
   final g = Game(GameState(rngState: seed));
   final bot = Bot(
@@ -1189,6 +1227,7 @@ PlaythroughResult runPlaythrough({
     seed: seed,
     thinkEvery: thinkEvery,
     fixedSpec: fixedSpec,
+    specializePhases: specializePhases,
   );
   final r = PlaythroughResult(strategy, g, layout: layout);
   r.eraTimes[Era.garage] = 0;
@@ -1310,6 +1349,7 @@ PlaythroughResult runSchedule({
   int seed = 12345,
   double thinkEvery = 3,
   ModelSpec? fixedSpec,
+  bool specializePhases = false,
 }) {
   final g = Game(GameState(rngState: seed));
   final bot = Bot(
@@ -1319,6 +1359,7 @@ PlaythroughResult runSchedule({
     seed: seed,
     thinkEvery: thinkEvery,
     fixedSpec: fixedSpec,
+    specializePhases: specializePhases,
   );
   final r = PlaythroughResult(strategy, g, layout: layout);
   r.eraTimes[Era.garage] = 0;

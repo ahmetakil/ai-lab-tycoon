@@ -13,6 +13,7 @@ import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/sim/model_design.dart';
 import 'package:ai_lab_tycoon/sim/news.dart';
+import 'package:ai_lab_tycoon/sim/run_phases.dart';
 import 'package:ai_lab_tycoon/ui/app.dart';
 import 'package:ai_lab_tycoon/ui/game_controller.dart';
 import 'package:ai_lab_tycoon/ui/moments/event_presenter.dart';
@@ -282,7 +283,44 @@ void main() {
               durationSeconds: g.runDurations.first,
               spec: ModelSpec.bestGuessFor(g.designContext),
             ));
-        c.act((g) => g.advance(g.runDurations.first + 1));
+        // Checkpoint 1 (annealing): the decision card over the map, phase
+        // markers on the HUD bar.
+        final d = g.runDurations.first;
+        c.act((g) => g.advance(d * RunPhase.anneal.checkpoint + 2));
+        await _settle(tester, 500);
+        expect(g.awaitingPhase, RunPhase.anneal);
+        expect(find.byKey(const ValueKey('phase-decision-anneal')), findsOneWidget);
+        expect(find.byKey(const ValueKey('hud-phase-track')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'checkpoint card');
+        await _shot(tester, key, '${tag}_checkpoint');
+        // The training panel shows it too, with the track and decisions so far.
+        await _tapTool(tester, 'train');
+        await _settle(tester, 500);
+        final inPanel = find.descendant(
+          of: find.byType(GameModalCard),
+          matching: find.byKey(const ValueKey('phase-option-reasoningAnneal')),
+        );
+        await tester.scrollUntilVisible(
+          inPanel,
+          200,
+          scrollable: find.descendant(of: find.byType(GameModalCard), matching: find.byType(Scrollable)).first,
+        );
+        await _settle(tester, 200);
+        expect(find.byKey(const ValueKey('run-phase-track')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'checkpoint in panel');
+        await _shot(tester, key, '${tag}_checkpoint_panel');
+        await tester.tap(inPanel);
+        await _settle(tester, 300);
+        expect(g.s.run!.phaseChoices[RunPhase.anneal], PhaseOption.reasoningAnneal);
+        await tester.tap(find.byKey(const ValueKey('modal-close')).last);
+        await _settle(tester, 400);
+        // Checkpoint 2 (post-training), then the default after the timeout.
+        c.act((g) => g.advance(d * (RunPhase.post.checkpoint - RunPhase.anneal.checkpoint) + 2));
+        await _settle(tester, 500);
+        expect(find.byKey(const ValueKey('phase-decision-post')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'post checkpoint');
+        await _shot(tester, key, '${tag}_checkpoint_post');
+        c.act((g) => g.advance(d + phaseDecisionTimeout));
         await _tapTool(tester, 'stats');
         await _settle(tester, 500);
         expect(find.byKey(const ValueKey('pending-benchmark-strip')), findsOneWidget);
