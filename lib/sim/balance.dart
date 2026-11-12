@@ -163,8 +163,9 @@ const smallLabUnlockRating = 990.0;
 const mediumLabUnlockRating = 1130.0;
 
 /// Medium lab → Big lab: a GPT-ish-4-class model (between ChatGPT-ish and
-/// GPT-ish-4). Needs a full datacenter hall (the 4 MW substation tier) and
-/// RLHF; their prices and the Medium lab's time compression set the era.
+/// GPT-ish-4). Needs a full datacenter hall (the 3.6 MW substation tier)
+/// and RLHF: the hall's size, the racks' supply crunch and RLHF's price set
+/// the era.
 const bigLabUnlockRating = 1260.0;
 
 /// Big lab → Frontier lab: a reasoning-era model (between o-three and

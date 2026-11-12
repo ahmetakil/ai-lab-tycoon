@@ -70,9 +70,9 @@ beat rival labs.
   | Frontier lab | Gigawatt site 22×22 | rating 1490 | GPT-ish-5 → GPT-ish-6 Astral |
 
 - Pacing: an active game. A full playthrough (garage to the final rival) is
-  6–8 hours of active play (about 7h15): the garage takes ~50 min (2060s,
+  6–8 hours of active play (about 7h10): the garage takes ~50 min (2060s,
   then 4090s, then V100s, until it's full), Small lab ~1h, Medium lab
-  ~1h45, Big lab ~3h40, Frontier ~4h40. Each room is filled during its era
+  ~1h50, Big lab ~3h20, Frontier ~4h20. Each room is filled during its era
   and the next one opens a few minutes after it's full. Something worth doing comes up every
   30–90 s (a purchase, a release, a new run, a run-phase checkpoint or a
   viral spike), never two idle minutes. Training runs take 30 s–2 min in the

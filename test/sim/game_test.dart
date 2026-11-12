@@ -466,9 +466,9 @@ void main() {
         expect(e.runDurations.first, greaterThanOrEqualTo(30), reason: e.name);
         expect(e.runDurations.last, lessThanOrEqualTo(300), reason: e.name);
         // The longest run is still days to weeks of compute (the Frontier's
-        // gigasite does a lot of work per day: 2.4 days).
+        // gigasite does a lot of work per day: 1.7 days).
         final days = e.runDurations.last * e.computeTimeScale / 86400;
-        expect(days, inInclusiveRange(2, 60), reason: e.name);
+        expect(days, inInclusiveRange(1.5, 60), reason: e.name);
       }
       expect(Era.garage.runDurations.first, 30);
       expect(Era.globalLab.runDurations, [60, 180, 300]);

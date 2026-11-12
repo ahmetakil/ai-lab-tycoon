@@ -18,7 +18,7 @@ void main() {
     late PlaythroughResult r;
     setUpAll(() => r = activeRun);
 
-    test('the ladder takes 6-8 hours of active play (about 7h15)', () {
+    test('the ladder takes 6-8 hours of active play (about 7h10)', () {
       expect(r.ladderDone, isTrue, reason: 'stuck at rival ${r.game.s.rivalIndex}/${rivalLadder.length}');
       expect(r.finishTime!, inInclusiveRange(6 * _h, 8 * _h));
       expect(r.finishTime!, inInclusiveRange(6.75 * _h, 7.75 * _h));

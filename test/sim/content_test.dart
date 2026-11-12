@@ -165,30 +165,59 @@ void main() {
         expect(powerTiers[i].era.index, greaterThanOrEqualTo(powerTiers[i - 1].era.index));
       }
       expect(powerTiers.last.capacityKw, greaterThanOrEqualTo(3e6)); // GW era
-      // The old gaming GPU is the deliberate trap: cheap but worse on
-      // everything. Every other GPU tile beats all earlier ones, except that
-      // the hall's H100 rack costs more per TFLOPS than the HGX server before
-      // it (the 2023 shortage paces the hall; it still wins per kW and per
-      // cell).
+      // Newer GPUs win per kW (the old 2060 is the cheap, hot trap).
       final gpus = tiles.where((t) => t.isGpu).toList();
       for (var i = 1; i < gpus.length; i++) {
         final a = gpus[i - 1], b = gpus[i];
-        if (a.id != 'gpu_old' && b.id != 'rack_h_class') {
-          expect(
-            b.tflops / b.cost,
-            greaterThan(a.tflops / a.cost),
-            reason: '${b.id} should beat ${a.id} per dollar',
-          );
-        }
-        expect(
-          b.tflopsPerKw,
-          greaterThan(a.tflopsPerKw),
-          reason: '${b.id} should beat ${a.id} per kW',
-        );
+        expect(b.tflopsPerKw, greaterThan(a.tflopsPerKw), reason: '${b.id} should beat ${a.id} per kW');
       }
       final old = tileById('gpu_old')!, gamer = tileById('gpu_gamer')!;
       expect(old.cost, lessThan(gamer.cost));
       expect(old.heat, greaterThan(gamer.heat));
+    });
+  });
+
+  group('the next tier is more bang for the buck (hard to get comes from gates)', () {
+    // At list price, in content order (era by era): every newer tier
+    // delivers more per dollar than the one before it, no exceptions.
+    void rising<T>(String what, List<T> tiers, String Function(T) id, double Function(T) perDollar) {
+      for (var i = 1; i < tiers.length; i++) {
+        expect(perDollar(tiers[i]), greaterThan(perDollar(tiers[i - 1])),
+            reason: '$what: ${id(tiers[i])} should beat ${id(tiers[i - 1])} per \$');
+      }
+    }
+
+    test('GPUs: TFLOPS per \$', () {
+      final gpus = tiles.where((t) => t.isGpu).toList();
+      expect(gpus.map((t) => t.era.index).toList(), orderedEquals([...gpus.map((t) => t.era.index)]..sort()));
+      rising('GPU', gpus, (t) => t.id, (t) => t.tflops / t.cost);
+    });
+
+    test('coolers: cooling per \$', () {
+      final coolers = tiles.where((t) => t.isCooling).toList();
+      expect(coolers.map((t) => t.era.index).toList(), orderedEquals([...coolers.map((t) => t.era.index)]..sort()));
+      rising('cooler', coolers, (t) => t.id, (t) => t.cooling / t.cost);
+    });
+
+    test('network tiers: GPUs fed per \$', () {
+      rising('network', networkTiers.where((n) => n.cost > 0).toList(), (n) => n.id, (n) => n.gpuCap / n.cost);
+    });
+
+    test('central cooling: cooling per GPU tile per \$', () {
+      rising('cooling plant', coolingTiers.where((c) => c.cost > 0).toList(), (c) => c.id, (c) => c.perGpuTile / c.cost);
+    });
+
+    test('power tiers: kW per \$', () {
+      rising('power', powerTiers.where((p) => p.cost > 0).toList(), (p) => p.id, (p) => p.capacityKw / p.cost);
+    });
+
+    test('newer tiers are gated: era, research, power tier or a steeper supply crunch', () {
+      // Every GPU after the garage's first needs something beyond money.
+      for (final t in tiles.where((t) => t.isGpu && t.id != 'gpu_old')) {
+        final gated = t.era.index > 0 || t.requires.isNotEmpty || t.minPowerTier > 0 || t.priceGrowth > 0;
+        expect(gated, isTrue, reason: t.id);
+        expect(t.priceGrowth, greaterThan(0), reason: '${t.id}: no supply crunch');
+      }
     });
   });
 

@@ -45,7 +45,7 @@ fresh; the game is unreleased.
 | `garage` Garage | garage | 4×4 | 1 GPU | 1.0 (16) | free | 1 Upgraded electrical panel (10 kW) |
 | `closet` Server closet | startup | 7×7 | 8-GPU server | 2.5 (123) | $15k | 2 3-phase service (65 kW) |
 | `colo` Colocation cage | smallLab | 10×10 | 8-GPU server | 5.0 (500) | $800k | 3 Leased colo circuits (500 kW) |
-| `hall` Datacenter hall | mediumLab | 14×14 | rack (32–72 GPUs) | 18.0 (3528) | $1.5M | 5 On-site substation (4 MW) |
+| `hall` Datacenter hall | mediumLab | 14×14 | rack (32–72 GPUs) | 18.0 (3528) | $1.5M | 5 On-site substation (3.6 MW) |
 | `campus` Datacenter campus | bigLab | 18×18 | pod (~1k GPUs) | 40.0 (12960) | $7.5M | 7 Gigawatt grid interconnect (1 GW) |
 | `gigasite` Gigawatt site | globalLab | 22×22 | building (~8k GPUs) | 70.0 (33880) | $20M | 9 Multi-site cluster (4 GW) |
 
@@ -82,10 +82,10 @@ and **cooling** (network switch tiles are gone since v4).
 | `gpu_old` | garage | 1 | 30 | 0.35 | 6 | $900 (+25%) | (the starting GPU) |
 | `gpu_gamer` | garage | 1 | 80 | 0.45 | 4.5 | $2k (+15%) |  |
 | `gpu_v_class` | garage | 1 | 125 | 0.5 | 5 | $3k (+10%) | mixed_precision |
-| `srv_a_class` | closet, colo | 8 | 2496 | 5.6 | 28 | $57.5k (+5%) |  |
-| `srv_h_class` | closet, colo | 8 | 7920 | 10.4 | 42 | $180k (+12%) | tier 3 (colo) |
-| `rack_h_class` | hall | 32 | 31.7k | 40 | 160 | $928k (+10%) | tier 4 (hall) |
-| `rack_b_class` | hall | 72 | 162k | 172.8 | 260 | $4.56M (+10%) | liquid_cooling, tier 5 (campus) |
+| `srv_a_class` | closet, colo | 8 | 2496 | 5.6 | 28 | $57.5k (+10%) |  |
+| `srv_h_class` | closet, colo | 8 | 7920 | 10.4 | 42 | $180k (+16%) | tier 3 (colo) |
+| `rack_h_class` | hall | 32 | 31.7k | 40 | 160 | $700k (+25%) | tier 4 (hall) |
+| `rack_b_class` | hall | 72 | 162k | 172.8 | 260 | $3.4M (+25%) | liquid_cooling, tier 5 (campus) |
 | `pod_b_class` | campus | 1024 | 2.3M | 2406.4 | 600 | $11.7M (+12%) | liquid_cooling, tier 5 (campus) |
 | `rack_r_class` | hall, campus | 72 | 252k | 244.8 | 340 | $1.17M (+12%) | liquid_cooling, tier 6 (plant) |
 | `pod_r_class` | campus, gigasite | 1024 | 3.6M | 3430 | 750 | $16.4M (+12%) | liquid_cooling, tier 6 (plant) |
@@ -94,20 +94,23 @@ and **cooling** (network switch tiles are gone since v4).
 **GPU supply crunch**: a GPU tile costs `cost × min(4, (1 + priceGrowth)^owned)`
 (`Game.tilePrice`). Garage GPUs have a steep one (the used market dries up),
 so the garage is an upgrade path: 2060s first, then 4090s, then V100s.
-Coolers have no crunch. Selling refunds half the list price.
+Every newer GPU (and cooler, network, central cooling and power tier) is
+better value per dollar at list price; what makes it hard to get is its
+era, research, power tier and crunch (docs/BALANCE.md). Coolers have no
+crunch. Selling refunds half the list price.
 
 ### Cooling tiles
 
 | cooling tile | sold for | cooling | kW | cost | locks |
 |---|---|---|---|---|---|
-| `cool_fan` | garage | 4 | 0.05 | $120 |  |
-| `cool_window_ac` | garage | 10 | 0.9 | $500 |  |
-| `cool_crac` | closet, colo | 40 | 3 | $12k |  |
-| `cool_rear_door` | closet, colo | 90 | 1.5 | $40k | liquid_cooling |
-| `cool_chiller` | hall, campus | 300 | 40 | $150k |  |
-| `cool_liquid` | hall, campus | 450 | 10 | $250k | liquid_cooling |
-| `cool_tower` | campus, gigasite | 1800 | 200 | $4M |  |
-| `cool_dry` | gigasite | 3000 | 450 | $9M |  |
+| `cool_fan` | garage | 4 | 0.05 | $150 |  |
+| `cool_window_ac` | garage | 10 | 0.9 | $350 |  |
+| `cool_crac` | closet, colo | 40 | 3 | $1.3k |  |
+| `cool_rear_door` | closet, colo | 90 | 1.5 | $2.8k | liquid_cooling |
+| `cool_chiller` | hall, campus | 300 | 40 | $9k |  |
+| `cool_liquid` | hall, campus | 450 | 10 | $13k | liquid_cooling |
+| `cool_tower` | campus, gigasite | 1800 | 200 | $50k |  |
+| `cool_dry` | gigasite | 3000 | 450 | $80k |  |
 
 ## Training cluster and network tier
 
@@ -118,12 +121,12 @@ where they sit doesn't matter for training. The cluster cap comes from the
 | network tier | era | feeds (GPUs) | Gbps | cost | requires |
 |---|---|---|---|---|---|
 | `copper1g` Copper Ethernet 1G | garage | 4 | 1 | $0 |  |
-| `copper10g` 10G copper | garage | 32 | 10 | $1.5k |  |
-| `fiber100g` 100G fiber | startup | 256 | 100 | $40k |  |
-| `ib400g` InfiniBand 400G | smallLab | 4096 | 400 | $1.5M | interconnect |
-| `ibspine` InfiniBand spine | mediumLab | 32768 | 800 | $15M | interconnect |
-| `nvlink` NVLink fabric | bigLab | 131072 | 14400 | $200M |  |
-| `optical` Optical fabric | globalLab | 4194304 | 1600 | $1.5B | parallelism |
+| `copper10g` 10G copper | garage | 32 | 10 | $2k |  |
+| `fiber100g` 100G fiber | startup | 256 | 100 | $15k |  |
+| `ib400g` InfiniBand 400G | smallLab | 4096 | 400 | $230k | interconnect |
+| `ibspine` InfiniBand spine | mediumLab | 32768 | 800 | $1.8M | interconnect |
+| `nvlink` NVLink fabric | bigLab | 131072 | 14400 | $7M | parallelism |
+| `optical` Optical fabric | globalLab | 4194304 | 1600 | $61.4M | parallelism |
 
 - `scalingEfficiency = 1` if `gpus ≤ cap`, else `sqrt(cap / gpus)` (GPU counts,
   not tiles: a tile stands for `gpusPerTile` GPUs). A lone GPU tile always
@@ -155,10 +158,10 @@ cooler shares)`.
 | central cooling | era | heat removed per GPU tile | cost | requires |
 |---|---|---|---|---|
 | `room_air` Room air | garage | 0 | $0 |  |
-| `chiller` Central chilled water | mediumLab | 80 | $3M |  |
-| `tower` Evaporative cooling towers | bigLab | 250 | $40M |  |
-| `liquid` Facility liquid loop | bigLab | 450 | $150M | liquid_cooling |
-| `dry` Dry-cooler farm | globalLab | 550 | $800M |  |
+| `chiller` Central chilled water | mediumLab | 80 | $2M |  |
+| `tower` Evaporative cooling towers | bigLab | 250 | $6M |  |
+| `liquid` Facility liquid loop | bigLab | 450 | $10.5M | liquid_cooling |
+| `dry` Dry-cooler farm | globalLab | 550 | $12.5M |  |
 
 - If netHeat > 0 the tile throttles: `speed = max(0.2, 1 − netHeat / heat)`
   (red tint and a % badge). No destruction.
@@ -169,14 +172,14 @@ cooler shares)`.
 |---|---|---|---|
 | `outlet` Garage outlet | garage | 1.8 kW | $0 |
 | `panel` Upgraded electrical panel | garage | 10 kW | $3k |
-| `office` 3-phase service | startup | 65 kW | $46.6k |
-| `colo` Leased colo circuits | smallLab | 500 kW | $164k |
+| `office` 3-phase service | startup | 65 kW | $19k |
+| `colo` Leased colo circuits | smallLab | 500 kW | $140k |
 | `hall` Dedicated medium-voltage feed | mediumLab | 2 MW | $488k |
-| `campus` On-site substation | mediumLab | 4 MW | $575k |
-| `plant` Power plant deal (PPA) | bigLab | 100 MW | $2.4M |
-| `gw_campus` Gigawatt grid interconnect | globalLab | 1.0 GW | $14.4M |
-| `nuclear_restart` Restarted nuclear plant | globalLab | 2.0 GW | $90.9M |
-| `multi_site` Multi-site cluster | globalLab | 4.0 GW | $300M |
+| `campus` On-site substation | mediumLab | 3.6 MW | $575k |
+| `plant` Power plant deal (PPA) | bigLab | 90 MW | $7.5M |
+| `gw_campus` Gigawatt grid interconnect | globalLab | 1.0 GW | $74M |
+| `nuclear_restart` Restarted nuclear plant | globalLab | 2.0 GW | $147M |
+| `multi_site` Multi-site cluster | globalLab | 4.0 GW | $290M |
 
 
 GPU tiles draw `powerKw × powerMult` (liquid cooling −15%), coolers their

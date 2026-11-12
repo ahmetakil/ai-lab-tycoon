@@ -32,18 +32,18 @@ run-phase checkpoints instead of taking the all-rounder.
 
 Not an idle clicker: a Game Dev Tycoon-style game you play. A full
 playthrough, garage to the final rival, is 6–8 hours of active play (aim
-~7h15), with a meaningful choice every 30–90 s and never two idle minutes.
+~7h10), with a meaningful choice every 30–90 s and never two idle minutes.
 Each room is where you spend its whole era: a room opens with its era, you
 fill it, and the next era unlocks a few minutes after you run out of space.
 
 | Milestone | Target | Active bot, seed 12345 | 7 seeds (median) |
 |---|---|---|---|
-| Startup | ~50 min | 0:49 | 0:48–0:50 (0:49) |
-| Small lab | ~1h | 1:03 | 1:00–1:04 (1:02) |
-| Medium lab | ~1h45 | 1:51 | 1:45–1:51 (1:48) |
-| Big lab | ~3h40 | 3:44 | 3:35–3:47 (3:41) |
-| Frontier | ~4h40 | 4:43 | 4:34–4:50 (4:38) |
-| Final rival | 7–7h45 | **7:26** | 7:08–7:29 (7:19) |
+| Startup | ~50 min | 0:50 | 0:49–0:51 (0:50) |
+| Small lab | ~1h | 1:02 | 1:01–1:04 (1:02) |
+| Medium lab | ~1h50 | 1:50 | 1:50–1:54 (1:51) |
+| Big lab | ~3h20 | 3:22 | 3:19–3:28 (3:22) |
+| Frontier | ~4h20 | 4:23 | 4:17–4:28 (4:21) |
+| Final rival | 7–7h30 | **7:08** | 6:55–7:18 (7:07) |
 
 `PlaySchedule.active` (bot.dart, the default everywhere) is continuous play;
 the bot looks at the screen every 4 s, so it reacts within 0–4 s. Training
@@ -63,9 +63,9 @@ worth ~10–75 min of play, typically ~30 (fork noise ±15 min). Idling helps
 a little; playing is how you move forward.
 
 **The casual schedule** (`PlaySchedule.casual`: 60/45/30/60 min sessions
-with 2.5–12 h breaks) still works: final rival at 28h05 wall-clock after
-5h00 of play over 6 sessions (vs 7h26 for the active player). The breaks
-shave about two hours off the play because of the 2 h of 10%-rate earnings
+with 2.5–12 h breaks) still works: final rival at 31h40 wall-clock after
+5h30 of play over 7 sessions (vs 7h08 for the active player). The breaks
+shave about 1h40 off the play because of the 2 h of 10%-rate earnings
 each time, and the run that finishes while you're away.
 
 **Fresh games get no catch-up.** A save from an older, incompatible version
@@ -194,67 +194,67 @@ the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 - room: Garage 4×4 ($0)
 - power: Garage outlet 1.8 kW ($0), Upgraded electrical panel 10.0 kW ($3k)
 - gpu: RTX 2060 (used) ($900, +25%/tile), RTX 4090 ($2k, +15%/tile), Used V100 ($3k, +10%/tile, needs mixed_precision)
-- cooling: Box fan ($120), Window AC ($500)
-- network: Copper Ethernet 1G, feeds 4 ($0); 10G copper, feeds 32 ($1.5k)
+- cooling: Box fan ($150), Window AC ($350)
+- network: Copper Ethernet 1G, feeds 4 ($0); 10G copper, feeds 32 ($2k)
 - research: Mixed precision (FP16) $800, Request batching $1.2k, KV cache $2.5k, LoRA fine-tuning $2k, Filtered web crawl $3k
 - stunts: Quiet release, Cryptic tweet, Live demo
 - runs: 30s / 1m / 2m at 5000× (1.7 d / 3.5 d / 6.9 d of compute)
 - rivals: Tiny-Transformer (765), GPT-ish-1 (796)
 ### Startup (`startup`, 2018–19)
 - room: Server closet 7×7 ($15k)
-- power: 3-phase service 65.0 kW ($47k)
-- gpu: DGX A100 (8× A100) ($58k, +5%/tile)
-- cooling: Precision AC (CRAC) ($14k)
-- network: 100G fiber, feeds 256 ($40k)
+- power: 3-phase service 65.0 kW ($19k)
+- gpu: DGX A100 (8× A100) ($58k, +10%/tile)
+- cooling: Precision AC (CRAC) ($1.3k)
+- network: 100G fiber, feeds 256 ($15k)
 - research: Custom CUDA kernels $250k, Quantization (INT8) $310k, Public code dataset $410k, Deduplication & quality filters $610k, Data mixture optimisation $450k, Instruction tuning $410k
 - stunts: 
 - runs: 1m / 2m / 3m at 7200× (5.0 d / 10 d / 15 d of compute)
 - rivals: BURT-Large (888), GPT-ish-2 (950)
 ### Small lab (`smallLab`, 2020–22)
 - room: Colocation cage 10×10 ($800k)
-- power: Leased colo circuits 500.0 kW ($164k)
-- gpu: HGX H100 (8× H100) ($180k, +12%/tile)
-- cooling: Rear-door heat exchanger ($48k)
-- network: InfiniBand 400G, feeds 4096 ($300k)
-- research: FlashAttention $2M, High-speed interconnect $420k, Liquid cooling $2.5M, Books & papers corpus $5M, Compute-optimal scaling $3M, FSDP / ZeRO sharding $6M
+- power: Leased colo circuits 500.0 kW ($140k)
+- gpu: HGX H100 (8× H100) ($180k, +16%/tile)
+- cooling: Rear-door heat exchanger ($2.8k)
+- network: InfiniBand 400G, feeds 4096 ($230k)
+- research: FlashAttention $2M, High-speed interconnect $420k, Liquid cooling $2M, Books & papers corpus $3M, Compute-optimal scaling $3M, FSDP / ZeRO sharding $4M
 - stunts: Mystery model on the arena
 - runs: 1m / 3m / 5m at 2100× (1.5 d / 4.4 d / 7.3 d of compute)
 - rivals: Meenie (1085), GPT-ish-3 (1120)
 ### Medium lab (`mediumLab`, 2023)
 - room: Datacenter hall 14×14 ($1.5M)
-- power: Dedicated medium-voltage feed 2.0 MW ($488k), On-site substation 4.0 MW ($575k)
-- gpu: H100 rack ($928k, +10%/tile), GB200 NVL72 ($4.6M, +10%/tile, needs liquid_cooling)
-- cooling: Chiller unit ($120k), Direct liquid-cooling loop ($200k)
-- network: InfiniBand spine, feeds 32768 ($2.2M)
-- central cooling: Central chilled water −80/tile ($579k)
-- research: Mixture of Experts $20M, RLHF $24M, 3D parallelism $34M, Distillation $40M, Paged KV cache $34M, Licensed data deals $2.2M
+- power: Dedicated medium-voltage feed 2.0 MW ($488k), On-site substation 3.6 MW ($575k)
+- gpu: H100 rack ($700k, +25%/tile), GB200 NVL72 ($3.4M, +25%/tile, needs liquid_cooling)
+- cooling: Chiller unit ($9k), Direct liquid-cooling loop ($13k)
+- network: InfiniBand spine, feeds 32768 ($1.8M)
+- central cooling: Central chilled water −80/tile ($2M)
+- research: Mixture of Experts $20M, RLHF $22M, 3D parallelism $34M, Distillation $40M, Paged KV cache $34M, Licensed data deals $2.2M
 - design research: Grouped-query attention $16M, Sliding-window attention $30M, RoPE position interpolation $14M, Router load balancing $24M, Inference-aware scaling $11M, Pre-training mix in RL (PPO-ptx) $22M, Long-document data $24M, 4-bit weights (GPTQ/AWQ) $27M
 - stunts: 
 - runs: 1m / 3m / 5m at 4500× (3.1 d / 9.4 d / 16 d of compute)
 - rivals: Mixtrawl 8x7B (1210), ChatGPT-ish (1260)
 ### Big lab (`bigLab`, 2023–25)
 - room: Datacenter campus 18×18 ($7.5M)
-- power: Power plant deal (PPA) 100.0 MW ($2.4M)
+- power: Power plant deal (PPA) 90.0 MW ($7.5M)
 - gpu: B200 SuperPOD ($12M, +12%/tile, needs liquid_cooling), Vera Rubin NVL144 ($1.2M, +12%/tile, needs liquid_cooling), Rubin SuperPOD ($16M, +12%/tile, needs liquid_cooling)
-- cooling: Cooling tower ($1.2M)
-- network: NVLink fabric, feeds 131072 ($27M)
-- central cooling: Evaporative cooling towers −250/tile ($10M); Facility liquid loop −450/tile ($24M)
-- research: FP8 training $130M, Speculative decoding $970M, Synthetic data $810M, AI feedback (RLAIF) $430M, Long context (ring attention) $650M, Reasoning (RL on chain of thought) $1.1B
-- design research: YaRN context extension $260M, Fine-grained experts $780M, Hybrid state-space layers $520M, Direct Preference Optimization $220M, Bigger reward models $390M
+- cooling: Cooling tower ($50k)
+- network: NVLink fabric, feeds 131072 ($7M)
+- central cooling: Evaporative cooling towers −250/tile ($6M); Facility liquid loop −450/tile ($11M)
+- research: FP8 training $150M, Speculative decoding $1.1B, Synthetic data $910M, AI feedback (RLAIF) $480M, Long context (ring attention) $730M, Reasoning (RL on chain of thought) $1.2B
+- design research: YaRN context extension $290M, Fine-grained experts $880M, Hybrid state-space layers $580M, Direct Preference Optimization $250M, Bigger reward models $440M
 - stunts: Livestreamed keynote
 - runs: 1m / 3m / 5m at 13000× (9.0 d / 27 d / 45 d of compute)
 - rivals: GPT-ish-4 (1339), Claudette 3.5 Sonata (1373), DeepSleep-R1 (1378), Claudette 3.7 Sonata (1455), o-three (1463), Grokk 3 (1503), GPT-ish-4.5 (1506)
 ### Frontier lab (`globalLab`, 2025–26)
 - room: Gigawatt site 22×22 ($20M)
-- power: Gigawatt grid interconnect 1.0 GW ($14M), Restarted nuclear plant 2.0 GW ($91M), Multi-site cluster 4.0 GW ($300M)
+- power: Gigawatt grid interconnect 1.0 GW ($74M), Restarted nuclear plant 2.0 GW ($147M), Multi-site cluster 4.0 GW ($290M)
 - gpu: Rubin building ($36M, +3%/tile, needs liquid_cooling)
-- cooling: Closed-loop dry coolers ($1.1M)
+- cooling: Closed-loop dry coolers ($80k)
 - network: Optical fabric, feeds 4194304 ($61M)
-- central cooling: Dry-cooler farm −550/tile ($15M)
+- central cooling: Dry-cooler farm −550/tile ($13M)
 - research: Multi-token prediction $1.8B, Expert data (PhD annotators) $2.1B, Test-time compute scaling $6.6B, Agentic RL environments $11B, Prefill/decode disaggregation $3B
 - design research: Adaptive thinking budgets $3.6B
 - stunts: Big-game TV ad
-- runs: 1m / 3m / 5m at 700× (0.5 d / 1.5 d / 2.4 d of compute)
+- runs: 1m / 3m / 5m at 500× (0.3 d / 1.0 d / 1.7 d of compute)
 - rivals: GPT-ish-5 (1512), Gemeni 3 Pro (1571), Amused Spark (1580), GPT-ish-5.5 "Tater" (1596), Claudette Parable 5 (1618), Gemeni 4 Xenon (1622), GPT-ish-6 Astral (1626)
 
 The big parody labs (ClosedAI, Anthropomorphic) fight it out in Big lab with
@@ -269,44 +269,43 @@ v5 (a 4-minute garage, rooms bought ahead of their era) vs v6, seed 12345:
 
 | Milestone | v5 active | v6 active | v6 casual (wall) |
 |---|---|---|---|
-| Startup | 0h04 | 0h49 | 0h48 |
-| Small lab | 0h18 | 1h03 | 3h30 |
-| Medium lab | 1h43 | 1h51 | 7h20 |
-| Big lab | 3h51 | 3h44 | 7h31 |
-| Frontier lab | 5h10 | 4h43 | 11h34 |
-| Final rival | **6h38** | **7h26** | 28h05 |
+| Startup | 0h04 | 0h50 | 0h50 |
+| Small lab | 0h18 | 1h02 | 3h30 |
+| Medium lab | 1h43 | 1h50 | 7h15 |
+| Big lab | 3h51 | 3h22 | 10h48 |
+| Frontier lab | 5h10 | 4h22 | 24h00 |
+| Final rival | **6h38** | **7h07** | 31h40 |
 | Longest idle | 1.7 min | 1.7 min | 1.7 min |
 
-v6 active, seed 12345: 1,204 decisions to the final rival (one every 22 s),
-94 releases, 44/48 upgrades, 51 viral spikes; at the final rival 4.0B
-users, $52B ARR, 3.9M H100e, 3.1 GW. No stretch reaches 2 min; 62 pass 90 s
+v6 active, seed 12345: 1,162 decisions to the final rival (one every 22 s),
+92 releases, 46/48 upgrades, 51 viral spikes; at the final rival 4.2B
+users, $53B ARR, 3.8M H100e, 3.1 GW. No stretch reaches 2 min; 62 pass 90 s
 (102 min in all, mostly a 5-min run between checkpoints while saving). The
-longest wait between two rival wins is 74 min (Mixtrawl → ChatGPT-ish, the
-hall era; v5: 134 min).
+longest wait between two rival wins is 64 min (v5: 134 min).
 
 Seeds (time to unlock, h:mm:ss; `--seeds=...`):
 
 ```
 phases off (default bot)
 seed  |  Startup | Small lab | Medium lab |  Big lab | Frontier | final    | idle max
-12345 |  0:49:29 |  1:02:49 |  1:50:49 |  3:44:29 |  4:42:37 |  7:25:33 | 1.7m
-1     |  0:48:49 |  1:03:37 |  1:47:17 |  3:42:53 |  4:38:13 |  7:18:33 | 1.7m
-777   |  0:50:01 |  1:03:25 |  1:47:53 |  3:37:05 |  4:41:53 |  7:25:09 | 1.7m
-2026  |  0:49:21 |  1:02:01 |  1:46:25 |  3:46:33 |  4:49:41 |  7:28:49 | 1.7m
-4242  |  0:48:05 |  1:01:05 |  1:44:57 |  3:34:45 |  4:36:13 |  7:11:05 | 1.7m
-99    |  0:48:33 |  1:00:13 |  1:44:41 |  3:39:09 |  4:33:53 |  7:07:41 | 1.7m
-31337 |  0:48:33 |  1:01:53 |  1:51:17 |  3:40:53 |  4:33:53 |  7:16:05 | 1.7m
+12345 |  0:50:29 |  1:02:29 |  1:50:01 |  3:22:25 |  4:22:45 |  7:07:33 | 1.7m
+1     |  0:50:45 |  1:02:37 |  1:52:37 |  3:21:33 |  4:19:21 |  7:16:05 | 1.7m
+777   |  0:50:45 |  1:02:17 |  1:51:13 |  3:19:01 |  4:18:29 |  6:55:29 | 1.7m
+2026  |  0:50:33 |  1:04:09 |  1:53:57 |  3:27:45 |  4:22:09 |  7:18:29 | 1.7m
+4242  |  0:49:29 |  1:01:25 |  1:49:41 |  3:22:53 |  4:16:49 |  7:07:01 | 1.7m
+99    |  0:50:17 |  1:01:45 |  1:51:41 |  3:20:21 |  4:21:01 |  7:00:45 | 1.7m
+31337 |  0:49:49 |  1:01:53 |  1:49:41 |  3:23:25 |  4:27:57 |  7:07:57 | 1.7m
 phases on (Bot(specializePhases: true))
-12345 |  0:49:09 |  1:01:21 |  1:48:53 |  3:42:41 |  4:45:01 |  7:29:25 | 1.7m
-1     |  0:49:33 |  1:02:05 |  1:46:53 |  3:47:29 |  4:47:21 |  7:20:09 | 1.7m
-777   |  0:49:21 |  1:01:57 |  1:46:49 |  3:45:33 |  4:29:57 |  7:15:41 | 1.7m
-2026  |  0:49:37 |  1:02:49 |  1:47:21 |  3:47:25 |  4:46:13 |  7:17:37 | 1.7m
-4242  |  0:47:29 |  1:00:49 |  1:44:53 |  3:45:01 |  4:41:45 |  7:12:29 | 1.7m
-99    |  0:48:09 |  1:01:09 |  1:45:57 |  3:46:17 |  4:44:37 |  7:23:45 | 1.7m
-31337 |  0:48:29 |  1:01:01 |  1:49:21 |  3:49:13 |  4:55:13 |  7:27:01 | 1.7m
+12345 |  0:50:21 |  1:03:37 |  1:57:29 |  3:35:17 |  4:36:13 |  7:23:05 | 1.7m
+1     |  0:51:41 |  1:02:45 |  1:53:25 |  3:32:45 |  4:38:25 |  7:38:41 | 1.7m
+777   |  0:51:45 |  1:05:05 |  1:55:17 |  3:33:09 |  4:33:21 |  7:25:13 | 1.7m
+2026  |  0:51:33 |  1:05:13 |  1:54:49 |  3:33:57 |  4:30:49 |  7:20:21 | 1.7m
+4242  |  0:49:41 |  1:03:05 |  1:52:37 |  3:31:21 |  4:29:33 |  7:09:49 | 1.7m
+99    |  0:49:57 |  1:03:37 |  1:53:57 |  3:27:41 |  4:30:37 |  7:24:33 | 1.7m
+31337 |  0:49:45 |  1:02:21 |  1:52:21 |  3:31:09 |  4:32:05 |  7:19:05 | 1.7m
 ```
 
-- Every seed finishes in 7h07–7h29 (phases on: 7h12–7h29) and none has a
+- Every seed finishes in 6h55–7h18 (phases on: 7h09–7h38) and none has a
   2-minute idle stretch. The Startup no longer depends on a lucky viral
   spike (v5: 2:28–4:06), since its gate is hardware.
 
@@ -319,36 +318,37 @@ another GPU (`RoomFill`).
 
 | Room | Era in room | GPU tiles | Cells | Power | At the wall |
 |---|---|---|---|---|---|
-| Garage | 0:00–0:49 | 12 | 16/16 | 9.0 / 10 kW (90%) | 4.3 min |
-| Server closet | 0:50–1:02 | 20 | 24/49 | 62 / 65 kW (96%) | 1.9 min |
-| Colocation cage | 1:04–1:50 | 72 | 99/100 | 496 / 500 kW (99%) | 0.1 min |
-| Datacenter hall | 1:52–3:44 | 130 | 154/196 | 3.9 / 4 MW (98%) | none |
-| Datacenter campus | 3:45–4:42 | 228 | 300/324 | 97 / 100 MW (97%) | none |
-| Gigawatt site | 4:43–7:25 | 344 | 403/484 | 3.1 / 4 GW (78%) | (last room) |
+| Garage | 0:00–0:50 | 12 | 16/16 | 9.0 / 10 kW (90%) | 4.0 min |
+| Server closet | 0:51–1:02 | 20 | 24/49 | 62 / 65 kW (96%) | 3.0 min |
+| Colocation cage | 1:05–1:50 | 73 | 100/100 | 443 / 500 kW (89%) | 2.3 min |
+| Datacenter hall | 1:52–3:22 | 132 | 156/196 | 3.6 / 3.6 MW (100%) | 0.3 min |
+| Datacenter campus | 3:27–4:22 | 228 | 300/324 | 90 / 90 MW (100%) | none at exit (first hit 10 min before) |
+| Gigawatt site | 4:24–7:07 | 350 | 411/484 | 3.1 / 4 GW (77%) | (last room) |
 
-Over the 7 seeds: garage 16/16 cells, 90% power, 3.9–4.3 min at the wall;
-closet 96%, 0.3–1.9 min; colo 90–100%, 0.1–10.9 min (median 5); hall
-96–99%, 0–3 min; campus 96–98% (one seed 69%), never at the wall; gigasite
-78–82% at the final rival. v5 sat in a full colo (504 GPUs, 496/500 kW)
-from 0:48 to 1:43, and left the garage with 5–9 GPUs.
+Over the 7 seeds: garage 16/16 cells, 90% power, 3.8–4.1 min at the wall;
+closet 87–96%, 0–5.4 min; colo 100/100 cells (86–92% power), 0.6–9.1 min;
+hall 96–100%, 0–13.6 min (one seed; the rest ≤4); campus 85–100%, not at
+the wall at exit (it touches 90 MW ~10 min before on most seeds); gigasite
+~77% at the final rival. v5 sat in a full colo (504 GPUs, 496/500 kW) from
+0:48 to 1:43, and left the garage with 5–9 GPUs.
 
 ### The garage (v6)
 
 About 50 minutes, every one of them with something to do (no idle stretch
 over 90 s). Seed 12345:
 
-- 0–18 min: the starting used RTX 2060, then three more (+25% each: the
+- 0–20 min: the starting used RTX 2060, then three more (+25% each: the
   used market dries up). Mixed precision (FP16) at 2 min unlocks the V100
   for later. First box fan at ~10 min: past three cards the garage's free
   cooling (16) can't keep a 2060 (heat 6) cool. The outlet (1.8 kW) is full
   at ~16 min; the panel (10 kW) follows.
-- 18–30 min: the first RTX 4090 and window ACs; Tiny-Transformer falls at
-  24 min.
-- 30–45 min: Used V100s ($3k, +10% each) once income passes ~$20/s;
+- 20–34 min: the first RTX 4090s and window ACs; Tiny-Transformer falls at
+  25 min.
+- 34–47 min: Used V100s ($3k, +10% each) once income passes ~$20/s;
   GPT-ish-1 at 42 min; batching, KV cache, LoRA and the web crawl along the
-  way. All 16 cells are used at ~45 min.
-- 45–49 min: two old cards swapped for V100s; 1.05 PFLOPS opens the Startup.
-- 23–28 releases (open weights) and two rivals; the first viral spikes.
+  way. All 16 cells are used at ~47 min.
+- 47–50 min: old cards swapped for V100s; 1.05 PFLOPS opens the Startup.
+- 22–24 releases (open weights) and two rivals; the first viral spikes.
 
 Levers: garage revenue per user ×0.1 (`garageArpuMult`, a hobby project on
 tips until you incorporate), the 2060 / 4090 / V100 supply crunch (25 / 15 /
@@ -358,12 +358,12 @@ for open releases now stops at 5 stacks (`openSourceCommunityMaxStacks`),
 otherwise 40-odd garage releases made training ×7 more efficient and
 skipped half the Small lab.
 
-- Sensitive spots: RLHF's price ($24M) is the Medium lab's clock. At $20M
-  the bot buys it mid-fill and leaves the hall half full; at $27M it waits
-  ~10 min in a full hall. The colo wall is longest on seed 31337 (11 min,
-  the last Small-lab research). The Medium lab's time compression (4500)
-  and the 4 MW substation together set how much hall the Big-lab gate
-  needs.
+- Sensitive spots: the hall closes when RLHF ($22M) lands in a hall that's
+  nearly full. The gate that keeps the hall filling is its size: the
+  on-site substation is 3.6 MW, the most a hall bought at the racks' +25%
+  crunch reaches by the time RLHF is affordable (at 4 MW the bot bought
+  RLHF with the hall ~60% full; at 3 MW it waited 13–17 min). The colo's
+  wall is the last Small-lab research (books, FSDP).
 
 ### What model design changed in the balance
 
@@ -407,17 +407,18 @@ Seed 12345, 2 h offline cap at 10% earnings:
 
 ```
 sess | wall start | sim start | len | era at start | ran away | 1st act | decisions (buy/rel) | idle max | rivals | eras
-   0 |       0h00 |      0h00 |  60 | Parents' garage | -        |   0s   |  233 (36/29)        |   0.7m |      3 | Startup
-   1 |       3h30 |      3h00 |  45 | Startup      | yes      |   0s   |  145 (92/7)         |   1.7m |      3 | Small lab
-   2 |       7h15 |      5h45 |  30 | Small lab    | yes      |   0s   |   63 (26/8)         |   1.7m |      1 | Medium lab, Big lab
-   3 |      10h45 |      8h15 |  60 | Big lab      | yes      |   0s   |  337 (256/12)       |   1.0m |      6 | Frontier lab
-   4 |      24h00 |     11h15 |  60 | Frontier lab | yes      |   0s   |  142 (67/6)         |   1.0m |      5 |
-   5 |      27h30 |     14h15 |  45 | Frontier lab | yes      |   0s   |  114 (72/3)         |   1.0m |      4 |
+   0 |       0h00 |      0h00 |  60 | Parents' garage | -        |   0s   |  236 (37/29)        |   0.7m |      4 | Startup
+   1 |       3h30 |      3h00 |  45 | Startup      | yes      |   0s   |  160 (106/8)        |   1.7m |      2 | Small lab
+   2 |       7h15 |      5h45 |  30 | Small lab    | yes      |   0s   |   87 (44/10)        |   1.0m |      0 | Medium lab
+   3 |      10h45 |      8h15 |  60 | Medium lab   | yes      |   0s   |  309 (224/14)       |   1.0m |      7 | Big lab
+   4 |      24h00 |     11h15 |  60 | Big lab      | yes      |   0s   |  132 (54/8)         |   1.0m |      3 | Frontier lab
+   5 |      27h30 |     14h15 |  45 | Frontier lab | yes      |   0s   |  118 (64/4)         |   1.0m |      3 |
+   6 |      31h15 |     17h00 |  30 | Frontier lab | yes      |   0s   |   75 (43/2)         |   1.0m |      3 |
 ```
 
-Final rival at 28h05 wall-clock, 5h00 of play in 6 sessions. The casual
+Final rival at 31h40 wall-clock, 5h30 of play in 7 sessions. The casual
 schedule's numbers are no longer targets; the test only checks that it
-finishes, that most of the game (now 60%+ of the active run) is still
+finishes, that most of the game (60%+ of the active run) is still
 played, and the idle limit.
 
 ## Strategies and placement
@@ -425,31 +426,31 @@ played, and the idle limit.
 ```
 active, 15h00 cap
 strategy / layout        | Startup      | Small lab    | Medium lab   | Big lab      | Frontier lab | final  | rivals
-balanced / template     |  0h49        |  1h02        |  1h50        |  3h44        |  4h42        |  7h25 | 22/22
-hardwareOnly / template |  0h55        |  1h22        |    —         |    —         |    —         |    —   |  5/22
+balanced / template     |  0h50        |  1h02        |  1h50        |  3h22        |  4h22        |  7h07 | 22/22
+hardwareOnly / template |  0h56        |  1h20        |    —         |    —         |    —         |    —   |  5/22
 noUpgrades / template   |    —         |    —         |    —         |    —         |    —         |    —   |  2/22
-softwareFirst / template |  0h50        |  1h09        |  2h03        |  3h59        |  5h23        |  8h04 | 22/22
-balanced / naive        |  1h06        |  1h34        |    —         |    —         |    —         |    —   |  5/22
-balanced / random       |  0h51        |  1h06        |  2h05        |  3h53        |  4h56        |  7h35 | 22/22
+softwareFirst / template |  0h49        |  1h08        |  2h07        |  3h47        |  5h05        |  7h34 | 22/22
+balanced / naive        |  1h08        |  1h38        |    —         |    —         |    —         |    —   |  5/22
+balanced / random       |  0h57        |  1h15        |  2h08        |  3h41        |  4h45        |  7h18 | 22/22
 
 casual, 72h00 cap
-balanced / template     |  0h48        |  3h30        |  7h20        |  7h31        | 11h34        | 28h05 | 22/22
-hardwareOnly / template |  0h56        |  3h41        |    —         |    —         |    —         |    —   |  5/22
+balanced / template     |  0h50        |  3h30        |  7h15        | 10h48        | 24h00        | 31h40 | 22/22
+hardwareOnly / template |  0h56        |  3h35        |    —         |    —         |    —         |    —   |  5/22
 noUpgrades / template   |    —         |    —         |    —         |    —         |    —         |    —   |  2/22
-softwareFirst / template |  0h49        |  3h31        |  4h14        | 10h55        | 24h03        | 31h20 | 22/22
-balanced / naive        |  3h30        |  3h55        |    —         |    —         |    —         |    —   |  5/22
-balanced / random       |  0h49        |  3h30        |  7h20        | 10h48        | 24h00        | 31h23 | 22/22
+softwareFirst / template |  0h50        |  3h30        |  7h20        | 10h55        | 24h04        | 31h28 | 22/22
+balanced / naive        |  3h30        |  3h57        |    —         |    —         |    —         |    —   |  5/22
+balanced / random       |  0h50        |  3h30        |  7h20        |  7h40        | 24h00        | 31h33 | 22/22
 ```
 
 - **random** placement throttles the rooms (the heat puzzle): every era
-  10–15 min late, the final rival ~10 min later in active play (v5: ~1 h;
+  5–15 min late, the final rival ~11 min later in active play (v5: ~1 h;
   the garage's compute gate counts peak TFLOPS, so heat no longer delays
   the Startup). **naive** (no coolers at all) never reaches the Medium lab:
   the colo can't get to rating 1130 throttled, and moves wait for their era,
   so it can't outrun the heat any more.
 - **hardware-only** stalls by the Small lab; **no-upgrades** never leaves
   the garage (no mixed precision means no V100s, and twelve RTX 4090s are
-  only 0.96 PFLOPS); **software-first** finishes ~40 min later.
+  only 0.96 PFLOPS); **software-first** finishes ~25 min later.
 - **Bad model design** (huge under-trained base model, web only, 2k, no
   post-training) takes 4 h to fill the garage (its demand, hence income, is
   too low without hype) and stops at rating ~970 in the Startup
@@ -472,25 +473,56 @@ the bot left the garage at 4 min with 9 GPUs, the closet early, and then sat
   owned GPUs (was 3k users). Open-release community bonus capped at 5
   stacks.
 - **Closet.** 3-phase service 65 kW (was 50); Startup research ×0.7, so it
-  lands while the closet fills.
+  lands while the closet fills; DGX A100s +10% per server (was 5%).
 - **Colo plateau gone.** Small-lab research ×0.1–0.25 (FlashAttention $2M,
-  liquid cooling $2.5M, compute-optimal scaling $3M, books $5M, FSDP $6M):
-  it's bought while the colo fills, so the Medium lab opens 0–11 min after
-  the colo is full instead of 55.
-- **Hall.** The on-site substation is 4 MW (was 20) and the Medium lab's
-  time compression 4500 (was 7500), so the Big-lab gate needs the full hall;
-  hall racks ×2 (H100 rack $928k, GB200 NVL72 $4.56M) so filling it takes
-  most of the era (the one break in the "newer beats older per $" chain:
-  an H100 rack costs more per TFLOPS than an HGX server, the 2023 shortage;
-  it still wins per kW and per cell, and a steeper crunch instead of a
-  dearer list price left the hall half full on 2–3 seeds of 7); Medium research ×1.5 with RLHF at $24M (×1.33), the
-  last step before the gate.
-- **Campus.** The PPA is 100 MW (was 300), which the campus fills by the
-  Frontier; Big-lab research ×1.6 (synthetic data kept at $810M: dearer,
-  the bot saved for it deep into the Frontier).
-- **Frontier.** Time compression 700 (was 1200): the gigasite does more of
+  liquid cooling $2M, compute-optimal scaling $3M, books $3M, FSDP $4M):
+  it's bought while the colo fills, so the Medium lab opens 0–9 min after
+  the colo is full instead of 55. HGX H100s +16% per server (was 12%).
+- **Hall.** The on-site substation is 3.6 MW (was 20) and the Medium lab's
+  time compression 4500 (was 7500), so the Big-lab gate needs the full
+  hall; racks +25% each (was 10%) so filling it takes most of the era;
+  Medium research ×1.5 with RLHF at $22M, the last step before the gate.
+- **Campus.** The PPA is 90 MW (was 300), which the campus fills by the
+  Frontier; Big-lab research ×1.8 (synthetic data $910M).
+- **Frontier.** Time compression 500 (was 1200): the gigasite does more of
   the last rivals' work, which puts the 45 extra garage minutes back
   without a plateau.
+
+**The next tier is more bang for the buck, but hard to get (v6).** Every
+newer tier delivers more per dollar at list price than the one before it,
+in every category, with no exceptions (`content_test.dart` enforces it):
+
+| Category | Value | Tiers, oldest → newest (v6) |
+|---|---|---|
+| GPUs | TFLOPS per $k | 2060 33 → 4090 40 → V100 42 → DGX A100 43 → HGX H100 44 → H100 rack 45 → GB200 48 → B200 pod 197 → Vera Rubin 215 → Rubin pod 219 → Rubin building 796 |
+| Coolers | cooling per $k | fan 27 → window AC 29 → CRAC 31 → rear door 32 → chiller 33 → liquid loop 35 → tower 36 → dry coolers 38 |
+| Network | GPUs fed per $k | 10G 16 → fiber 17 → IB 400G 18 → IB spine 18.2 → NVLink 18.7 → optical 68 |
+| Central cooling | per-tile cooling per $M | chilled water 40 → towers 42 → liquid loop 43 → dry coolers 44 |
+| Power | kW per $k | panel 3.3 → 3-phase 3.4 → colo 3.6 → MV feed 4.1 → substation 6.3 → PPA 12 → GW 13.5 → nuclear 13.6 → multi-site 13.8 |
+
+v5 broke this in places: the hall racks (doubled in the first v6 draft to
+slow the hall), almost every cooler (a CRAC was $13.8k for 40 cooling, a
+tower $1.2M), fiber and NVLink, the late central-cooling plants, and the
+3-phase / nuclear / multi-site power tiers. What makes a new tier hard to
+get is a gate, never worse value:
+
+- **Era** (every tier), **research** (V100: mixed precision; rear door,
+  liquid loop, GB200 and every later GPU: liquid cooling; InfiniBand:
+  high-speed interconnect; NVLink and optical: 3D parallelism) and the
+  **power tier** a tile needs (`minPowerTier`).
+- **A steeper supply crunch** per unit owned (`priceGrowth`): 2060 25%,
+  4090 15%, V100 10%, DGX A100 10%, HGX H100 16%, hall racks 25%, Big-lab
+  pods and racks 12%, Rubin buildings 3%; the cap is ×4 list. The old tier
+  stays the one you can afford now; the new one is what you save for.
+- **A big upfront price**: the late power tiers ($7.5M PPA, $74M gigawatt,
+  $147M nuclear, $290M multi-site) are saved for, but each still buys more
+  kW per dollar than the last.
+- **The building**: each room's electrical service caps the power tier
+  (and so the GPUs) it can take.
+
+Coolers are now cheap next to their era's income (a cooling tower is $50k);
+what limits them is their power draw (a tower burns 200 kW) and the cells
+they take from GPUs.
 
 **Active pacing (v5).** `activePace` = 3 in balance.dart: revenue, user
 growth and churn, overload churn and viral chance are ×3, hype half-life
@@ -515,7 +547,8 @@ long stretches of watching the money counter. So:
   which runs scale at 60%), Medium ×0.18, Big ×0.27, Frontier ×0.3 (design
   research in model_design.dart scales with its era). v6 rescales Startup,
   Small, Medium and Big research (see "A real garage and full rooms").
-- GPU tiles keep the "newer beats older per $ and per kW" chain: A100 servers
+- GPU tiles keep the "newer beats older per $ and per kW" chain (v6:
+  every category, see above): A100 servers
   ×1.15, H100 servers ×1.2, Medium racks ×0.8, Big-lab pods and racks ×0.3
   with a 12%/tile supply crunch (was 9%: cheap first tiles at era entry, ×4
   later), Rubin buildings ×0.12.
@@ -524,11 +557,11 @@ long stretches of watching the money counter. So:
 
 **Time compression per era.** Runs use their era's `EraInfo.computeTimeScale`,
 fixed when the run starts (saved as `TrainingRun.timeScale`): 5000 in the
-Garage, 7200, 2100, 4500, 13000 and 700 at the Frontier (v6). The longest run of
+Garage, 7200, 2100, 4500, 13000 and 500 at the Frontier (v6). The longest run of
 each era is 4 days to 6 weeks of compute, so a bigger cluster, not a longer
 wait, makes a better model. It's no longer monotonic: it is also the knob
 for how much hardware each era's rating gate needs (Small lab 2400 makes the
-colo's power cap meet the 1130 gate; Medium lab 4500 makes the full 4 MW
+colo's power cap meet the 1130 gate; Medium lab 4500 makes the full 3.6 MW
 hall meet the 1260 gate; Big lab 13000 keeps the campus era from
 crawling).
 
@@ -556,7 +589,7 @@ before, but spread so each era has its data step. Synthetic data used to be the
 only big multiplier, and the Medium lab hit a hard data wall below its gate.
 
 **Room space.** See "One place at a time" below. The colo tier is 500 kW, the
-substation 4 MW and the plant tier 100 MW (v6: sized to what each era fills); the gigasite building is ~8k Rubin GPUs ($36M in
+substation 3.6 MW and the plant tier 90 MW (v6: sized to what each era fills); the gigasite building is ~8k Rubin GPUs ($36M in
 v5), so each era has enough floor and power for a steady stream of GPU
 purchases.
 
@@ -580,7 +613,7 @@ $61M).
 (3-phase service, leased colo circuits, medium-voltage feed, on-site
 substation, PPA, gigawatt grid interconnect), never a place, and each room's
 electrical service caps the tier you can buy there: garage 10 kW, closet
-65 kW, colo 500 kW, hall 4 MW, campus 1 GW (100 MW in the Big lab: the
+65 kW, colo 500 kW, hall 3.6 MW, campus 1 GW (90 MW in the Big lab: the
 gigawatt tier is a Frontier part), gigasite 4 GW (v6). Moving buys no
 power; you keep your tier. The campus takes the gigawatt interconnect
 (suggested: 300 MW) because the Frontier's first push happens there: at
