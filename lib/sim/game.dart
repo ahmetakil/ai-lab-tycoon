@@ -1107,7 +1107,7 @@ class Game {
       }
     }
 
-    s.money += revenuePerSecond * dt;
+    s.money += revenuePerSecond * dt * (offline ? offlineEarningsRate : 1);
 
     // Decays and timers.
     s.hype = 1 + (s.hype - 1) * math.pow(0.5, dt / hypeHalfLifeSeconds);
@@ -1196,8 +1196,9 @@ class Game {
     }
   }
 
-  /// Step size for offline catch-up: 1 s for short absences, up to 10 s for
-  /// the full 8 h (≤ ~3k ticks). Deterministic: it depends only on [seconds].
+  /// Step size for offline catch-up: 1 s for short absences, 2 s for the
+  /// full 2 h cap (≤ ~3.6k ticks; up to 10 s for longer spans). Deterministic:
+  /// it depends only on [seconds].
   static double offlineStep(double seconds) =>
       (seconds / 3000).clamp(1.0, 10.0).floorToDouble();
 

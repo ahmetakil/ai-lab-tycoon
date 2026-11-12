@@ -430,7 +430,9 @@ extension GameReviews on Game {
   LaunchReview reviewPending({required bool open, String stuntId = 'none', bool stuntSucceeded = true}) =>
       scoreLaunch(
         reviewInputs(open: open, stuntId: stuntId, stuntSucceeded: stuntSucceeded),
-        buzzSeconds: s.era.runDurations.first / 2,
+        // Half the era's middle run (30 s in the garage, 90 s later): about
+        // as long as a release's hype lasts (hypeHalfLifeSeconds is 40 s).
+        buzzSeconds: s.era.runDurations[1] / 2,
       );
 
   /// Demand multiplier from the current model's launch reviews (fading).

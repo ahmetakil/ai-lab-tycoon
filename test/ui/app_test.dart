@@ -98,7 +98,15 @@ void main() {
   testWidgets('app builds with HUD, toolbar and the world map', (tester) async {
     await withApp(tester, (c) async {
       expect(find.byType(WorldMap), findsOneWidget);
-      expect(find.text(formatMoney(c.game.s.money)), findsOneWidget);
+      // The money label tweens toward a balance that grows every tick, so it
+      // may trail the live value by a few dollars.
+      final m = c.game.s.money;
+      expect(
+        [for (var d = -20; d <= 0; d++) find.text(formatMoney(m + d))]
+            .any((f) => f.evaluate().length == 1),
+        isTrue,
+        reason: 'HUD shows the balance (${formatMoney(m)})',
+      );
       expect(find.text('No training run'), findsOneWidget);
       // Phone rail: Power, Lab and Settings sit behind "More".
       expect(find.byKey(const ValueKey('tool-settings')), findsNothing);

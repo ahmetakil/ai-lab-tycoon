@@ -267,7 +267,7 @@ void main() {
   });
 
   group('offline', () {
-    test('offline progress is capped at 8 hours and has no viral spikes', () {
+    test('offline progress is capped at 2 hours, earns at a reduced rate and has no viral spikes', () {
       final g = runPlaythrough(maxSeconds: 1800, stopWhenDone: false).game;
       final t0 = g.s.time;
       final report = g.applyOffline(48 * 3600);
@@ -275,22 +275,24 @@ void main() {
       expect(g.s.time, closeTo(t0 + offlineCapSeconds, 1e-6));
       expect(g.events.whereType<ViralSpikeStarted>(), isEmpty);
       expect(report.moneyEarned, greaterThan(0));
+      // Away, revenue counts at offlineEarningsRate of the live rate.
+      expect(offlineEarningsRate, inInclusiveRange(0.05, 0.5));
     });
 
     test('offline catch-up is deterministic and matches 1-second steps', () {
       final r = runPlaythrough(maxSeconds: 1800, stopWhenDone: false);
-      r.game.startTraining(fraction: 0.5, durationSeconds: 3 * 3600);
+      r.game.startTraining(fraction: 0.5, durationSeconds: 3600);
       final saved = snapshot(r.game);
       Game load() => Game(GameState.fromJson(jsonDecode(saved) as Map<String, dynamic>));
       final a = load(), b = load(), fine = load();
-      final ra = a.applyOffline(6 * 3600);
+      final ra = a.applyOffline(6 * 3600); // capped at offlineCapSeconds
       b.applyOffline(6 * 3600);
       expect(snapshot(a), snapshot(b));
-      expect(Game.offlineStep(6 * 3600), greaterThan(1));
-      fine.advance(6 * 3600, offline: true);
+      expect(Game.offlineStep(offlineCapSeconds), greaterThan(1));
+      fine.advance(offlineCapSeconds, offline: true);
       expect(a.s.money, closeTo(fine.s.money, fine.s.money * 0.01));
       expect(a.s.users, closeTo(fine.s.users, fine.s.users * 0.01));
-      // The 3 h run finished while away and waits to be released.
+      // The 1 h run finished while away and waits to be released.
       expect(ra.trainingFinished, isTrue);
       // (Coarse steps end the run up to a step late: within 2%.)
       expect(a.s.pendingEffectiveCompute, closeTo(fine.s.pendingEffectiveCompute!, fine.s.pendingEffectiveCompute! * 0.02));
@@ -444,17 +446,21 @@ void main() {
   });
 
   group('run lengths and time compression', () {
-    test('runs get longer and time compression gentler era by era', () {
+    test('runs take seconds to minutes and never get shorter era by era', () {
       for (var i = 1; i < Era.values.length; i++) {
         final a = Era.values[i - 1], b = Era.values[i];
         expect(b.runDurations.last, greaterThanOrEqualTo(a.runDurations.last));
-        expect(b.computeTimeScale, lessThanOrEqualTo(a.computeTimeScale));
       }
-      expect(Era.garage.runDurations.first, 60);
-      // A late run lasts hours, so it finishes while you're away, but never
-      // longer than the offline cap.
-      expect(Era.globalLab.runDurations.last, greaterThanOrEqualTo(4 * 3600));
-      expect(Era.globalLab.runDurations.last, lessThanOrEqualTo(offlineCapSeconds));
+      for (final e in Era.values) {
+        // Active play: 30 s at the shortest, 5 min at the longest.
+        expect(e.runDurations.first, greaterThanOrEqualTo(30), reason: e.name);
+        expect(e.runDurations.last, lessThanOrEqualTo(300), reason: e.name);
+        // The longest run is still days to weeks of compute.
+        final days = e.runDurations.last * e.computeTimeScale / 86400;
+        expect(days, inInclusiveRange(3, 60), reason: e.name);
+      }
+      expect(Era.garage.runDurations.first, 30);
+      expect(Era.globalLab.runDurations, [60, 180, 300]);
     });
 
     test('a run keeps the time compression it started with', () {

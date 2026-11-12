@@ -21,24 +21,26 @@ import 'game.dart';
 /// How many unbeaten rivals past the next one may be on the board.
 const rivalLookahead = 2;
 
-/// Game seconds between two scheduled rival releases, by your era.
+/// Game seconds between two scheduled rival releases, by your era. Active
+/// play: the board moves every few minutes (an era lasts ~5 min in the
+/// garage, ~1–2 h later).
 double rivalDripSeconds(Era era) => switch (era) {
-  Era.garage => 4 * 60,
-  Era.startup => 10 * 60,
-  Era.smallLab => 60 * 60,
-  Era.mediumLab => 90 * 60,
-  Era.bigLab => 45 * 60,
-  Era.globalLab => 90 * 60,
+  Era.garage => 60,
+  Era.startup => 3 * 60,
+  Era.smallLab => 10 * 60,
+  Era.mediumLab => 20 * 60,
+  Era.bigLab => 8 * 60,
+  Era.globalLab => 12 * 60,
 };
 
 /// Game seconds between two flavour news items, by your era.
 double flavourNewsSeconds(Era era) => switch (era) {
-  Era.garage => 6 * 60,
-  Era.startup => 15 * 60,
-  Era.smallLab => 80 * 60,
-  Era.mediumLab => 2 * 3600,
-  Era.bigLab => 80 * 60,
-  Era.globalLab => 2 * 3600,
+  Era.garage => 2 * 60,
+  Era.startup => 4 * 60,
+  Era.smallLab => 12 * 60,
+  Era.mediumLab => 20 * 60,
+  Era.bigLab => 12 * 60,
+  Era.globalLab => 15 * 60,
 };
 
 /// News log entries kept in the save (newest kept).

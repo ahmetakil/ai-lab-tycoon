@@ -111,8 +111,12 @@ class _TrainingPanelState extends State<TrainingPanel> {
     return d != null && opts.contains(d) ? d : opts[opts.length ~/ 2];
   }
 
-  static String _short(double seconds) =>
-      seconds < 3600 ? '${(seconds / 60).round()}m' : '${(seconds / 3600).round()}h';
+  /// Run-length button label: 30s, 1m, 5m (an old save's run may be hours).
+  static String _short(double seconds) => seconds < 60
+      ? '${seconds.round()}s'
+      : seconds < 3600
+          ? '${(seconds / 60).round()}m'
+          : '${(seconds / 3600).round()}h';
 
   GameController get c => widget.controller;
 

@@ -135,17 +135,17 @@ class Bot {
   /// one-off purchases (power tiers, frontier research), so a sensible
   /// player saves longer for them.
   /// On a play schedule the big one-offs come out of offline earnings, so
-  /// in a session it never saves longer than 8 minutes.
+  /// in a session it never saves longer than 3 minutes.
   double get maxSaveSeconds =>
-      sessionLeft.isInfinite ? _eraSaveSeconds : math.min(480.0, _eraSaveSeconds);
+      sessionLeft.isInfinite ? _eraSaveSeconds : math.min(180.0, _eraSaveSeconds);
 
   double get _eraSaveSeconds => switch (g.s.era) {
-    Era.garage => 240.0,
-    Era.startup => 480.0,
-    Era.smallLab => 900.0,
-    Era.mediumLab => 1800.0,
-    Era.bigLab => 2700.0,
-    Era.globalLab => 7200.0,
+    Era.garage => 45.0,
+    Era.startup => 60.0,
+    Era.smallLab => 75.0,
+    Era.mediumLab => 75.0,
+    Era.bigLab => 150.0,
+    Era.globalLab => 300.0,
   };
 
   /// Seconds of active play left in the current session (infinite =
@@ -161,6 +161,14 @@ class Bot {
   double lastMeaningfulAction = 0;
   double longestIdle = 0;
   double longestIdleStart = 0;
+
+  /// What the last look saved for (a candidate label), for idle reports.
+  String waitingFor = '';
+
+  /// Every stretch over [idleLogOver] seconds without a decision: (start,
+  /// length, era, what it was saving for).
+  final List<(double, double, Era, String)> idleLog = [];
+  static const idleLogOver = 90.0;
 
   double _nextThink = 0;
   bool _pausedForCrisis = false;
@@ -302,6 +310,10 @@ class Bot {
   /// Call at the end of a playthrough so a trailing idle stretch counts.
   void finish() {
     final idle = g.s.time - lastMeaningfulAction;
+    if (idle > idleLogOver &&
+        (idleLog.isEmpty || idleLog.last.$1 != lastMeaningfulAction)) {
+      idleLog.add((lastMeaningfulAction, idle, g.s.era, waitingFor));
+    }
     if (idle > longestIdle) {
       longestIdle = idle;
       longestIdleStart = lastMeaningfulAction;
@@ -352,13 +364,18 @@ class Bot {
       if (worthIt &&
           s.cloudSecondsLeft == 0 &&
           g.cloudRentCost < 0.25 * s.money) {
-        g.rentCloud();
+        if (g.rentCloud()) _meaningful();
       } else if (g.training && !_pausedForCrisis) {
+        // Pausing to serve the crowd is the spike's call (it's a choice).
         g.togglePauseTraining();
         _pausedForCrisis = true;
+        _meaningful();
       }
     } else if (_pausedForCrisis && s.viralSecondsLeft == 0) {
-      if (s.run != null && s.run!.paused) g.togglePauseTraining();
+      if (s.run != null && s.run!.paused) {
+        g.togglePauseTraining();
+        _meaningful();
+      }
       _pausedForCrisis = false;
     }
   }
@@ -382,6 +399,8 @@ class Bot {
     final phase = g.awaitingPhase;
     if (phase == null) return;
     g.choosePhase(_phasePick(phase, g.s.run!.spec));
+    // A checkpoint is a call the player makes mid-run (it holds the run).
+    _meaningful();
   }
 
   PhaseOption _phasePick(RunPhase phase, ModelSpec spec) {
@@ -521,6 +540,18 @@ class Bot {
     return best;
   }
 
+  /// The cheapest GPU tile sold for a room right now, if it isn't the best
+  /// one: what you buy while the big tile (a SuperPOD, a whole building) is
+  /// out of reach. Active play never stalls on one lumpy purchase.
+  TileDef? _smallerGpu(String roomId) {
+    final best = _bestGpu(roomId);
+    TileDef? cheap;
+    for (final t in _unlocked(roomId, TileKind.gpu)) {
+      if (cheap == null || g.tilePrice(t) < g.tilePrice(cheap)) cheap = t;
+    }
+    return cheap == null || cheap == best || g.tilePrice(cheap) >= g.tilePrice(best!) ? null : cheap;
+  }
+
   String? _at(String roomId, int i) => g.s.grids[roomId]![i];
 
   (int, int) _xy(String roomId, int i) {
@@ -612,10 +643,10 @@ class Bot {
   // --- Building candidates -------------------------------------------------
 
   /// Next GPU for [roomId] on the plan, with the cooler it needs.
-  List<_Op>? _templateBundle(String roomId) {
+  List<_Op>? _templateBundle(String roomId, {TileDef? gpuOverride}) {
     final plan = _plans[roomId]!;
     final room = plan.room;
-    final gpu = _bestGpu(roomId);
+    final gpu = gpuOverride ?? _bestGpu(roomId);
     if (gpu == null) return null;
     var slot = plan.gpuOrder.where((i) => _at(roomId, i) == null).firstOrNull;
     if (slot == null) {
@@ -715,8 +746,8 @@ class Bot {
       xs[math.min(xs.length - 1, (_random() * xs.length).floor())];
 
   /// GPU (and for BotLayout.random a cooler) on random empty cells.
-  List<_Op>? _randomBundle(String roomId) {
-    final gpu = _bestGpu(roomId);
+  List<_Op>? _randomBundle(String roomId, {TileDef? gpuOverride}) {
+    final gpu = gpuOverride ?? _bestGpu(roomId);
     if (gpu == null) return null;
     final empty = _emptyCells(roomId);
     if (empty.isEmpty) return null;
@@ -749,8 +780,12 @@ class Bot {
   /// Replace a room's weakest GPU tile with its best one (when it's full, or
   /// when power is the limit: then the best per kW). [inCluster] looks only
   /// at the training cluster, where a better GPU also speeds up training.
-  List<_Op>? _replaceWorstGpu(String roomId, {bool inCluster = false}) {
-    final best = _bestGpu(roomId, perKw: _powerTight);
+  List<_Op>? _replaceWorstGpu(
+    String roomId, {
+    bool inCluster = false,
+    TileDef? gpuOverride,
+  }) {
+    final best = gpuOverride ?? _bestGpu(roomId, perKw: _powerTight);
     if (best == null) return null;
     final room = roomById(roomId)!;
     final cells = g.s.grids[roomId]!;
@@ -938,11 +973,20 @@ class Bot {
         layout == BotLayout.template
             ? _templateBundle(room.id)
             : _randomBundle(room.id);
+    final smaller = _smallerGpu(room.id);
     final roomsFull = bundle == null;
     addOps(bundle);
+    if (smaller != null && !roomsFull) {
+      addOps(
+        layout == BotLayout.template
+            ? _templateBundle(room.id, gpuOverride: smaller)
+            : _randomBundle(room.id, gpuOverride: smaller),
+      );
+    }
     if (roomsFull || _powerTight) {
       addOps(_replaceWorstGpu(room.id));
       addOps(_replaceWorstGpu(room.id, inCluster: true));
+      if (smaller != null) addOps(_replaceWorstGpu(room.id, gpuOverride: smaller));
     }
     if (layout == BotLayout.template) addOps(_heatFix(room.id));
 
@@ -1056,6 +1100,7 @@ class Bot {
                 if (layout == BotLayout.template) _relayout();
                 return true;
               },
+              label: 'move:${nextRoom.id}',
               essential: (roomsFull && g.isUnlocked(nextRoom.era)) ||
                   (powerNeedsMove && powerEssential),
             ),
@@ -1070,12 +1115,16 @@ class Bot {
           next.cost,
           _virtualDv(bestGpu, powerK(next.capacityKw, bestGpu, next.cost), v0),
           g.buyNextPowerTier,
+          label: 'power:${next.id}',
           essential: powerEssential,
         ),
       );
     }
 
-    if (cands.isEmpty) return false;
+    if (cands.isEmpty) {
+      waitingFor = '(nothing to buy)';
+      return false;
+    }
 
     if (strategy == BotStrategy.softwareFirst) {
       final ups =
@@ -1092,7 +1141,7 @@ class Bot {
           return false;
         }
         // Save unless it's hopelessly far away.
-        if (u.cost < s.money + 600 * g.revenuePerSecond) return false;
+        if (u.cost < s.money + 200 * g.revenuePerSecond) return false;
       }
     }
 
@@ -1117,13 +1166,22 @@ class Bot {
           affordable == null
               ? 8.0
               : (c.dv / c.cost) / (affordable.dv / affordable.cost);
+      // Research that's a far better deal than any GPU (a ×2 serving trick,
+      // RLHF) is worth a longer save than hardware: up to 6× as long. In
+      // active play the run's checkpoints keep you busy meanwhile.
+      final k = c.upgrade ? 6.0 : 1.0;
       final patience =
           ((60 + 150 * (math.log(math.max(1.0, ratio)) / math.ln2)) *
+                  k *
                   maxSaveSeconds /
                   480)
-              .clamp(60.0, maxSaveSeconds);
-      if (wait < patience || c.essential) return false;
+              .clamp(20.0, k * maxSaveSeconds);
+      if (wait < patience || c.essential) {
+        waitingFor = c.label;
+        return false;
+      }
     }
+    waitingFor = '(nothing worth saving for)';
     return false;
   }
 }
@@ -1169,6 +1227,13 @@ class PlaythroughResult {
   double maxUsersSeen = 0;
   double longestIdle = 0;
   double longestIdleStart = 0;
+
+  /// Stretches over [Bot.idleLogOver] without a decision (see [Bot.idleLog]).
+  List<(double, double, Era, String)> idleLog = const [];
+
+  /// Purchases, releases, runs started, checkpoint calls and viral-spike
+  /// responses (the bot's meaningful decisions), up to the final rival.
+  int decisions = 0;
   double minMoney = double.infinity;
   double usersAtFinish = 0;
   double arrAtFinish = 0;
@@ -1215,7 +1280,7 @@ PlaythroughResult runPlaythrough({
   void Function(Game g, GameEvent e)? onEvent,
   void Function(Game g)? onTick,
   int seed = 12345,
-  double thinkEvery = 3,
+  double thinkEvery = 4,
   ModelSpec? fixedSpec,
   bool specializePhases = false,
 }) {
@@ -1268,6 +1333,8 @@ PlaythroughResult runPlaythrough({
       bot.finish();
       r.longestIdle = bot.longestIdle;
       r.longestIdleStart = bot.longestIdleStart;
+      r.idleLog = List.of(bot.idleLog);
+      r.decisions = bot.decisions;
       idleFrozen = true;
     }
     if (stopWhenDone && r.ladderDone) break;
@@ -1276,18 +1343,33 @@ PlaythroughResult runPlaythrough({
     bot.finish();
     r.longestIdle = bot.longestIdle;
     r.longestIdleStart = bot.longestIdleStart;
+    r.idleLog = List.of(bot.idleLog);
+    r.decisions = bot.decisions;
   }
   return r;
 }
 
 /// A repeating day of play sessions: (active seconds, offline gap after it).
+/// An empty [day] is continuous play: one endless session, no offline gaps
+/// (played by [runPlaythrough]).
 class PlaySchedule {
   final String name;
   final List<(double, double)> day;
-  const PlaySchedule(this.name, this.day);
+
+  /// Seconds between the bot's looks at the screen, i.e. its reaction delay
+  /// (a decision waits 0–[reactionSeconds] after it becomes possible).
+  final double reactionSeconds;
+  const PlaySchedule(this.name, this.day, {this.reactionSeconds = 3});
+
+  bool get continuous => day.isEmpty;
+
+  /// The default: an engaged player who keeps playing (Game Dev
+  /// Tycoon-style) and reacts within a few seconds. No offline gaps.
+  static const active = PlaySchedule('active', [], reactionSeconds: 4);
 
   /// A casual player on a 24 h day: four sessions (60, 45, 30 and 60 min)
-  /// with 2.5–3 h breaks, then a 12 h night (offline progress stops at 8 h).
+  /// with 2.5–3 h breaks, then a 12 h night. Offline progress stops at
+  /// [offlineCapSeconds] (2 h), so most of each break earns nothing.
   static const casual = PlaySchedule('casual', [
     (60 * 60, 2.5 * 3600),
     (45 * 60, 3 * 3600),
@@ -1295,9 +1377,9 @@ class PlaySchedule {
     (60 * 60, 12.25 * 3600),
   ]);
 
-  static PlaySchedule? byName(String name) => switch (name) {
+  static PlaySchedule byName(String name) => switch (name) {
     'casual' => casual,
-    'continuous' || 'none' => null,
+    'active' || 'continuous' => active,
     _ => throw ArgumentError('unknown schedule $name'),
   };
 }
@@ -1334,23 +1416,42 @@ class SessionStats {
 
 /// Plays [schedule] for [maxWallSeconds] of wall-clock time (sessions plus
 /// offline gaps). Active play ticks at [dt]; each gap goes through the real
-/// offline path ([Game.applyOffline], capped at 8 h). The result's era and
-/// rival times are wall-clock (an offline unlock counts when it happens).
+/// offline path ([Game.applyOffline], capped at [offlineCapSeconds]). The
+/// result's era and rival times are wall-clock (an offline unlock counts when
+/// it happens). A continuous schedule (the default, [PlaySchedule.active])
+/// is one endless session via [runPlaythrough]. [thinkEvery] defaults to the
+/// schedule's reaction delay.
 PlaythroughResult runSchedule({
-  PlaySchedule schedule = PlaySchedule.casual,
+  PlaySchedule schedule = PlaySchedule.active,
   BotStrategy strategy = BotStrategy.balanced,
   BotLayout layout = BotLayout.template,
-  double maxWallSeconds = 96 * 3600,
+  double maxWallSeconds = 12 * 3600,
   double dt = 1,
   bool stopWhenDone = true,
   void Function(Game g, GameEvent e, double wall)? onEvent,
   void Function(Game g, SessionStats s)? onSession,
   void Function(Game g, double wall)? onTick,
   int seed = 12345,
-  double thinkEvery = 3,
+  double? thinkEvery,
   ModelSpec? fixedSpec,
   bool specializePhases = false,
 }) {
+  thinkEvery ??= schedule.reactionSeconds;
+  if (schedule.continuous) {
+    return runPlaythrough(
+      strategy: strategy,
+      layout: layout,
+      maxSeconds: maxWallSeconds,
+      dt: dt,
+      stopWhenDone: stopWhenDone,
+      onEvent: onEvent == null ? null : (g, e) => onEvent(g, e, g.s.time),
+      onTick: onTick == null ? null : (g) => onTick(g, g.s.time),
+      seed: seed,
+      thinkEvery: thinkEvery,
+      fixedSpec: fixedSpec,
+      specializePhases: specializePhases,
+    );
+  }
   final g = Game(GameState(rngState: seed));
   final bot = Bot(
     g,
@@ -1461,6 +1562,8 @@ PlaythroughResult runSchedule({
     i++;
   }
   r.wallSeconds = wall;
+  r.idleLog = List.of(bot.idleLog);
+  r.decisions = bot.decisions;
   return r;
 }
 

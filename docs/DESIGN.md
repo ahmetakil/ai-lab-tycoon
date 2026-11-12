@@ -1,6 +1,6 @@
 # AI Lab Tycoon — design (v1 / MVP)
 
-Idle tycoon: grow an AI lab from one gaming GPU in your parents' garage to a gigawatt frontier lab,
+Active tycoon (Game Dev Tycoon-style, not an idle clicker): grow an AI lab from one gaming GPU in your parents' garage to a gigawatt frontier lab,
 racing parody versions of real labs through history. Lightly educational: every upgrade
 is a real technique with a one-line, accurate explanation. Audience: tech people on X /
 LinkedIn. It must feel like a game, not a spreadsheet.
@@ -39,10 +39,11 @@ beat rival labs.
   the board, the rating jump, benchmark strengths, mishaps, open weights,
   serving cost, the stunt, and novelty (shipping the exact same design again
   scores lower, once there are real options to vary). The average sets a
-  demand buzz ×0.8–×1.5 that fades over half the era's shortest run; it is
+  demand buzz ×0.8–×1.5 that fades over half the era's middle run length
+  (30 s in the garage, 90 s from the Small lab on); it is
   centred on what the bot averages, so it nets out to ~×1. Scores flip in
   one at a time (~2.4 s, tap to skip) before the share card.
-- Viral spike: demand x4 for 90s. Fix: pause training, rent cloud, quantize.
+- Viral spike: demand x4 for 30s. Fix: pause training, rent cloud, quantize.
 - Rival ladder: parody labs at historical snapshots; beat rating AND users to pass.
 - Live rival feed (lib/sim/news.dart): rivals show up on the leaderboard as
   they "release" ("yAI released Grokk 3: 1,503 rating..."), as a news card
@@ -68,16 +69,20 @@ beat rival labs.
   | Big lab | Datacenter campus 18×18 | rating 1260 | GPT-ish-4 → GPT-ish-4.5 (the big labs) |
   | Frontier lab | Gigawatt site 22×22 | rating 1490 | GPT-ish-5 → GPT-ish-6 Astral |
 
-- Pacing: a 2–3 day casual game (3–4 sessions of 30–60 min a day). Startup
-  in the first session (~12 min), final rival at ~55 h wall-clock. Training
-  runs grow from minutes to hours (1m/3m/10m in the garage, 2h/4h/8h at the
-  frontier) so a run finishes while you're away; time compression per era
-  keeps their FLOPs realistic.
+- Pacing: an active game. A full playthrough (garage to the final rival) is
+  6–8 hours of active play: Startup at ~4 min, Small lab ~20 min, Medium lab
+  ~1h30, Big lab ~3h30, Frontier ~5h. Something worth doing comes up every
+  30–90 s (a purchase, a release, a new run, a run-phase checkpoint or a
+  viral spike), never two idle minutes. Training runs take 30 s–2 min in the
+  garage and 1m/3m/5m from the Small lab on; time compression per era keeps
+  a run at days to weeks of compute. Numbers: docs/BALANCE.md.
 - Always-visible goal: a strip under the project bar ("Next era: Small lab ·
   rating 998 / 1,000 · train & release a better model"); the rating plate
   ("RATING 1293 · beat GPT-ish-4: 1339") opens the leaderboard.
 - GPU supply crunch: each GPU of a type you own makes the next pricier (×4 cap).
-- Offline progress capped at 8h, with a "while you were away" summary.
+- Offline progress capped at 2h per absence, earning at 10% of live revenue,
+  with a "while you were away" summary ("Earnings capped at 2h away"). Idling
+  helps a little; playing is how you move forward.
 - Settings has a "Playtest speed" control (1×, 10×, 60×, 600×), in all builds
   for now.
 - Shareable release card (the marketing engine).

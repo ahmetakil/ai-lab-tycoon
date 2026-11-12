@@ -33,8 +33,11 @@ enum RunPhase {
 final askingPhases = RunPhase.values.where((p) => p.asks).toList();
 
 /// How long a checkpoint waits for the player before it auto-picks the
-/// default (sim seconds; offline it picks at once).
+/// default (sim seconds; offline it picks at once). At most this, and at
+/// most [phaseDecisionRunFraction] of the run, so the wait doesn't stretch
+/// a 30 s garage run by a third (see TrainingRun.phaseTimeout).
 const phaseDecisionTimeout = 10.0;
+const phaseDecisionRunFraction = 0.15;
 
 /// One choice at one phase. Multipliers are relative (1 = no change);
 /// [rating] is flat Arena rating. On the bot's design score (rating +
@@ -281,8 +284,12 @@ extension RunPhaseSteps on TrainingRun {
     return null;
   }
 
+  /// How long this run's checkpoints wait before auto-picking.
+  double get phaseTimeout =>
+      math.min(phaseDecisionTimeout, phaseDecisionRunFraction * durationSeconds);
+
   /// Seconds left before the waiting checkpoint auto-picks.
-  double get phaseSecondsLeft => math.max(0, phaseDecisionTimeout - phaseWaitSeconds);
+  double get phaseSecondsLeft => math.max(0, phaseTimeout - phaseWaitSeconds);
 
   /// Record [option] for its phase (player, bot or default).
   void choosePhase(PhaseOption option, {bool auto = false}) {
@@ -299,7 +306,7 @@ extension RunPhaseSteps on TrainingRun {
 
   /// Advance the phase state by [dt] and return how many seconds of it the
   /// run trains. Online, a run stops exactly at an undecided checkpoint and
-  /// waits up to [phaseDecisionTimeout] for the player, then auto-picks the
+  /// waits up to [phaseTimeout] for the player, then auto-picks the
   /// default. Offline, defaults apply at once and the run never waits.
   double stepPhases(double dt, {required bool offline}) {
     if (!phaseChoices.containsKey(RunPhase.early)) _autoPick(RunPhase.early);
@@ -307,7 +314,7 @@ extension RunPhaseSteps on TrainingRun {
     if (waiting != null) {
       if (!offline) {
         phaseWaitSeconds += dt;
-        if (phaseWaitSeconds >= phaseDecisionTimeout) _autoPick(waiting);
+        if (phaseWaitSeconds >= phaseTimeout) _autoPick(waiting);
         return 0;
       }
       _autoPick(waiting);

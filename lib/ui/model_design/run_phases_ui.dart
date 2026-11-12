@@ -264,7 +264,7 @@ class PhaseDecisionCard extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(3),
                   child: LinearProgressIndicator(
-                    value: (run.phaseSecondsLeft / phaseDecisionTimeout).clamp(0.0, 1.0),
+                    value: (run.phaseSecondsLeft / run.phaseTimeout).clamp(0.0, 1.0),
                     minHeight: 3,
                     color: color,
                     backgroundColor: AppColors.border,

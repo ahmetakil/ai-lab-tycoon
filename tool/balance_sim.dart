@@ -5,8 +5,10 @@
 //   dart run tool/balance_sim.dart [minutes=360] [--log-every=10]
 //       [--strategy=balanced|hardware-only|software-first|no-upgrades]
 //       [--layout=template|naive|random] [--seed=12345]
-//       [--compare] [--schedule=casual|continuous] [--dt=1] [--phases]
+//       [--compare] [--schedule=active|casual] [--dt=1] [--phases]
 //
+// The default schedule is active (PlaySchedule.active: continuous play, the
+// bot looks every 4 s); the summary lists idle stretches over 90 s.
 // --compare runs every strategy (template layout) plus the naive and random
 // layouts, and prints a summary table only.
 // --schedule=casual plays sessions with offline gaps (lib/sim/bot.dart,
@@ -42,13 +44,13 @@ void main(List<String> args) {
   final layout = BotLayout.values.byName(opt('layout') ?? 'template');
   final seed = int.parse(opt('seed') ?? '12345');
   final dt = double.parse(opt('dt') ?? '1');
-  final schedule = PlaySchedule.byName(opt('schedule') ?? 'continuous');
+  final schedule = PlaySchedule.byName(opt('schedule') ?? 'active');
 
   if (args.contains('--compare')) {
     compare(minutes, seed, schedule: schedule, dt: dt);
     return;
   }
-  if (schedule != null) {
+  if (!schedule.continuous) {
     scheduled(schedule, minutes, seed, strategy, layout, dt);
     return;
   }
@@ -144,6 +146,7 @@ void printSummary(PlaythroughResult r) {
   print(
     'longest gap between rival wins: ${(r.longestRivalGap / 60).toStringAsFixed(0)} min',
   );
+  printIdle(r);
   print(
     'max users ${fmt(r.maxUsersSeen)} (cap ${fmt(maxUsers)}); '
     'final money ${fmt(g.s.money)}, ARR ${fmt(g.arr)}; '
@@ -151,16 +154,29 @@ void printSummary(PlaythroughResult r) {
   );
 }
 
+/// Idle stretches (no purchase, release or new run) over 90 s.
+void printIdle(PlaythroughResult r) {
+  final log = r.idleLog;
+  final over2 = log.where((e) => e.$2 >= 120).length;
+  print(
+    'idle stretches over 90 s: ${log.length} ($over2 of 2 min or more), '
+    'total ${(log.fold(0.0, (a, e) => a + e.$2) / 60).toStringAsFixed(1)} min',
+  );
+  for (final (start, len, era, what) in log.take(400)) {
+    print('  idle ${fmtTime(start)} ${(len / 60).toStringAsFixed(1).padLeft(4)} min  ${era.shortLabel.padRight(12)} saving for $what');
+  }
+}
+
 double h100e(Game g) => g.peakTflops / 990;
 
 void compare(
   double minutes,
   int seed, {
-  PlaySchedule? schedule,
+  required PlaySchedule schedule,
   double dt = 1,
 }) {
   PlaythroughResult run(BotStrategy s, BotLayout l) =>
-      schedule == null
+      schedule.continuous
           ? runPlaythrough(
             strategy: s,
             layout: l,
@@ -185,7 +201,7 @@ void compare(
   ];
   String t(double? s) => s == null ? '   —  ' : fmtTime(s);
   print(
-    '${schedule?.name ?? 'continuous'}, ${fmtTime(minutes * 60)} cap\n'
+    '${schedule.name}, ${fmtTime(minutes * 60)} cap\n'
     'strategy / layout        | ${[for (final e in Era.values.skip(1)) e.shortLabel.padRight(12)].join(' | ')} | final  | rivals',
   );
   for (final r in results) {

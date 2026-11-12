@@ -31,29 +31,27 @@ extension EraInfo on Era {
     Era.globalLab => '2025–26',
   };
 
-  /// Training-run lengths the UI offers in this era (real seconds). Short
-  /// runs early; late runs take hours so one finishes while you're away.
+  /// Training-run lengths the UI offers in this era (real seconds). Active
+  /// play: runs take seconds in the garage and 1–5 minutes from the Small lab
+  /// on, so you're always about to ship something.
   List<double> get runDurations => switch (this) {
-    Era.garage => const [60, 180, 600],
-    Era.startup => const [180, 600, 1800],
-    Era.smallLab => const [600, 1800, 3600],
-    Era.mediumLab => const [1800, 3600, 3 * 3600],
-    Era.bigLab => const [3600, 3 * 3600, 6 * 3600],
-    Era.globalLab => const [2 * 3600, 4 * 3600, 8 * 3600],
+    Era.garage => const [30, 60, 120],
+    Era.startup => const [60, 120, 180],
+    Era.smallLab || Era.mediumLab || Era.bigLab || Era.globalLab => const [60, 180, 300],
   };
 
-  /// Seconds of GPU work per real second for runs started in this era. Time
-  /// compression eases off as the lab grows: in the garage one real minute
-  /// is a day of compute; at the frontier one real hour is 1.5 days. So the
-  /// longest run of every era is 2–4 weeks of compute on that era's cluster,
-  /// and a bigger cluster, not a longer wait, is what makes a better model.
+  /// Seconds of GPU work per real second for runs started in this era (the
+  /// longest run is 4 days to 6 weeks of compute on that era's cluster), so a
+  /// bigger cluster, not a longer wait, is what makes a better model. It is
+  /// also a pacing knob: it sets how much hardware each era's rating gate
+  /// needs (docs/BALANCE.md, "Active pacing").
   double get computeTimeScale => switch (this) {
-    Era.garage => 1440, // 1 min = 1 day
-    Era.startup => 1440,
-    Era.smallLab => 480, // 1 h = 20 days
-    Era.mediumLab => 180, // 1 h = 7.5 days
-    Era.bigLab => 72, // 1 h = 3 days
-    Era.globalLab => 40, // 8 h = 13 days
+    Era.garage => 5000, // 2 min = 7 days
+    Era.startup => 7200, // 3 min = 15 days
+    Era.smallLab => 2100, // 5 min = 8 days
+    Era.mediumLab => 7500, // 5 min = 26 days
+    Era.bigLab => 13000, // 5 min = 45 days
+    Era.globalLab => 1200, // 5 min = 4 days
   };
 }
 
@@ -425,7 +423,7 @@ const tiles = <TileDef>[
     kind: TileKind.gpu,
     era: Era.startup,
     rooms: _server,
-    cost: 50000,
+    cost: 57500,
     powerKw: 5.6, // 8 × 0.7
     tflops: 2496, // 8 × 312
     heat: 28,
@@ -441,7 +439,7 @@ const tiles = <TileDef>[
     kind: TileKind.gpu,
     era: Era.smallLab,
     rooms: _server,
-    cost: 150000,
+    cost: 180000,
     powerKw: 10.4, // 8 × 1.3
     tflops: 7920, // 8 × 990
     heat: 42,
@@ -458,7 +456,7 @@ const tiles = <TileDef>[
     kind: TileKind.gpu,
     era: Era.mediumLab,
     rooms: {'hall'},
-    cost: 580000,
+    cost: 464000,
     powerKw: 40, // 32 × 1.25 (shared rack power and fans)
     tflops: 31680, // 32 × 990
     heat: 160,
@@ -475,7 +473,7 @@ const tiles = <TileDef>[
     kind: TileKind.gpu,
     era: Era.mediumLab,
     rooms: {'hall'},
-    cost: 2.85e6,
+    cost: 2.28e6,
     powerKw: 172.8, // 72 × 2.4
     tflops: 162000, // 72 × 2250
     heat: 260,
@@ -493,14 +491,14 @@ const tiles = <TileDef>[
     kind: TileKind.gpu,
     era: Era.bigLab,
     rooms: {'campus'},
-    cost: 39e6,
+    cost: 1.17e7,
     powerKw: 2406.4, // 1024 × 2.35
     tflops: 2304000, // 1024 × 2250
     heat: 600,
     gpusPerTile: 1024,
     requires: ['liquid_cooling'],
     minPowerTier: 5,
-    priceGrowth: 0.09,
+    priceGrowth: 0.12,
   ),
   TileDef(
     id: 'rack_r_class',
@@ -510,15 +508,15 @@ const tiles = <TileDef>[
         'utility now has your CEO on speed dial.',
     kind: TileKind.gpu,
     era: Era.bigLab,
-    rooms: {'hall'},
-    cost: 3.9e6,
+    rooms: {'hall', 'campus'},
+    cost: 1.17e6,
     powerKw: 244.8, // 72 × 3.4
     tflops: 252000, // 72 × 3500
     heat: 340,
     gpusPerTile: 72,
     requires: ['liquid_cooling'],
     minPowerTier: 6, // plant (PPA)
-    priceGrowth: 0.09,
+    priceGrowth: 0.12,
   ),
   TileDef(
     id: 'pod_r_class',
@@ -528,15 +526,15 @@ const tiles = <TileDef>[
         'space as a B200 SuperPOD, roughly 1.5× the math.',
     kind: TileKind.gpu,
     era: Era.bigLab,
-    rooms: {'campus'},
-    cost: 54.6e6,
+    rooms: {'campus', 'gigasite'},
+    cost: 1.64e7,
     powerKw: 3430, // 1024 × 3.35
     tflops: 3584000, // 1024 × 3500
     heat: 750,
     gpusPerTile: 1024,
     requires: ['liquid_cooling'],
     minPowerTier: 6, // plant (PPA)
-    priceGrowth: 0.09,
+    priceGrowth: 0.12,
   ),
   TileDef(
     id: 'bldg_r_class',
@@ -547,7 +545,7 @@ const tiles = <TileDef>[
     kind: TileKind.gpu,
     era: Era.globalLab,
     rooms: {'gigasite'},
-    cost: 3e8,
+    cost: 3.6e7,
     powerKw: 27034, // 8192 × 3.3
     tflops: 28672000, // 8192 × 3500
     heat: 700,
@@ -593,7 +591,7 @@ const tiles = <TileDef>[
     kind: TileKind.cooling,
     era: Era.startup,
     rooms: _server,
-    cost: 12000,
+    cost: 13800,
     powerKw: 3,
     cooling: 40,
   ),
@@ -606,7 +604,7 @@ const tiles = <TileDef>[
     kind: TileKind.cooling,
     era: Era.smallLab,
     rooms: _server,
-    cost: 40000,
+    cost: 48000,
     powerKw: 1.5,
     cooling: 90,
     requires: ['liquid_cooling'],
@@ -620,7 +618,7 @@ const tiles = <TileDef>[
     kind: TileKind.cooling,
     era: Era.mediumLab,
     rooms: {'hall', 'campus'},
-    cost: 150000,
+    cost: 120000,
     powerKw: 40,
     cooling: 300,
   ),
@@ -633,7 +631,7 @@ const tiles = <TileDef>[
     kind: TileKind.cooling,
     era: Era.mediumLab,
     rooms: {'hall', 'campus'},
-    cost: 250000,
+    cost: 200000,
     powerKw: 10,
     cooling: 450,
     requires: ['liquid_cooling'],
@@ -647,7 +645,7 @@ const tiles = <TileDef>[
     kind: TileKind.cooling,
     era: Era.bigLab,
     rooms: {'campus', 'gigasite'},
-    cost: 4e6,
+    cost: 1.2e6,
     powerKw: 200,
     cooling: 1800,
   ),
@@ -660,7 +658,7 @@ const tiles = <TileDef>[
     kind: TileKind.cooling,
     era: Era.globalLab,
     rooms: {'gigasite'},
-    cost: 9e6,
+    cost: 1.08e6,
     powerKw: 450,
     cooling: 3000,
   ),
@@ -702,7 +700,7 @@ const rooms = <RoomDef>[
     era: Era.smallLab,
     width: 10,
     height: 10,
-    cost: 2e6,
+    cost: 800000,
     ambientCooling: 5,
     tileScaleLabel: '8-GPU server',
     maxPowerTier: 3, // leased colo circuits (500 kW)
@@ -716,7 +714,7 @@ const rooms = <RoomDef>[
     era: Era.mediumLab,
     width: 14,
     height: 14,
-    cost: 3e6,
+    cost: 1.5e6,
     ambientCooling: 18,
     tileScaleLabel: 'rack (32–72 GPUs)',
     maxPowerTier: 5, // on-site substation (20 MW)
@@ -730,7 +728,7 @@ const rooms = <RoomDef>[
     era: Era.bigLab,
     width: 18,
     height: 18,
-    cost: 30e6,
+    cost: 7.5e6,
     ambientCooling: 40,
     tileScaleLabel: 'pod (~1k GPUs)',
     maxPowerTier: 7, // gigawatt grid interconnect (1 GW)
@@ -744,7 +742,7 @@ const rooms = <RoomDef>[
     era: Era.globalLab,
     width: 22,
     height: 22,
-    cost: 4e8,
+    cost: 2e7,
     ambientCooling: 70,
     tileScaleLabel: 'building (~8k GPUs)',
     maxPowerTier: 9, // multi-site cluster (4 GW)
@@ -804,7 +802,7 @@ const powerTiers = <PowerDef>[
         'proper sub-panel for the server closet.',
     era: Era.startup,
     capacityKw: 50,
-    cost: 60000,
+    cost: 46600,
   ),
   PowerDef(
     id: 'colo',
@@ -814,7 +812,7 @@ const powerTiers = <PowerDef>[
         'billed per kW and backed by its UPS and generators.',
     era: Era.smallLab,
     capacityKw: 500,
-    cost: 1e6,
+    cost: 164000,
   ),
   PowerDef(
     id: 'hall',
@@ -824,7 +822,7 @@ const powerTiers = <PowerDef>[
         'transformers, with UPS and diesel backup.',
     era: Era.mediumLab,
     capacityKw: 2000,
-    cost: 4e6,
+    cost: 488000,
   ),
   PowerDef(
     id: 'campus',
@@ -834,7 +832,7 @@ const powerTiers = <PowerDef>[
         'up) and steps it down for every hall.',
     era: Era.mediumLab,
     capacityKw: 20000,
-    cost: 7e6,
+    cost: 575000,
   ),
   PowerDef(
     id: 'plant',
@@ -844,7 +842,7 @@ const powerTiers = <PowerDef>[
         'now have opinions about grid interconnect queues.',
     era: Era.bigLab,
     capacityKw: 300000,
-    cost: 120e6,
+    cost: 2.4e6,
   ),
   PowerDef(
     id: 'gw_campus',
@@ -854,7 +852,7 @@ const powerTiers = <PowerDef>[
         'small city\'s worth of electricity for matrix multiplies and heat.',
     era: Era.globalLab,
     capacityKw: 1e6,
-    cost: 3.5e8,
+    cost: 1.44e7,
   ),
   PowerDef(
     id: 'nuclear_restart',
@@ -864,7 +862,7 @@ const powerTiers = <PowerDef>[
         'some gas turbines nobody mentions.',
     era: Era.globalLab,
     capacityKw: 2e6,
-    cost: 1e9,
+    cost: 9.09e7,
   ),
   PowerDef(
     id: 'multi_site',
@@ -874,7 +872,7 @@ const powerTiers = <PowerDef>[
         'model over long-haul fiber.',
     era: Era.globalLab,
     capacityKw: 4e6,
-    cost: 2e9,
+    cost: 3e8,
   ),
 ];
 
@@ -926,7 +924,7 @@ const networkTiers = <NetworkDef>[
     era: Era.smallLab,
     gpuCap: 4096,
     linkGbps: 400,
-    cost: 1.5e6,
+    cost: 300000,
     requires: ['interconnect'],
   ),
   NetworkDef(
@@ -938,7 +936,7 @@ const networkTiers = <NetworkDef>[
     era: Era.mediumLab,
     gpuCap: 32768,
     linkGbps: 800,
-    cost: 15e6,
+    cost: 2.2e6,
     requires: ['interconnect'],
   ),
   NetworkDef(
@@ -950,7 +948,7 @@ const networkTiers = <NetworkDef>[
     era: Era.bigLab,
     gpuCap: 131072,
     linkGbps: 14400,
-    cost: 200e6,
+    cost: 2.66e7,
   ),
   NetworkDef(
     id: 'optical',
@@ -961,7 +959,7 @@ const networkTiers = <NetworkDef>[
     era: Era.globalLab,
     gpuCap: 4194304,
     linkGbps: 1600,
-    cost: 1.5e9,
+    cost: 6.14e7,
     requires: ['parallelism'],
   ),
 ];
@@ -987,7 +985,7 @@ const coolingTiers = <CoolingDef>[
         'row, so the whole hall is cooled, not just the spots next to an AC.',
     era: Era.mediumLab,
     perGpuTile: 80,
-    cost: 3e6,
+    cost: 579000,
   ),
   CoolingDef(
     id: 'tower',
@@ -997,7 +995,7 @@ const coolingTiers = <CoolingDef>[
         'chillers, at the cost of a lot of water.',
     era: Era.bigLab,
     perGpuTile: 250,
-    cost: 40e6,
+    cost: 1e7,
   ),
   CoolingDef(
     id: 'liquid',
@@ -1007,7 +1005,7 @@ const coolingTiers = <CoolingDef>[
         'Liquid carries heat thousands of times better than air.',
     era: Era.bigLab,
     perGpuTile: 450,
-    cost: 150e6,
+    cost: 2.42e7,
     requires: ['liquid_cooling'],
   ),
   CoolingDef(
@@ -1018,7 +1016,7 @@ const coolingTiers = <CoolingDef>[
         'air, so almost no water is used.',
     era: Era.globalLab,
     perGpuTile: 550,
-    cost: 800e6,
+    cost: 1.45e7,
   ),
 ];
 
@@ -1092,7 +1090,7 @@ const upgrades = <UpgradeDef>[
         'of chaining many generic library calls.',
     category: UpgradeCategory.software,
     era: Era.startup,
-    cost: 234000,
+    cost: 351000,
     effects: Effects(utilizationAdd: 0.10),
   ),
   UpgradeDef(
@@ -1103,7 +1101,7 @@ const upgrades = <UpgradeDef>[
         'features in 16-bit: half the memory, faster serving, no real loss.',
     category: UpgradeCategory.software,
     era: Era.startup,
-    cost: 292500,
+    cost: 439000,
     // Unlocks INT8 serving precision in run setup.
     effects: Effects(),
   ),
@@ -1115,7 +1113,7 @@ const upgrades = <UpgradeDef>[
         'to help structured reasoning too.',
     category: UpgradeCategory.data,
     era: Era.startup,
-    cost: 390000,
+    cost: 585000,
     effects: Effects(dataMult: 3, ratingAdd: 10),
   ),
   UpgradeDef(
@@ -1126,7 +1124,7 @@ const upgrades = <UpgradeDef>[
         'model with the same compute.',
     category: UpgradeCategory.data,
     era: Era.startup,
-    cost: 585000,
+    cost: 878000,
     effects: Effects(trainEffMult: 1.5),
   ),
   UpgradeDef(
@@ -1137,7 +1135,7 @@ const upgrades = <UpgradeDef>[
         'runs: same compute, better model.',
     category: UpgradeCategory.data,
     era: Era.startup,
-    cost: 1.5e6,
+    cost: 645000,
     effects: Effects(trainEffMult: 1.3),
     requires: ['dedup'],
   ),
@@ -1149,7 +1147,7 @@ const upgrades = <UpgradeDef>[
         'instructions instead of just continuing text.',
     category: UpgradeCategory.research,
     era: Era.startup,
-    cost: 390000,
+    cost: 585000,
     effects: Effects(ratingAdd: 25),
   ),
   // --- Small lab -------------------------------------------------------------
@@ -1161,7 +1159,7 @@ const upgrades = <UpgradeDef>[
         'avoiding slow round-trips to GPU RAM.',
     category: UpgradeCategory.software,
     era: Era.smallLab,
-    cost: 2.5e+06,
+    cost: 1e7,
     effects: Effects(utilizationAdd: 0.07, trainEffMult: 1.1),
     requires: ['cuda_kernels'],
   ),
@@ -1173,7 +1171,7 @@ const upgrades = <UpgradeDef>[
         'instead of waiting on each other.',
     category: UpgradeCategory.software,
     era: Era.smallLab,
-    cost: 4.2e+06,
+    cost: 420000,
     effects: Effects(utilizationAdd: 0.05),
   ),
   UpgradeDef(
@@ -1184,7 +1182,7 @@ const upgrades = <UpgradeDef>[
         'and air conditioning, and denser racks.',
     category: UpgradeCategory.software,
     era: Era.smallLab,
-    cost: 6.7e+06,
+    cost: 2.01e7,
     effects: Effects(powerMult: 0.85),
   ),
   UpgradeDef(
@@ -1195,7 +1193,7 @@ const upgrades = <UpgradeDef>[
         'well-edited text the web crawl is short on. Twice the tokens.',
     category: UpgradeCategory.data,
     era: Era.smallLab,
-    cost: 1.2e+07,
+    cost: 3.6e7,
     effects: Effects(dataMult: 2),
   ),
   UpgradeDef(
@@ -1206,7 +1204,7 @@ const upgrades = <UpgradeDef>[
         '20 per parameter): a better model for the same compute.',
     category: UpgradeCategory.research,
     era: Era.smallLab,
-    cost: 8.3e+06,
+    cost: 2.49e7,
     // Unlocks the compute-optimal (20 tokens/param) sizing in run setup.
     effects: Effects(),
   ),
@@ -1218,7 +1216,7 @@ const upgrades = <UpgradeDef>[
         'GPUs instead of copying them: far bigger models fit in memory.',
     category: UpgradeCategory.software,
     era: Era.smallLab,
-    cost: 1.2e+07,
+    cost: 3.6e7,
     effects: Effects(utilizationAdd: 0.04, trainEffMult: 1.1),
   ),
   // --- Medium lab ------------------------------------------------------------
@@ -1230,7 +1228,7 @@ const upgrades = <UpgradeDef>[
         'only a few: more parameters for the same compute per token.',
     category: UpgradeCategory.research,
     era: Era.mediumLab,
-    cost: 7.5e+07,
+    cost: 1.35e7,
     // Unlocks the MoE architecture in run setup (model_design.dart), which
     // carries the effect: ~2× quality per FLOP on a fast network.
     effects: Effects(),
@@ -1243,7 +1241,7 @@ const upgrades = <UpgradeDef>[
         'the model is trained to score well on it.',
     category: UpgradeCategory.research,
     era: Era.mediumLab,
-    cost: 1e+08,
+    cost: 1.8e7,
     // The rating comes from the RLHF post-training choice in run setup.
     effects: Effects(arpuMult: 1.2),
     requires: ['instruction_tuning'],
@@ -1256,7 +1254,7 @@ const upgrades = <UpgradeDef>[
         'so huge models fit and GPUs stay busy.',
     category: UpgradeCategory.software,
     era: Era.mediumLab,
-    cost: 1.25e+08,
+    cost: 2.25e7,
     effects: Effects(utilizationAdd: 0.05, trainEffMult: 1.2),
     requires: ['interconnect'],
   ),
@@ -1268,7 +1266,7 @@ const upgrades = <UpgradeDef>[
         'the cheap student to most users.',
     category: UpgradeCategory.software,
     era: Era.mediumLab,
-    cost: 1.5e+08,
+    cost: 2.7e7,
     effects: Effects(serveEffMult: 3),
   ),
   UpgradeDef(
@@ -1279,7 +1277,7 @@ const upgrades = <UpgradeDef>[
         'no fragmentation, so far more requests fit in each batch.',
     category: UpgradeCategory.software,
     era: Era.mediumLab,
-    cost: 1.25e+08,
+    cost: 2.25e7,
     effects: Effects(serveEffMult: 2.4),
     requires: ['kv_cache'],
   ),
@@ -1291,7 +1289,7 @@ const upgrades = <UpgradeDef>[
         'can\'t (or shouldn\'t) scrape: trillions of fresh tokens.',
     category: UpgradeCategory.data,
     era: Era.mediumLab,
-    cost: 8e6,
+    cost: 1.44e6,
     effects: Effects(dataMult: 16),
   ),
   // --- Big lab ---------------------------------------------------------------
@@ -1303,7 +1301,7 @@ const upgrades = <UpgradeDef>[
         'up to twice the peak math of 16-bit on chips that support it.',
     category: UpgradeCategory.software,
     era: Era.bigLab,
-    cost: 3e8,
+    cost: 8.1e7,
     effects: Effects(utilizationAdd: 0.06),
   ),
   UpgradeDef(
@@ -1314,7 +1312,7 @@ const upgrades = <UpgradeDef>[
         'in one pass and keeps the ones it agrees with.',
     category: UpgradeCategory.software,
     era: Era.bigLab,
-    cost: 2.25e+09,
+    cost: 6.08e8,
     // Mostly a latency win; at large batch sizes the throughput gain is
     // smaller (was ×1.8 before model design added INT4, GQA and SSM serving).
     effects: Effects(serveEffMult: 1.3),
@@ -1327,7 +1325,7 @@ const upgrades = <UpgradeDef>[
         'once you run low on fresh human text.',
     category: UpgradeCategory.data,
     era: Era.bigLab,
-    cost: 3e+09,
+    cost: 8.1e8,
     effects: Effects(dataMult: 4),
   ),
   UpgradeDef(
@@ -1338,7 +1336,7 @@ const upgrades = <UpgradeDef>[
         'feedback that scales beyond what humans can label.',
     category: UpgradeCategory.research,
     era: Era.bigLab,
-    cost: 1e9,
+    cost: 2.7e8,
     effects: Effects(ratingAdd: 20),
     requires: ['rlhf'],
   ),
@@ -1350,7 +1348,7 @@ const upgrades = <UpgradeDef>[
         'around a ring, so whole codebases fit in one prompt.',
     category: UpgradeCategory.research,
     era: Era.bigLab,
-    cost: 1.5e9,
+    cost: 4.05e8,
     // Unlocks 1M context (with YaRN) in run setup.
     effects: Effects(),
     requires: ['parallelism'],
@@ -1363,7 +1361,7 @@ const upgrades = <UpgradeDef>[
         'at length first. Much smarter, but answers cost many more tokens.',
     category: UpgradeCategory.research,
     era: Era.bigLab,
-    cost: 2.5e9,
+    cost: 6.75e8,
     // Unlocks RL reasoning post-training in run setup.
     effects: Effects(),
     requires: ['rlhf'],
@@ -1377,7 +1375,7 @@ const upgrades = <UpgradeDef>[
         'training signal, and free draft tokens for faster decoding.',
     category: UpgradeCategory.research,
     era: Era.globalLab,
-    cost: 6e9,
+    cost: 1.8e9,
     effects: Effects(trainEffMult: 1.15, serveEffMult: 1.2),
   ),
   UpgradeDef(
@@ -1388,7 +1386,7 @@ const upgrades = <UpgradeDef>[
         'big gains on exactly the questions users care about.',
     category: UpgradeCategory.data,
     era: Era.globalLab,
-    cost: 7e9,
+    cost: 2.1e9,
     effects: Effects(ratingAdd: 23, arpuMult: 1.1),
     requires: ['rlhf'],
   ),
@@ -1400,7 +1398,7 @@ const upgrades = <UpgradeDef>[
         'accuracy keeps climbing with inference compute.',
     category: UpgradeCategory.research,
     era: Era.globalLab,
-    cost: 2.2e+10,
+    cost: 6.6e9,
     effects: Effects(ratingAdd: 35, serveEffMult: 0.7),
     requires: ['reasoning'],
   ),
@@ -1412,7 +1410,7 @@ const upgrades = <UpgradeDef>[
         'rewarding the model for finishing multi-step tasks.',
     category: UpgradeCategory.research,
     era: Era.globalLab,
-    cost: 35e9,
+    cost: 1.05e10,
     effects: Effects(ratingAdd: 35, arpuMult: 1.2),
     requires: ['reasoning'],
   ),
@@ -1424,7 +1422,7 @@ const upgrades = <UpgradeDef>[
         '(memory-bound) on separate GPU pools, each tuned for its job.',
     category: UpgradeCategory.software,
     era: Era.globalLab,
-    cost: 10e9,
+    cost: 3e9,
     // Was ×1.4 before model design added INT4, GQA and SSM serving.
     effects: Effects(serveEffMult: 1.2),
   ),

@@ -1292,7 +1292,9 @@ class OfflineReportDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Your GPUs kept humming for ${formatDuration(r.seconds)}${capped ? ' (offline time caps at 8h)' : ''}.',
+              'Your GPUs kept humming for ${formatDuration(r.seconds)}, '
+              'earning ${formatPercent(offlineEarningsRate)} of live revenue.'
+              '${capped ? ' Earnings capped at ${(offlineCapSeconds / 3600).round()}h away.' : ''}',
               textAlign: TextAlign.center,
               style: TextStyle(color: scheme.onSurfaceVariant),
             ),

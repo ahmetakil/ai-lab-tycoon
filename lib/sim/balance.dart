@@ -1,12 +1,18 @@
 // Tunable economy constants. Change these, then run `dart run tool/balance_sim.dart`
 // (and `--compare`). Reasoning and the current pacing table: docs/BALANCE.md.
 
-/// The game calendar: 1 real second = this many in-world seconds, so one real
-/// minute is a day and a real-world year is ~6 h of play (2017 → 2026 is
-/// about two and a half days). Training runs use their era's own, gentler
-/// compression (EraInfo.computeTimeScale: 1440 in the garage, 120 at the
-/// frontier) so late runs last hours but stay realistic in FLOPs.
-const computeTimeScale = 1440.0;
+/// How much faster the active game runs than the old 2–3 day idle design
+/// (v5). Every per-second rate (revenue, user growth and churn, hype decay,
+/// viral spikes) is the old one × [activePace] and every timer ÷ it, so the
+/// economy plays the same in fewer minutes. Late eras compress further
+/// because runs are now minutes long (EraInfo.runDurations).
+const activePace = 3.0;
+
+/// The game calendar: 1 real second = this many in-world seconds (one real
+/// minute is [activePace] days). It sets ARR: revenue/s is × [activePace],
+/// so ARR reads the same as in the old idle design. Training runs use their
+/// era's own compression (EraInfo.computeTimeScale).
+const computeTimeScale = 1440.0 * activePace;
 
 /// Game seconds per in-world year, used to show annualized revenue (ARR).
 const secondsPerYear = 365 * 86400 / computeTimeScale;
@@ -45,11 +51,11 @@ const demandBase = 98.0;
 const demandRatingScale = 87.0;
 
 /// Per-second rate at which users move toward demand.
-const userGrowthRate = 0.03;
-const userChurnRate = 0.01;
+const userGrowthRate = 0.03 * activePace;
+const userChurnRate = 0.01 * activePace;
 
 /// Unserved users (over capacity) leave at this per-second rate.
-const overloadChurnRate = 0.08;
+const overloadChurnRate = 0.08 * activePace;
 
 /// Once the unserved excess is below this fraction of capacity, users settle
 /// at capacity (so OVERLOADED ends instead of decaying forever).
@@ -73,13 +79,13 @@ const servingExponent = 0.36;
 
 /// revenue/s = revenueScale * servedUsers^revenueExponent * arpuMult
 /// (an exponent < 1 models early high-value clients → cheap mass market).
-const revenueScale = 1.0;
+const revenueScale = activePace;
 const revenueExponent = 0.66;
 
 // --- Releases ------------------------------------------------------------------
 /// Hype boost from a release: 1 + improvement/hypePerRating, times stunt.
 const hypePerRating = 60.0;
-const hypeHalfLifeSeconds = 120.0;
+const hypeHalfLifeSeconds = 120.0 / activePace;
 
 /// Hype ceiling (a release sets hype to max(current, boost), capped here).
 const maxHype = 8.0;
@@ -92,20 +98,27 @@ const openSourceCommunityTrainBonus =
 // --- Events --------------------------------------------------------------------
 /// Chance per second of a viral spike while users ≥ 70% of capacity and
 /// demand exceeds capacity, once the cooldown has run out.
-const viralChancePerSecond = 1 / 900;
+const viralChancePerSecond = activePace / 900;
 
 /// Quiet time after a spike ends before another can start.
-const viralCooldownSeconds = 600.0;
+const viralCooldownSeconds = 600.0 / activePace;
 const viralDemandMult = 4.0;
-const viralDurationSeconds = 90.0;
+const viralDurationSeconds = 90.0 / activePace;
 
 /// Renting cloud GPUs: doubles serving capacity for this long, costs
 /// cloudRentCostFactor × (hardware value) — expensive on purpose.
-const cloudRentSeconds = 90.0;
+const cloudRentSeconds = 90.0 / activePace;
 const cloudRentCostFactor = 0.08;
 
-/// Offline progress cap.
-const offlineCapSeconds = 8 * 3600.0;
+/// Offline progress cap per absence ("Earnings capped at 2h away").
+const offlineCapSeconds = 2 * 3600.0;
+
+/// While you're away the lab earns at this fraction of its live rate (users,
+/// hype and a running run still tick at full speed). Mid-game progress is
+/// research-gated, so full-rate offline money made 2 h away worth ~2 h of
+/// play; at 10% a full absence banks ~12 min of income, worth roughly 10–75
+/// (typically ~30) min of active play (docs/BALANCE.md, "Offline cap").
+const offlineEarningsRate = 0.1;
 
 // --- GPU supply crunch ---------------------------------------------------------
 /// Each GPU tile you already own of a type makes the next one pricier
