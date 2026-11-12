@@ -64,12 +64,15 @@ absence length, so it's deterministic. A test checks it against 1 s steps
   the next power, network and central-cooling tiers, and moving to the next
   room. It buys the best affordable
   option, up to 12 per look. It saves for something better if it's close: up to
-  4 min in the Garage, rising to 60 min at the Frontier, and never more than
+  4 min in the Garage, rising to 2 h at the Frontier, and never more than
   8 min inside a scheduled session (offline earnings pay for the big items).
   When growth is blocked (out of power, the best GPU doesn't fit the
   headroom, or out of floor space), the next power tier or room is
   "essential" and it saves for it however long it takes; so is a network
-  tier once runs would scale below 70%.
+  tier once runs would scale below 70%. A power tier past the building's
+  limit (`RoomDef.maxPowerTier`) isn't a candidate: the move is, valued by
+  that power (GPUs to fill it) and essential when the power would have
+  been.
 
 ### Placement (`--layout`)
 
@@ -137,7 +140,7 @@ the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 - rivals: Tiny-Transformer (765), GPT-ish-1 (796)
 ### Startup (`startup`, 2018–19)
 - room: Server closet 7×7 ($15k)
-- power: Office with 3-phase power 50.0 kW ($60k)
+- power: 3-phase service 50.0 kW ($60k)
 - gpu: DGX A100 (8× A100) ($50k, +5%/tile)
 - cooling: Precision AC (CRAC) ($12k)
 - network: 100G fiber, feeds 256 ($40k)
@@ -147,7 +150,7 @@ the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 - rivals: BURT-Large (888), GPT-ish-2 (950)
 ### Small lab (`smallLab`, 2020–22)
 - room: Colocation cage 10×10 ($2M)
-- power: Colocation cage 500.0 kW ($1M)
+- power: Leased colo circuits 500.0 kW ($1M)
 - gpu: HGX H100 (8× H100) ($150k, +12%/tile)
 - cooling: Rear-door heat exchanger ($40k)
 - network: InfiniBand 400G, feeds 4096 ($1.5M)
@@ -157,7 +160,7 @@ the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 - rivals: Meenie (1085), GPT-ish-3 (1120)
 ### Medium lab (`mediumLab`, 2023)
 - room: Datacenter hall 14×14 ($3M)
-- power: Datacenter hall 2.0 MW ($4M), Datacenter campus 20.0 MW ($7M)
+- power: Dedicated medium-voltage feed 2.0 MW ($4M), On-site substation 20.0 MW ($7M)
 - gpu: H100 rack ($580k, +10%/tile), GB200 NVL72 ($2.9M, +10%/tile)
 - cooling: Chiller unit ($150k), Direct liquid-cooling loop ($250k)
 - network: InfiniBand spine, feeds 32768 ($15M)
@@ -168,7 +171,7 @@ the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 - rivals: Mixtrawl 8x7B (1210), ChatGPT-ish (1260)
 ### Big lab (`bigLab`, 2023–25)
 - room: Datacenter campus 18×18 ($30M)
-- power: Dedicated power plant deal 300.0 MW ($120M)
+- power: Power plant deal (PPA) 300.0 MW ($120M)
 - gpu: B200 SuperPOD ($39M, +9%/tile), Vera Rubin NVL144 ($3.9M, +9%/tile), Rubin SuperPOD ($54.6M, +9%/tile)
 - cooling: Cooling tower ($4M)
 - network: NVLink fabric, feeds 131072 ($200M)
@@ -179,7 +182,7 @@ the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 - rivals: GPT-ish-4 (1339), Claudette 3.5 Sonata (1373), DeepSleep-R1 (1378), Claudette 3.7 Sonata (1455), o-three (1463), Grokk 3 (1503), GPT-ish-4.5 (1506)
 ### Frontier lab (`globalLab`, 2025–26)
 - room: Gigawatt site 22×22 ($400M)
-- power: Gigawatt campus 1.0 GW ($350M), Restarted nuclear plant 2.0 GW ($1B), Multi-site cluster 4.0 GW ($2B)
+- power: Gigawatt grid interconnect 1.0 GW ($350M), Restarted nuclear plant 2.0 GW ($1B), Multi-site cluster 4.0 GW ($2B)
 - gpu: Rubin building ($300M, +3%/tile)
 - cooling: Closed-loop dry coolers ($9M)
 - network: Optical fabric, feeds 4194304 ($1.5B)
@@ -279,11 +282,20 @@ are the goal.
 
 ## Pacing: continuous play (no gaps)
 
-Startup 0h12, Small lab 0h58, Medium lab 3h46, Big lab 14h25, Frontier
-30h19; 21/22 rivals by 60h and the last one before 70h (seed 12345, 1 s /
-3 s; the test runs it coarser and checks 25–70 h and < casual + 8 h).
-Continuous play is about as fast as casual: the frontier is paced by rating
-(research, design and data) and 8 h runs, and offline earns at full rate.
+Startup 0h12, Small lab 0h58, Medium lab 3h15, Big lab 13h52, Frontier
+29h48, final rival 44h19 (seed 12345, 1 s / 3 s; the test's coarser 3 s / 6 s
+run finishes at 54h22 and checks 25–70 h and < casual + 8 h). Continuous play
+is a bit faster than casual: the frontier is paced by rating (research,
+design and data) and 8 h runs, and offline earns at full rate.
+
+With the per-place power limits the colo tier waits for the move to the
+colo, and that small reordering sent the continuous run down a path where
+it never saved for the $6–35B Frontier research (expert data, test-time
+compute) at the 60 min save cap: users stalled under the last rivals' 1B and
+it didn't finish by 80 h (before: 66h00, already near the 70 h limit). The
+Frontier save cap in continuous play is now 2 h, so a player without
+offline lumps saves for that research. Casual play is unaffected (8 min
+in-session cap).
 
 
 ## Strategies and placement
@@ -379,6 +391,18 @@ tile) covers the late rooms without making coolers worthless. Throttling is
 ladder (4 → 32 → 256 → 4k → 32k → 131k → 4M GPUs) is priced so each step is
 bought when its era's cluster outgrows the previous one (copper 10G $1.5k in
 the garage, InfiniBand spine $15M, NVLink $200M, optical $1.5B).
+
+**Power limits per place.** Power tiers are named after the supply
+(3-phase service, leased colo circuits, medium-voltage feed, on-site
+substation, PPA, gigawatt grid interconnect), never a place, and each room's
+electrical service caps the tier you can buy there: garage 8 kW, closet
+50 kW, colo 500 kW, hall 20 MW, campus 1 GW, gigasite 4 GW. Moving buys no
+power; you keep your tier. The campus takes the gigawatt interconnect
+(suggested: 300 MW) because the Frontier's first push happens there: at
+300 MW the bot must buy the $400M gigasite before the $350M tier and the
+final rival slips to 72h on seeds 12345 and 777. Before, you could buy the
+colo tier in the closet; now you move to the colo ($2M) first, which only
+reorders the early spend (eras land at the same times).
 
 **Power tiers retuned for one room.** A move fills the old cap at once, so
 tiers are cheaper relative to revenue: office 50 kW (was 40), campus $7M,

@@ -214,8 +214,25 @@ void main() {
         }
         expect(powerTiers[t.minPowerTier].era.index, lessThanOrEqualTo(t.era.index), reason: t.id);
       }
-      for (final r in rooms) {
-        expect(powerTiers[r.minPowerTier].era.index, lessThanOrEqualTo(r.era.index), reason: r.id);
+      // Each room's electrical service takes every power tier of its own
+      // era (no era needs a place it hasn't unlocked yet), and grows.
+      for (var i = 0; i < rooms.length; i++) {
+        final r = rooms[i];
+        expect(r.maxPowerTier, inInclusiveRange(0, powerTiers.length - 1), reason: r.id);
+        if (i > 0) expect(r.maxPowerTier, greaterThan(rooms[i - 1].maxPowerTier), reason: r.id);
+        for (var p = 0; p < powerTiers.length; p++) {
+          if (powerTiers[p].era.index <= r.era.index) {
+            expect(p, lessThanOrEqualTo(r.maxPowerTier), reason: '${r.id} takes ${powerTiers[p].id}');
+          }
+        }
+      }
+      expect(rooms.last.maxPowerTier, powerTiers.length - 1);
+      // Power tiers are named after the supply, never after a place you
+      // move to later (the garage outlet is the garage's own).
+      for (final p in powerTiers) {
+        for (final r in rooms.skip(1)) {
+          expect(p.name.toLowerCase(), isNot(contains(r.name.toLowerCase())), reason: p.id);
+        }
       }
       for (final n in [...networkTiers.map((n) => (n.id, n.era, n.requires)), ...coolingTiers.map((c) => (c.id, c.era, c.requires))]) {
         for (final r in n.$3) {

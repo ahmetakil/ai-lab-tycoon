@@ -304,9 +304,46 @@ void main() {
     test('next power tier is era-gated', () {
       final g = Game(GameState(money: 1e9, powerTier: 1));
       expect(g.nextPowerTier!.era, Era.startup);
+      expect(g.powerBlockReason(), startsWith('Unlocks in Startup'));
       expect(g.buyNextPowerTier(), isFalse);
       g.s.era = Era.startup;
+      expect(g.moveTo('closet'), isTrue);
       expect(g.buyNextPowerTier(), isTrue);
+    });
+
+    test('the building limits power: move first, then buy', () {
+      final g = Game(GameState(money: 1e9, era: Era.startup, powerTier: 1));
+      expect(g.currentRoom.id, 'garage');
+      expect(g.powerNeedsMove, isTrue);
+      expect(
+        g.powerBlockReason(),
+        'Needs a bigger building: move to the Server closet first.',
+      );
+      expect(g.buyNextPowerTier(), isFalse);
+      expect(g.s.powerTier, 1);
+      // Moving keeps the tier you have; it doesn't buy power.
+      final money = g.s.money;
+      expect(g.moveTo('closet'), isTrue);
+      expect(g.s.powerTier, 1);
+      expect(g.s.money, money - roomById('closet')!.cost);
+      expect(g.powerNeedsMove, isFalse);
+      expect(g.powerBlockReason(), isNull);
+      expect(g.buyNextPowerTier(), isTrue);
+      expect(powerTiers[g.s.powerTier].name, '3-phase service');
+    });
+
+    test('every power tier is buyable in some room, in order', () {
+      final g = Game(GameState(money: 1e15, era: Era.globalLab));
+      while (g.nextPowerTier != null) {
+        if (g.powerNeedsMove) {
+          expect(g.powerBlockReason(), contains(g.nextRoom!.name));
+          expect(g.moveTo(g.nextRoom!.id), isTrue);
+        }
+        final id = g.nextPowerTier!.id;
+        expect(g.buyNextPowerTier(), isTrue, reason: id);
+        expect(g.s.powerTier, lessThanOrEqualTo(g.currentRoom.maxPowerTier));
+      }
+      expect(g.powerBlockReason(), 'You have the biggest power supply.');
     });
 
     test('rack-scale GPUs need liquid cooling and a big enough site', () {
@@ -315,7 +352,7 @@ void main() {
       g.s.ownedUpgrades.add('liquid_cooling');
       expect(
         g.placeBlockReason('hall', 0, 0, 'rack_b_class'),
-        'Needs power: Datacenter campus.',
+        'Needs power: On-site substation.',
       );
       g.s.powerTier = 5;
       expect(g.placeTile('hall', 0, 0, 'rack_b_class'), isTrue);

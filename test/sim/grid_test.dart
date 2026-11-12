@@ -193,7 +193,10 @@ void main() {
 
     test('era, upgrade and power-tier locks name what to do', () {
       final g = gameIn('closet', empty7, era: Era.smallLab, powerTier: 2);
-      expect(g.placeBlockReason('closet', 0, 0, 'srv_h_class'), 'Needs power: Colocation cage.');
+      expect(
+        g.placeBlockReason('closet', 0, 0, 'srv_h_class'),
+        'Needs power: Leased colo circuits. Move to the Colocation cage first.',
+      );
       expect(g.placeBlockReason('closet', 0, 0, 'cool_rear_door'), contains('Research Liquid cooling'));
       g.s.era = Era.startup;
       g.s.users = 0;
@@ -286,22 +289,20 @@ void main() {
       final reqs = g.moveRequirements('closet');
       expect(reqs.map((r) => r.kind), ['cash', 'era', 'power']);
       expect(reqs.map((r) => r.required), [true, false, false]);
-      expect(reqs.every((r) => !r.done), isTrue);
+      expect(reqs.take(2).every((r) => !r.done), isTrue);
       expect(reqs[0].detail, '\$100 / \$15.0k');
       expect(reqs[1].line, startsWith('Startup era: 0 / 3k users (grow users by releasing better models'));
       expect(reqs[1].action, RequirementAction.train);
-      expect(reqs[2].title, 'Power: Office with 3-phase power');
-      expect(reqs[2].detail, contains('next Upgraded electrical panel'));
-      expect(reqs[2].action, RequirementAction.power);
-      expect(reqs.any((r) => r.line.contains('power power')), isFalse);
+      // Power is information: the bigger building lifts the limit.
+      expect(reqs[2].line, 'Power limit: 8.00 kW → 50 kW (up to 3-phase service)');
+      expect(reqs[2].done, isTrue);
+      expect(reqs[2].action, RequirementAction.none);
       // Only the cash blocks.
       expect(g.roomBlockReason('closet'), 'Costs \$15.0k. You have \$100.');
       g.s.money = 1e6;
       expect(g.canBuyRoom('closet'), isTrue);
       expect(g.moveRequirements('closet').first.done, isTrue);
       g.s.era = Era.startup;
-      g.s.powerTier = 2;
-      expect(g.moveRequirements('closet').map((r) => r.kind), ['cash', 'era']);
       expect(g.moveRequirements('closet').every((r) => r.done), isTrue);
     });
 
@@ -376,7 +377,7 @@ void main() {
 
   test('every room has its own GPUs and coolers', () {
     for (final r in rooms) {
-      expect(r.minPowerTier, inInclusiveRange(0, powerTiers.length - 1));
+      expect(r.maxPowerTier, inInclusiveRange(0, powerTiers.length - 1));
       expect(tiles.where((t) => t.isGpu && t.rooms.contains(r.id)), isNotEmpty, reason: r.id);
       expect(tiles.where((t) => t.isCooling && t.rooms.contains(r.id)), isNotEmpty, reason: r.id);
     }

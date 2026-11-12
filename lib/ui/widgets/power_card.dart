@@ -13,10 +13,12 @@ import 'hud.dart';
 import 'meters.dart';
 import 'panel.dart';
 
-/// Lives in the Datacenter tab's power sheet.
+/// Lives in the Power sheet. When the next tier needs a bigger building, it
+/// shows why and a button that calls [onMove] with the room to move to.
 class PowerCard extends StatelessWidget {
   final GameController controller;
-  const PowerCard({super.key, required this.controller});
+  final void Function(RoomDef room)? onMove;
+  const PowerCard({super.key, required this.controller, this.onMove});
 
   @override
   Widget build(BuildContext context) {
@@ -79,9 +81,11 @@ class PowerCard extends StatelessWidget {
           MeterBar(value: frac, color: color, height: 10),
           if (frac >= 0.97) ...[
             const SizedBox(height: 6),
-            const Text(
-              'At the power cap: upgrade your supply or buy more efficient GPUs.',
-              style: TextStyle(color: AppColors.amber, fontSize: 12.5),
+            Text(
+              g.powerNeedsMove
+                  ? 'At the power cap: this building can\'t take more. Move, or buy more efficient GPUs.'
+                  : 'At the power cap: upgrade your supply or buy more efficient GPUs.',
+              style: const TextStyle(color: AppColors.amber, fontSize: 12.5),
             ),
           ],
           if (next != null) ...[
@@ -98,6 +102,8 @@ class PowerCard extends StatelessWidget {
   Widget _nextTier(Game g, PowerDef next) {
     final unlocked = g.isUnlocked(next.era);
     final affordable = g.s.money >= next.cost;
+    final needsMove = g.powerNeedsMove;
+    final moveTo = Game.roomForPowerTier(g.s.powerTier + 1);
     return Opacity(
       opacity: unlocked ? 1 : 0.55,
       child: Column(
@@ -154,6 +160,16 @@ class PowerCard extends StatelessWidget {
                   color: eraColor(next.era),
                   icon: Icons.lock_outline,
                 )
+              else if (needsMove)
+                BuyButton(
+                  key: const ValueKey('power-move'),
+                  label: 'Move',
+                  sublabel: moveTo.name,
+                  icon: Icons.add_business_rounded,
+                  color: AppColors.amber,
+                  enabled: onMove != null,
+                  onBuy: () => onMove?.call(moveTo),
+                )
               else
                 BuyButton(
                   label: 'Upgrade',
@@ -167,7 +183,14 @@ class PowerCard extends StatelessWidget {
                 ),
             ],
           ),
-          if (unlocked && !affordable) ...[
+          if (needsMove) ...[
+            const SizedBox(height: 8),
+            Text(
+              g.powerBlockReason()!,
+              key: const ValueKey('power-block-reason'),
+              style: const TextStyle(color: AppColors.amber, fontSize: 12.5, height: 1.3),
+            ),
+          ] else if (unlocked && !affordable) ...[
             const SizedBox(height: 8),
             AffordBar(money: g.s.money, cost: next.cost),
           ],

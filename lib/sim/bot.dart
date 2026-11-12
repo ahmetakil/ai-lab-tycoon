@@ -144,7 +144,7 @@ class Bot {
     Era.smallLab => 900.0,
     Era.mediumLab => 1800.0,
     Era.bigLab => 2700.0,
-    Era.globalLab => 3600.0,
+    Era.globalLab => 7200.0,
   };
 
   /// Seconds of active play left in the current session (infinite =
@@ -945,15 +945,53 @@ class Bot {
 
     // The best GPU we could place (for valuing power and the next room).
     final bestGpu = _bestGpu(room.id);
+    final nextRoom = g.nextRoom;
+
+    // Power: worth it if we're nearly full (or out of floor space, since the
+    // next room's GPUs will want it). Value it as "tier + an equal spend on
+    // GPUs to fill it". A tier past this building's electrical service needs
+    // the move first: then the move carries the power's value.
+    final next = g.nextPowerTier;
+    final powerNeedsMove = g.powerNeedsMove;
+    // Just moved into a building made for more: the tier it's built around.
+    final roomBase = _roomPowerFloor[room.id] ?? 0;
+    // The next room is unlocked and its GPUs will want the power this
+    // building can still take.
+    final roomNeedsPower = nextRoom != null &&
+        g.isUnlocked(nextRoom.era) &&
+        s.powerTier < room.maxPowerTier;
+    // Out of power: no GPU bundle fits in the headroom any more.
+    final blocked = !cands.any((c) => c.label.contains('gpu_') ||
+        c.label.contains('srv_') ||
+        c.label.contains('rack_') ||
+        c.label.contains('pod_') ||
+        c.label.contains('bldg_'));
+    final wantPower = bestGpu != null &&
+        next != null &&
+        g.isUnlocked(next.era) &&
+        (powerTight ||
+            roomsFull ||
+            roomNeedsPower ||
+            // Moved ahead of the power: the room's own tier, or the best GPU
+            // doesn't fit in what's left.
+            s.powerTier < roomBase ||
+            g.tilePowerKw(bestGpu) > headroom);
+    final powerEssential = wantPower &&
+        (blocked || (roomsFull && roomNeedsPower) || g.tilePowerKw(bestGpu) > headroom);
+    double powerK(double capKw, TileDef gpu, double cost) => math
+        .max(
+          1.0,
+          math.min((capKw - g.powerUsedKw) / g.tilePowerKw(gpu), cost / g.tilePrice(gpu)),
+        )
+        .floorToDouble();
 
     // Next room: worth it when it can hold better or more GPUs. Moving only
     // costs money (no era gate); before its era it's just more floor and
     // free cooling for today's GPUs. Moving takes everything along; the
     // template bot then re-lays it on the new plan.
-    final nextRoom = g.nextRoom;
     if (nextRoom != null) {
       final native = _bestGpu(nextRoom.id);
-      final t = native != null && s.powerTier >= nextRoom.minPowerTier ? native : bestGpu;
+      final t = native ?? bestGpu;
       if (t != null) {
         final k = math.min(
           math.min(
@@ -962,66 +1000,40 @@ class Bot {
           ),
           math.max(1.0, (nextRoom.cost / g.tilePrice(t)).floorToDouble()),
         );
-        if (k >= 1) {
+        var dv = k >= 1 ? _virtualDv(t, k, v0) : 0.0;
+        // The power tier this building can't take: moving is its first
+        // step, so the move carries the tier's value (GPUs to fill it with
+        // the money of both).
+        if (wantPower && powerNeedsMove) {
+          final both = next.cost + nextRoom.cost;
+          final pk = powerK(next.capacityKw, bestGpu, both);
+          dv = math.max(dv, _virtualDv(bestGpu, pk, v0));
+        }
+        if (dv > 0) {
           cands.add(
             _Cand(
               nextRoom.cost,
-              _virtualDv(t, k, v0),
+              dv,
               () {
                 if (!g.moveTo(nextRoom.id)) return false;
                 if (layout == BotLayout.template) _relayout();
                 return true;
               },
-              essential: roomsFull && g.isUnlocked(nextRoom.era),
+              essential: (roomsFull && g.isUnlocked(nextRoom.era)) ||
+                  (powerNeedsMove && powerEssential),
             ),
           );
         }
       }
     }
 
-    // Power: worth it if we're nearly full (or out of floor space, since the
-    // next room needs it). Value it as "tier + an equal spend on GPUs to
-    // fill it".
-    final next = g.nextPowerTier;
-    // The next room needs a power tier we don't have yet.
-    final roomNeedsPower =
-        nextRoom != null &&
-        g.isUnlocked(nextRoom.era) &&
-        s.powerTier < nextRoom.minPowerTier;
-    if (bestGpu != null &&
-        next != null &&
-        g.isUnlocked(next.era) &&
-        (powerTight ||
-            roomsFull ||
-            roomNeedsPower ||
-            // Moved ahead of the power: the room's own tier, or the best GPU
-            // doesn't fit in what's left.
-            s.powerTier < room.minPowerTier ||
-            g.tilePowerKw(bestGpu) > headroom)) {
-      final unitKw = g.tilePowerKw(bestGpu);
-      final k =
-          math
-              .max(
-                1.0,
-                math.min(
-                  (next.capacityKw - g.powerUsedKw) / unitKw,
-                  next.cost / g.tilePrice(bestGpu),
-                ),
-              )
-              .floorToDouble();
-      // Out of power: no GPU bundle fits in the headroom any more.
-      final blocked = !cands.any((c) => c.label.contains('gpu_') ||
-          c.label.contains('srv_') ||
-          c.label.contains('rack_') ||
-          c.label.contains('pod_') ||
-          c.label.contains('bldg_'));
+    if (wantPower && !powerNeedsMove) {
       cands.add(
         _Cand(
           next.cost,
-          _virtualDv(bestGpu, k, v0),
+          _virtualDv(bestGpu, powerK(next.capacityKw, bestGpu, next.cost), v0),
           g.buyNextPowerTier,
-          essential:
-              blocked || (roomsFull && roomNeedsPower) || g.tilePowerKw(bestGpu) > headroom,
+          essential: powerEssential,
         ),
       );
     }
@@ -1079,6 +1091,11 @@ class Bot {
   }
 }
 
+
+/// The power tier the bot buys as soon as it can after moving into each
+/// room (the room's own tier; the campus starts on the substation it was
+/// planned with in the hall).
+const _roomPowerFloor = {'closet': 2, 'colo': 3, 'hall': 4, 'campus': 5, 'gigasite': 7};
 
 class _Cand {
   final double cost;

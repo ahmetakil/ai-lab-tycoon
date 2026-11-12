@@ -411,7 +411,7 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
             onTap: skipMove,
             child: Align(
               alignment: const Alignment(0, -0.55),
-              child: _MoveBanner(room: roomById(_room)!, t: _move),
+              child: _MoveBanner(from: roomById(_from!)!, room: roomById(_room)!, t: _move),
             ),
           ),
         ),
@@ -689,9 +689,10 @@ class _MovingTruck extends StatelessWidget {
 
 /// "Moving to the Server closet · tap to skip".
 class _MoveBanner extends StatelessWidget {
+  final RoomDef from;
   final RoomDef room;
   final Animation<double> t;
-  const _MoveBanner({required this.room, required this.t});
+  const _MoveBanner({required this.from, required this.room, required this.t});
 
   @override
   Widget build(BuildContext context) => FadeTransition(
@@ -727,7 +728,7 @@ class _MoveBanner extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            'Moving to the ${room.name}',
+            '${from.name}  →  ${room.name}',
             style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
           ),
           const Text(

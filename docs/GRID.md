@@ -26,9 +26,10 @@ silhouette with a "Move here" sign; buying it **moves** you there:
 - The training run, users, upgrades and the power / network / cooling tiers
   carry on unchanged. `Game.moveTo(roomId)` emits `RoomMoved(from, to, offset)`.
 - `Game.moveRequirements(roomId)` is the modal's checklist: **Cash** (the
-  only required row), then the room's era goal and its usual power tier as
-  "not needed to move, unlocks the new parts" rows, each with progress, a
-  how-to hint and an action (`RequirementAction.power` / `.train`).
+  only required row), then the room's era goal as a "not needed to move,
+  unlocks the new parts" row (progress, hint, `RequirementAction.train`) and
+  a done info row for the bigger power limit ("Power limit: 50 kW → 500 kW
+  (up to Leased colo circuits)").
   `roomBlockReason` is one sentence: "Costs $15.0k. You have $3.2k.",
   "Move to the Server closet first.", "You're already in the Garage."
 
@@ -37,16 +38,23 @@ fresh; the game is unreleased.
 
 ## Rooms
 
-| room | era | size | GPU tile = | room cooling/cell (total) | cost | usual power tier |
+| room | era | size | GPU tile = | room cooling/cell (total) | cost | power limit (electrical service) |
 |---|---|---|---|---|---|---|
-| `garage` Garage | garage | 4×4 | 1 GPU | 1.0 (16) | free | 0 (Garage outlet) |
-| `closet` Server closet | startup | 7×7 | 8-GPU server | 2.5 (123) | $15k | 2 (Office with 3-phase power) |
-| `colo` Colocation cage | smallLab | 10×10 | 8-GPU server | 5.0 (500) | $2M | 3 (Colocation cage) |
-| `hall` Datacenter hall | mediumLab | 14×14 | rack (32–72 GPUs) | 18.0 (3528) | $3M | 4 (Datacenter hall) |
-| `campus` Datacenter campus | bigLab | 18×18 | pod (~1k GPUs) | 40.0 (12960) | $30M | 5 (Datacenter campus) |
-| `gigasite` Gigawatt site | globalLab | 22×22 | building (~8k GPUs) | 70.0 (33880) | $400M | 7 (Gigawatt campus) |
+| `garage` Garage | garage | 4×4 | 1 GPU | 1.0 (16) | free | 1 Upgraded electrical panel (8 kW) |
+| `closet` Server closet | startup | 7×7 | 8-GPU server | 2.5 (123) | $15k | 2 3-phase service (50 kW) |
+| `colo` Colocation cage | smallLab | 10×10 | 8-GPU server | 5.0 (500) | $2M | 3 Leased colo circuits (500 kW) |
+| `hall` Datacenter hall | mediumLab | 14×14 | rack (32–72 GPUs) | 18.0 (3528) | $3M | 5 On-site substation (20 MW) |
+| `campus` Datacenter campus | bigLab | 18×18 | pod (~1k GPUs) | 40.0 (12960) | $30M | 7 Gigawatt grid interconnect (1 GW) |
+| `gigasite` Gigawatt site | globalLab | 22×22 | building (~8k GPUs) | 70.0 (33880) | $400M | 9 Multi-site cluster (4 GW) |
 
-"Usual power tier" is what the room's own GPUs need; it doesn't gate the move.
+The power limit (`RoomDef.maxPowerTier`) is the building's electrical
+service: the highest power tier you can buy while you're there. A tier past
+it is blocked with "Needs a bigger building: move to the Colocation cage
+first." and the Power panel offers a Move button instead of Upgrade. Moving
+never buys power; you keep your tier and buy the bigger supply after. Every
+room takes all the power tiers of its own era (the campus also takes the
+first Frontier tier, which the balance needs there). Power never gates a
+move.
 The garage stays a cramped 4×4; each later room has roughly 1.5× the floor of
 the one before.
 
@@ -158,18 +166,20 @@ cooler shares)`.
 |---|---|---|---|
 | `outlet` Garage outlet | garage | 1.8 kW | $0 |
 | `panel` Upgraded electrical panel | garage | 8 kW | $3k |
-| `office` Office with 3-phase power | startup | 50 kW | $60k |
-| `colo` Colocation cage | smallLab | 500 kW | $1M |
-| `hall` Datacenter hall | mediumLab | 2 MW | $4M |
-| `campus` Datacenter campus | mediumLab | 20 MW | $7M |
-| `plant` Dedicated power plant deal | bigLab | 300 MW | $120M |
-| `gw_campus` Gigawatt campus | globalLab | 1.0 GW | $350M |
+| `office` 3-phase service | startup | 50 kW | $60k |
+| `colo` Leased colo circuits | smallLab | 500 kW | $1M |
+| `hall` Dedicated medium-voltage feed | mediumLab | 2 MW | $4M |
+| `campus` On-site substation | mediumLab | 20 MW | $7M |
+| `plant` Power plant deal (PPA) | bigLab | 300 MW | $120M |
+| `gw_campus` Gigawatt grid interconnect | globalLab | 1.0 GW | $350M |
 | `nuclear_restart` Restarted nuclear plant | globalLab | 2.0 GW | $1B |
 | `multi_site` Multi-site cluster | globalLab | 4.0 GW | $2B |
 
 
 GPU tiles draw `powerKw × powerMult` (liquid cooling −15%), coolers their
-listed kW; one cap for the room.
+listed kW; one cap for the room. Tier names describe the supply, never a
+place; ids stay (saves store the index). `Game.powerBlockReason()` gives
+why the next tier can't be bought (era, building, cash).
 
 ## Sim API (what the UI codes against)
 
@@ -178,7 +188,7 @@ enum TileKind { gpu, cooling }
 class TileDef { id, name, blurb, kind, era, Set<String> rooms /* sold for */, cost, powerKw,
   tflops, heat, gpusPerTile, cooling, requires, minPowerTier, priceGrowth; nativeTo(roomId) }
 class RoomDef { id, name, blurb, era, width, height, cost, ambientCooling, tileScaleLabel,
-  minPowerTier }
+  maxPowerTier /* the building's electrical service */ }
 class NetworkDef { id, name, blurb, era, gpuCap, linkGbps, cost, requires }
 class CoolingDef { id, name, blurb, era, perGpuTile, cost, requires }
 const tiles, rooms, powerTiers, networkTiers, coolingTiers;
@@ -188,6 +198,7 @@ RoomDef? roomAfter(id); int roomIndex(id);
 // Game
 RoomDef currentRoom; RoomDef? nextRoom; bool isRoomOwned(id);
 List<Requirement> moveRequirements(id); String? roomBlockReason(id); bool moveTo(id);
+String? powerBlockReason(); bool powerNeedsMove; static RoomDef roomForPowerTier(tier);
 static (int, int) moveOffset(from, to);
 String eraLockReason(era); // "Unlocks in Small lab: reach rating 1,000 (you're at 998)."
 NetworkDef network; double networkCap; NetworkDef? nextNetworkTier;
@@ -201,6 +212,7 @@ TileStatus? tileStatus(id, x, y); // .plantCooling, .ambientCooling, .adjacentCo
 Cluster? trainingCluster; // .gpus, .gpuCap, .scalingEfficiency, .overCap
 ```
 
-Lock reasons are actionable: "Needs power: Colocation cage.", "Research
+Lock reasons are actionable: "Needs power: Leased colo circuits. Move to
+the Colocation cage first.", "Research
 Liquid cooling first.", "Not enough power: needs 5.6 kW, 2.5 kW free. Tap ⚡
 Power to upgrade."

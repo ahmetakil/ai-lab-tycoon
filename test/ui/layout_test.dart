@@ -362,6 +362,9 @@ void main() {
       c.game.s.money = 1e8;
       expect(c.act((g) => g.moveTo('colo')), isTrue);
       await _settle(tester, 300);
+      await _shot(tester, key, '${tag}_colo_mid');
+      expect(find.byKey(const ValueKey('leaving-closet')), findsOneWidget);
+      expect(find.byKey(const ValueKey('leaving-garage')), findsNothing);
       expect(find.byKey(const ValueKey('move-skip')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('move-skip')));
       await _settle(tester, 300);

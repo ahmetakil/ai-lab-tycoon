@@ -326,15 +326,13 @@ class _RatingStat extends StatelessWidget {
   }
 }
 
-/// Is the next power tier worth a nudge: affordable and needed (power
-/// nearly full, or the next room needs it)?
+/// Is the next power tier worth a nudge: buyable here and now (unlocked,
+/// the building takes it, affordable) and needed (power nearly full)? A
+/// tier that needs a bigger building never pulses.
 bool powerNudge(Game g) {
-  final next = g.nextPowerTier;
-  if (next == null || !g.isUnlocked(next.era)) return false;
+  if (g.powerBlockReason() != null) return false;
   final frac = g.powerCapKw <= 0 ? 0.0 : g.powerUsedKw / g.powerCapKw;
-  final room = g.nextRoom;
-  final roomNeeds = room != null && g.isUnlocked(room.era) && g.s.powerTier < room.minPowerTier;
-  return g.s.money >= next.cost && (frac >= 0.8 || roomNeeds);
+  return frac >= 0.8;
 }
 
 class _PowerStat extends StatelessWidget {
@@ -353,12 +351,12 @@ class _PowerStat extends StatelessWidget {
             ? AppColors.amber
             : const Color(0xFFFFE066);
     final next = g.nextPowerTier;
-    final canUpgrade = next != null && g.isUnlocked(next.era) && g.s.money >= next.cost;
+    final canUpgrade = next != null && g.powerBlockReason() == null;
     final nudge = powerNudge(g);
     return Tooltip(
       message:
           'Power: ${formatPower(g.powerUsedKw)} of ${formatPower(g.powerCapKw)}. '
-          '${next == null ? 'Top tier.' : 'Tap to see or buy ${next.name} (${formatMoney(next.cost)}).'}',
+          '${next == null ? 'Top tier.' : g.powerNeedsMove ? g.powerBlockReason()! : 'Tap to see or buy ${next.name} (${formatMoney(next.cost)}).'}',
       child: GestureDetector(
         key: const ValueKey('power-chip'),
         onTap: onTap,

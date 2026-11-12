@@ -274,7 +274,7 @@ class _PowerChip extends StatelessWidget {
             ? AppColors.amber
             : AppColors.cyan;
     final next = g.nextPowerTier;
-    final canUpgrade = next != null && g.isUnlocked(next.era) && g.s.money >= next.cost;
+    final canUpgrade = next != null && g.powerBlockReason() == null;
     return GestureDetector(
       key: const ValueKey('drawer-power'),
       onTap: onTap,

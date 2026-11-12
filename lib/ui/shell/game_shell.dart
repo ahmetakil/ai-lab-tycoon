@@ -382,7 +382,20 @@ class _GameShellState extends State<GameShell> {
       icon: Icons.bolt_rounded,
       color: AppColors.amber,
       maxWidth: 520,
-      child: GameBuilder(controller: c, builder: (context) => PowerCard(controller: c)),
+      child: Builder(
+        builder:
+            (sheet) => GameBuilder(
+              controller: c,
+              builder:
+                  (context) => PowerCard(
+                    controller: c,
+                    onMove: (room) {
+                      Navigator.of(sheet).pop();
+                      _openRoom(room);
+                    },
+                  ),
+            ),
+      ),
     );
   }
 

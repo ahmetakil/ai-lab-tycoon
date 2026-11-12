@@ -343,7 +343,11 @@ class RoomDef {
 
   /// What one GPU tile stands for here, e.g. "8-GPU server".
   final String tileScaleLabel;
-  final int minPowerTier;
+
+  /// The building's electrical service: the highest index into [powerTiers]
+  /// you can buy while you're here. A bigger supply needs a bigger building,
+  /// so you move first; moving keeps the tier you have (it buys nothing).
+  final int maxPowerTier;
 
   const RoomDef({
     required this.id,
@@ -355,7 +359,7 @@ class RoomDef {
     required this.cost,
     required this.ambientCooling,
     required this.tileScaleLabel,
-    this.minPowerTier = 0,
+    required this.maxPowerTier,
   });
 
   int get cells => width * height;
@@ -513,7 +517,7 @@ const tiles = <TileDef>[
     heat: 340,
     gpusPerTile: 72,
     requires: ['liquid_cooling'],
-    minPowerTier: 6, // power plant deal
+    minPowerTier: 6, // plant (PPA)
     priceGrowth: 0.09,
   ),
   TileDef(
@@ -531,7 +535,7 @@ const tiles = <TileDef>[
     heat: 750,
     gpusPerTile: 1024,
     requires: ['liquid_cooling'],
-    minPowerTier: 6, // power plant deal
+    minPowerTier: 6, // plant (PPA)
     priceGrowth: 0.09,
   ),
   TileDef(
@@ -549,7 +553,7 @@ const tiles = <TileDef>[
     heat: 700,
     gpusPerTile: 8192,
     requires: ['liquid_cooling'],
-    minPowerTier: 7, // gigawatt campus
+    minPowerTier: 7, // gw_campus
     priceGrowth: 0.03,
   ),
 
@@ -673,6 +677,7 @@ const rooms = <RoomDef>[
     cost: 0,
     ambientCooling: 1,
     tileScaleLabel: '1 GPU',
+    maxPowerTier: 1, // panel (8 kW)
   ),
   RoomDef(
     id: 'closet',
@@ -686,7 +691,7 @@ const rooms = <RoomDef>[
     cost: 15000,
     ambientCooling: 2.5,
     tileScaleLabel: '8-GPU server',
-    minPowerTier: 2, // office
+    maxPowerTier: 2, // 3-phase service (50 kW)
   ),
   RoomDef(
     id: 'colo',
@@ -700,7 +705,7 @@ const rooms = <RoomDef>[
     cost: 2e6,
     ambientCooling: 5,
     tileScaleLabel: '8-GPU server',
-    minPowerTier: 3, // colo
+    maxPowerTier: 3, // leased colo circuits (500 kW)
   ),
   RoomDef(
     id: 'hall',
@@ -714,7 +719,7 @@ const rooms = <RoomDef>[
     cost: 3e6,
     ambientCooling: 18,
     tileScaleLabel: 'rack (32–72 GPUs)',
-    minPowerTier: 4, // hall
+    maxPowerTier: 5, // on-site substation (20 MW)
   ),
   RoomDef(
     id: 'campus',
@@ -728,7 +733,7 @@ const rooms = <RoomDef>[
     cost: 30e6,
     ambientCooling: 40,
     tileScaleLabel: 'pod (~1k GPUs)',
-    minPowerTier: 5, // campus
+    maxPowerTier: 7, // gigawatt grid interconnect (1 GW)
   ),
   RoomDef(
     id: 'gigasite',
@@ -742,7 +747,7 @@ const rooms = <RoomDef>[
     cost: 4e8,
     ambientCooling: 70,
     tileScaleLabel: 'building (~8k GPUs)',
-    minPowerTier: 7, // gigawatt campus
+    maxPowerTier: 9, // multi-site cluster (4 GW)
   ),
 ];
 
@@ -764,15 +769,19 @@ RoomDef? roomAfter(String roomId) {
 }
 
 // ---------------------------------------------------------------------------
-// Power tiers. Each one replaces the previous cap; it covers the room you're
-// in (GPU and cooling tiles draw from it) and moves with you.
+// Power tiers: the electrical supply. Each one replaces the previous cap; it
+// covers the room you're in (GPU and cooling tiles draw from it) and moves
+// with you. A room's [RoomDef.maxPowerTier] is the most its building's
+// service can take, so names describe the supply, never a place.
 // APPEND ONLY: saves store the tier index.
 // ---------------------------------------------------------------------------
 const powerTiers = <PowerDef>[
   PowerDef(
     id: 'outlet',
     name: 'Garage outlet',
-    blurb: 'One breaker. Don\'t run the microwave.',
+    blurb:
+        'One 15 A, 120 V household circuit: about 1.8 kW before the breaker '
+        'trips. Don\'t run the microwave.',
     era: Era.garage,
     capacityKw: 1.8,
     cost: 0,
@@ -780,57 +789,69 @@ const powerTiers = <PowerDef>[
   PowerDef(
     id: 'panel',
     name: 'Upgraded electrical panel',
-    blurb: 'An electrician and a box fan.',
+    blurb:
+        'An electrician swaps in a 200 A panel and runs dedicated 240 V '
+        'circuits for the rigs.',
     era: Era.garage,
     capacityKw: 8,
     cost: 3000,
   ),
   PowerDef(
     id: 'office',
-    name: 'Office with 3-phase power',
-    blurb: 'First real office. The server closet is louder than the team.',
+    name: '3-phase service',
+    blurb:
+        'The utility brings 3-phase 208 V service into the office, with a '
+        'proper sub-panel for the server closet.',
     era: Era.startup,
     capacityKw: 50,
     cost: 60000,
   ),
   PowerDef(
     id: 'colo',
-    name: 'Colocation cage',
-    blurb: 'Rented racks in someone else\'s datacenter, with real cooling.',
+    name: 'Leased colo circuits',
+    blurb:
+        'Redundant A+B power circuits leased from the colocation provider, '
+        'billed per kW and backed by its UPS and generators.',
     era: Era.smallLab,
     capacityKw: 500,
     cost: 1e6,
   ),
   PowerDef(
     id: 'hall',
-    name: 'Datacenter hall',
-    blurb: 'Your own hall, your own chillers.',
+    name: 'Dedicated medium-voltage feed',
+    blurb:
+        'Your own 13.8 kV utility feed, stepped down by on-site '
+        'transformers, with UPS and diesel backup.',
     era: Era.mediumLab,
     capacityKw: 2000,
     cost: 4e6,
   ),
   PowerDef(
     id: 'campus',
-    name: 'Datacenter campus',
-    blurb: 'Several halls and a substation.',
+    name: 'On-site substation',
+    blurb:
+        'Your own substation takes high-voltage transmission (115 kV and '
+        'up) and steps it down for every hall.',
     era: Era.mediumLab,
     capacityKw: 20000,
     cost: 7e6,
   ),
   PowerDef(
     id: 'plant',
-    name: 'Dedicated power plant deal',
-    blurb: 'You now have opinions about grid interconnect queues.',
+    name: 'Power plant deal (PPA)',
+    blurb:
+        'A long-term power purchase agreement for a plant\'s output. You '
+        'now have opinions about grid interconnect queues.',
     era: Era.bigLab,
     capacityKw: 300000,
     cost: 120e6,
   ),
   PowerDef(
     id: 'gw_campus',
-    name: 'Gigawatt campus',
+    name: 'Gigawatt grid interconnect',
     blurb:
-        'A small city\'s worth of electricity, turned into matrix '
-        'multiplies and heat.',
+        'A transmission-level (345 kV) interconnect, years in the queue: a '
+        'small city\'s worth of electricity for matrix multiplies and heat.',
     era: Era.globalLab,
     capacityKw: 1e6,
     cost: 3.5e8,
@@ -849,8 +870,8 @@ const powerTiers = <PowerDef>[
     id: 'multi_site',
     name: 'Multi-site cluster',
     blurb:
-        'Several gigawatt campuses training one model over long-haul '
-        'fiber.',
+        'Several gigawatt campuses, each on its own grid, training one '
+        'model over long-haul fiber.',
     era: Era.globalLab,
     capacityKw: 4e6,
     cost: 2e9,

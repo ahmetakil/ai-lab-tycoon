@@ -14,7 +14,12 @@ beat rival labs.
 ## Resources (keep it to these)
 - Money: the only currency.
 - Compute: GPUs x TFLOPS x utilization (the MFU bar; software raises it).
-- Power cap (kW/MW): limits how many GPUs you can run.
+- Power cap (kW/MW): limits how many GPUs you can run. Power tiers are named
+  after the electrical supply (Garage outlet → 3-phase service → leased colo
+  circuits → medium-voltage feed → on-site substation → PPA → gigawatt grid
+  interconnect → restarted nuclear → multi-site), never after a place. Each
+  place has a power limit (its electrical service): a bigger supply needs a
+  bigger building, so you move first. Moving keeps your tier and buys nothing.
 - Network tier: how many GPUs your one training cluster keeps fed (all GPUs in
   the room are cabled together; past the cap a run scales at √(cap/GPUs)).
 - Heat: coolers next to hot GPUs (the early placement puzzle); from the Medium

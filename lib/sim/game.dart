@@ -81,7 +81,7 @@ class Requirement {
   /// 'era' | 'power' | 'cash'.
   final String kind;
 
-  /// E.g. "Startup era", "Power: Office with 3-phase power", "Cash".
+  /// E.g. "Startup era", "Power limit", "Cash".
   final String title;
 
   /// Progress text, e.g. "1.2k / 3k users", "\$4k / \$15k", "done".
@@ -332,6 +332,36 @@ class Game {
   double get powerCapKw => powerTiers[s.powerTier].capacityKw;
   PowerDef? get nextPowerTier =>
       s.powerTier + 1 < powerTiers.length ? powerTiers[s.powerTier + 1] : null;
+
+  /// The first room whose electrical service takes power tier [tier].
+  static RoomDef roomForPowerTier(int tier) =>
+      rooms.firstWhere((r) => r.maxPowerTier >= tier, orElse: () => rooms.last);
+
+  /// The next power tier exists and is unlocked, but the building you're in
+  /// can't take it: move first. The room to move to is
+  /// [roomForPowerTier]`(s.powerTier + 1)`.
+  bool get powerNeedsMove {
+    final next = nextPowerTier;
+    return next != null &&
+        isUnlocked(next.era) &&
+        s.powerTier + 1 > currentRoom.maxPowerTier;
+  }
+
+  /// Why the next power tier can't be bought here and now, or null if it
+  /// can: top tier, era, the building's electrical service, then money.
+  String? powerBlockReason() {
+    final next = nextPowerTier;
+    if (next == null) return 'You have the biggest power supply.';
+    if (!isUnlocked(next.era)) return eraLockReason(next.era);
+    if (powerNeedsMove) {
+      return 'Needs a bigger building: move to the '
+          '${roomForPowerTier(s.powerTier + 1).name} first.';
+    }
+    if (s.money < next.cost) {
+      return 'Costs ${_money(next.cost)}. You have ${_money(s.money)}.';
+    }
+    return null;
+  }
 
   bool get training => s.run != null && !s.run!.paused;
 
@@ -631,21 +661,17 @@ class Game {
         required: false,
       ));
     }
-    // Power (optional): the new parts need it.
-    if (room.minPowerTier > 0 && s.powerTier < room.minPowerTier) {
-      final need = powerTiers[room.minPowerTier];
-      final next = nextPowerTier!;
-      final steps = room.minPowerTier - s.powerTier;
+    // Power (info): the bigger building's electrical service lifts the
+    // power limit. Moving keeps your tier; buy the bigger supply after.
+    if (room.maxPowerTier > currentRoom.maxPowerTier) {
+      final top = powerTiers[room.maxPowerTier];
       out.add(Requirement(
         kind: 'power',
-        title: 'Power: ${need.name}',
-        detail: steps == 1
-            ? _money(need.cost)
-            : 'next ${next.name} (${_money(next.cost)}), then ${steps - 1} more',
-        hint: 'for the new parts; buy it in Power',
-        done: false,
-        progress: s.powerTier / room.minPowerTier,
-        action: RequirementAction.power,
+        title: 'Power limit',
+        detail: '${_kw(powerTiers[currentRoom.maxPowerTier].capacityKw)} → '
+            '${_kw(top.capacityKw)} (up to ${top.name})',
+        done: true,
+        progress: 1,
         required: false,
       ));
     }
@@ -713,7 +739,12 @@ class Game {
     ];
     if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
     if (s.powerTier < t.minPowerTier) {
-      return 'Needs power: ${powerTiers[t.minPowerTier].name}.';
+      final need = powerTiers[t.minPowerTier].name;
+      if (t.minPowerTier > currentRoom.maxPowerTier) {
+        return 'Needs power: $need. Move to the '
+            '${roomForPowerTier(t.minPowerTier).name} first.';
+      }
+      return 'Needs power: $need.';
     }
     return null;
   }
@@ -818,8 +849,11 @@ class Game {
         tilePowerKw(tile) - (oldDef == null ? 0 : tilePowerKw(oldDef));
     final freeKw = powerCapKw - powerUsedKw;
     if (needKw > freeKw + 1e-9) {
+      final how = powerNeedsMove
+          ? 'Move to the ${roomForPowerTier(s.powerTier + 1).name} for more power.'
+          : 'Tap ⚡ Power to upgrade.';
       return 'Not enough power: needs ${_kw(needKw)}, ${_kw(math.max(0, freeKw))} '
-          'free. Tap ⚡ Power to upgrade.';
+          'free. $how';
     }
     final price =
         tilePrice(tile) - (oldDef == null ? 0 : sellValue(oldDef.id));
@@ -895,10 +929,8 @@ class Game {
   }
 
   bool buyNextPowerTier() {
-    final next = nextPowerTier;
-    if (next == null || !isUnlocked(next.era) || s.money < next.cost) {
-      return false;
-    }
+    if (powerBlockReason() != null) return false;
+    final next = nextPowerTier!;
     s.money -= next.cost;
     s.powerTier++;
     return true;

@@ -317,17 +317,35 @@ void main() {
       expect(find.byKey(const ValueKey('req-power')), findsOneWidget);
       expect(find.textContaining('/ 3k users'), findsOneWidget);
       expect(find.textContaining('grow users by releasing better models'), findsOneWidget);
-      expect(find.textContaining('Office with 3-phase power'), findsOneWidget);
-      expect(find.textContaining('power power'), findsNothing);
+      // Power is information: the closet's bigger electrical service.
+      expect(find.textContaining('up to 3-phase service'), findsOneWidget);
+      expect(find.byKey(const ValueKey('req-go-power')), findsNothing);
       expect(find.text('Move to Server closet'), findsOneWidget);
-      // "Open power" goes to the Power card.
-      await tester.ensureVisible(find.byKey(const ValueKey('req-go-power')));
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(find.byKey(const ValueKey('req-go-power')));
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(find.text('CURRENT SUPPLY'), findsOneWidget);
     }, state: GameState(money: 1000, grids: {'garage': garage}));
+  });
+
+  testWidgets('power past the building\'s limit offers a move, not an upgrade', (tester) async {
+    final garage = List<String?>.filled(16, null);
+    garage[0] = 'gpu_gamer';
+    await withApp(tester, (c) async {
+      // Startup era unlocks 3-phase service, but the garage can't take it.
+      expect(c.game.powerNeedsMove, isTrue);
+      await openTool(tester, 'power');
+      expect(find.text('CURRENT SUPPLY'), findsOneWidget);
+      expect(find.text('3-phase service'), findsOneWidget);
+      expect(
+        find.text('Needs a bigger building: move to the Server closet first.'),
+        findsOneWidget,
+      );
+      expect(find.text('Upgrade'), findsNothing);
+      // The move button opens the move modal.
+      await tester.ensureVisible(find.byKey(const ValueKey('power-move')));
+      await tester.tap(find.byKey(const ValueKey('power-move')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const ValueKey('move-checklist')), findsOneWidget);
+      expect(c.game.s.powerTier, 1);
+    }, state: GameState(money: 1e6, era: Era.startup, users: 4000, powerTier: 1, grids: {'garage': garage}));
   });
 
   testWidgets('moving to the closet: money only, everything comes along', (tester) async {
