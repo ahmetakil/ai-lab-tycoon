@@ -6,6 +6,7 @@ import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/sim/model_design.dart';
 import 'package:ai_lab_tycoon/sim/run_phases.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'phase_helpers.dart';
 
 Game _training({double duration = 90, PhaseOption? early}) {
   final g = Game(GameState(money: 1e6));
@@ -56,7 +57,7 @@ void main() {
   });
 
   group('checkpoints', () {
-    test('trigger at 1/3 and 2/3 of the run, hold it, then auto-pick after the timeout', () {
+    test('trigger at 1/3 and 2/3 of the run and hold it until the player decides', () {
       const d = 90.0;
       final g = _training(duration: d);
       final run = g.s.run!;
@@ -81,6 +82,7 @@ void main() {
             expect(run.elapsedSeconds, e);
             expect(run.computeFlops, f);
           }
+          g.choosePhase(defaultPhaseOption(w, run.spec));
         }
       }
       expect(seen, [RunPhase.anneal, RunPhase.post]); // never more than 2 prompts
@@ -90,19 +92,20 @@ void main() {
         defaultPhaseOption(RunPhase.anneal, d0.spec),
         defaultPhaseOption(RunPhase.post, d0.spec),
       ]);
-      // Two timeouts of waiting on top of the run.
-      expect(g.s.time, closeTo(d + 2 * phaseDecisionTimeout, 2.5));
+      // Only the seconds spent waiting at the two checkpoints on top.
+      expect(g.s.time, closeTo(d + 2, 2.5));
     });
 
-    test('the timeout auto-picks the default and marks it auto', () {
+    test('online, a checkpoint waits for the player with no timeout', () {
       final g = _training();
       g.advance(g.s.run!.durationSeconds / 3 + 1);
       expect(g.awaitingPhase, RunPhase.anneal);
-      expect(g.s.run!.phaseSecondsLeft, closeTo(phaseDecisionTimeout - 1, 1e-6));
-      g.advance(phaseDecisionTimeout);
-      expect(g.awaitingPhase, isNull);
-      expect(g.s.run!.phaseChoices[RunPhase.anneal], defaultPhaseOption(RunPhase.anneal, g.s.run!.spec));
-      expect(g.s.run!.autoPhases, {RunPhase.anneal});
+      final e = g.s.run!.elapsedSeconds;
+      g.advance(600);
+      expect(g.awaitingPhase, RunPhase.anneal);
+      expect(g.s.run!.elapsedSeconds, e);
+      expect(g.s.run!.phaseChoices.containsKey(RunPhase.anneal), isFalse);
+      expect(g.s.run!.autoPhases, isEmpty);
     });
 
     test('choosing answers only the waiting checkpoint and resumes the run', () {
@@ -134,7 +137,7 @@ void main() {
       final g = _training();
       g.advance(g.s.run!.durationSeconds / 3 + 1);
       g.togglePauseTraining();
-      g.advance(3 * phaseDecisionTimeout);
+      g.advance(30);
       expect(g.awaitingPhase, RunPhase.anneal);
     });
   });
@@ -214,7 +217,7 @@ void main() {
       expect(run.awaitingPhase, RunPhase.anneal);
       expect(run.phaseWaitSeconds, closeTo(g.s.run!.phaseWaitSeconds, 1e-9));
 
-      g.advance(g.s.run!.durationSeconds + 2 * phaseDecisionTimeout);
+      g.advance(g.s.run!.durationSeconds + 2, onStep: decideDefaults(g));
       expect(g.release(open: true), isTrue);
       final s2 = GameState.fromJson(jsonDecode(jsonEncode(g.s.toJson())) as Map<String, dynamic>);
       expect(s2.currentModel.design!.phases, g.s.currentModel.design!.phases);

@@ -185,7 +185,6 @@ class PhaseDecisionCard extends StatelessWidget {
     if (run == null || phase == null) return const SizedBox.shrink();
     final color = phaseColor(phase);
     final def = defaultPhaseOption(phase, run.spec);
-    final left = run.phaseSecondsLeft / controller.speed;
     return Container(
       key: ValueKey('phase-decision-${phase.name}'),
       constraints: const BoxConstraints(maxWidth: 560),
@@ -257,32 +256,13 @@ class PhaseDecisionCard extends StatelessWidget {
               );
             },
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
-                  child: LinearProgressIndicator(
-                    value: (run.phaseSecondsLeft / run.phaseTimeout).clamp(0.0, 1.0),
-                    minHeight: 3,
-                    color: color,
-                    backgroundColor: AppColors.border,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                flex: 3,
-                child: Text(
-                  'auto: ${def.label} in ${left.ceil()}s',
-                  key: const ValueKey('phase-countdown'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: numStyle(size: 10.5, color: AppColors.muted, weight: FontWeight.w500),
-                ),
-              ),
-            ],
+          const SizedBox(height: 2),
+          Text(
+            'Training waits for your call. Not sure? ${def.label} is the safe default.',
+            key: const ValueKey('phase-hint'),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: numStyle(size: 10.5, color: AppColors.muted, weight: FontWeight.w500),
           ),
         ],
       ),

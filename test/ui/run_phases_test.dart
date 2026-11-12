@@ -36,7 +36,7 @@ Future<void> _toCheckpoint(WidgetTester tester, GameController c) async {
 }
 
 void main() {
-  testWidgets('the checkpoint card appears with three options and a countdown', (tester) async {
+  testWidgets('the checkpoint card appears with three options and no countdown', (tester) async {
     await _withApp(tester, (c) async {
       expect(find.byType(PhaseDecisionCard), findsOneWidget); // empty until a checkpoint
       expect(find.byKey(const ValueKey('phase-decision-anneal')), findsNothing);
@@ -46,7 +46,7 @@ void main() {
       for (final o in RunPhase.anneal.options) {
         expect(find.byKey(ValueKey('phase-option-${o.name}')), findsOneWidget);
       }
-      expect(find.textContaining('auto: Quality data in'), findsOneWidget);
+      expect(find.textContaining('Quality data is the safe default'), findsOneWidget);
       expect(find.byKey(const ValueKey('hud-phase-track')), findsOneWidget);
       expect(find.byKey(const ValueKey('phase-marker-anneal')), findsWidgets);
       expect(find.textContaining('checkpoint'), findsWidgets); // project bar
@@ -79,31 +79,17 @@ void main() {
     });
   });
 
-  testWidgets('no decision: the default is auto-picked after the timeout', (tester) async {
+  testWidgets('no decision: the card stays up and the run waits', (tester) async {
     await _withApp(tester, (c) async {
       await _toCheckpoint(tester, c);
       expect(find.byKey(const ValueKey('phase-decision-anneal')), findsOneWidget);
-      c.act((g) => g.advance(phaseDecisionTimeout / 2));
-      await tester.pump(const Duration(milliseconds: 300)); // the card fades out
-      expect(find.byKey(const ValueKey('phase-decision-anneal')), findsOneWidget); // still waiting
-      c.act((g) => g.advance(phaseDecisionTimeout / 2 + 0.5));
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump(const Duration(milliseconds: 300)); // the card fades out
       final run = c.game.s.run!;
-      expect(run.phaseChoices[RunPhase.anneal], PhaseOption.qualityAnneal);
-      expect(run.autoPhases, {RunPhase.anneal});
-      expect(find.byKey(const ValueKey('phase-decision-anneal')), findsNothing);
-      // The post-training checkpoint asks next, and its default lands too.
-      c.act((g) => g.advance(31));
+      final e = run.elapsedSeconds;
+      c.act((g) => g.advance(300));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.byKey(const ValueKey('phase-decision-post')), findsOneWidget);
-      c.act((g) => g.advance(phaseDecisionTimeout + 31));
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(c.game.s.pendingDesign!.phases, [
-        PhaseOption.mathMix,
-        PhaseOption.qualityAnneal,
-        PhaseOption.helpfulPost,
-      ]);
+      expect(find.byKey(const ValueKey('phase-decision-anneal')), findsOneWidget); // still waiting
+      expect(run.elapsedSeconds, e);
+      expect(run.phaseChoices.containsKey(RunPhase.anneal), isFalse);
       expect(tester.takeException(), isNull);
     });
   });

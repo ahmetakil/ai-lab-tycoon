@@ -26,6 +26,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../sim/phase_helpers.dart';
 
 final _out = Platform.environment['LAYOUT_PREVIEW_DIR'];
 
@@ -315,13 +316,13 @@ void main() {
         expect(g.s.run!.phaseChoices[RunPhase.anneal], PhaseOption.reasoningAnneal);
         await tester.tap(find.byKey(const ValueKey('modal-close')).last);
         await _settle(tester, 400);
-        // Checkpoint 2 (post-training), then the default after the timeout.
+        // Checkpoint 2 (post-training), then its default.
         c.act((g) => g.advance(d * (RunPhase.post.checkpoint - RunPhase.anneal.checkpoint) + 2));
         await _settle(tester, 500);
         expect(find.byKey(const ValueKey('phase-decision-post')), findsOneWidget);
         expect(tester.takeException(), isNull, reason: 'post checkpoint');
         await _shot(tester, key, '${tag}_checkpoint_post');
-        c.act((g) => g.advance(d + phaseDecisionTimeout));
+        c.act((g) => g.advance(d + 2, onStep: decideDefaults(g)));
         await _tapTool(tester, 'stats');
         await _settle(tester, 500);
         expect(find.byKey(const ValueKey('pending-benchmark-strip')), findsOneWidget);

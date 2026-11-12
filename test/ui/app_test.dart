@@ -2,7 +2,6 @@ import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/sim/model_design.dart';
-import 'package:ai_lab_tycoon/sim/run_phases.dart';
 import 'package:ai_lab_tycoon/ui/app.dart';
 import 'package:ai_lab_tycoon/ui/format.dart';
 import 'package:ai_lab_tycoon/ui/game_controller.dart';
@@ -16,6 +15,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../sim/phase_helpers.dart';
 
 /// Loads a fresh controller, pumps the app, runs [body], then disposes the
 /// controller so its periodic timers don't leak out of the test.
@@ -196,7 +196,7 @@ void main() {
       expect(find.text('TUTORIAL 3/3'), findsOneWidget);
 
       // The run finishes: step 3 is the release.
-      c.act((g) => g.advance(600 + 2 * phaseDecisionTimeout));
+      c.act((g) => g.advance(600 + 2, onStep: decideDefaults(g)));
       await settle();
       expect(find.text('Your model is trained!'), findsOneWidget);
 
@@ -513,8 +513,8 @@ void main() {
       expect(c.game.s.run, isNotNull);
       expect(find.text('Pause'), findsOneWidget);
       expect(find.textContaining('Training GL-'), findsOneWidget); // project bar
-      // Each checkpoint waits up to phaseDecisionTimeout, then auto-picks.
-      c.act((g) => g.advance(c.game.s.run!.durationSeconds + 2 * phaseDecisionTimeout + 1));
+      // Each checkpoint waits for a decision: take the defaults.
+      c.act((g) => g.advance(c.game.s.run!.durationSeconds + 3, onStep: decideDefaults(g)));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Release model'), findsWidgets);
       await tester.tap(find.byKey(const ValueKey('modal-close')));
@@ -553,8 +553,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(c.game.s.run!.spec.sizing, Sizing.bigShort);
       // Finished: the benchmark profile shows before release.
-      // Each checkpoint waits up to phaseDecisionTimeout, then auto-picks.
-      c.act((g) => g.advance(c.game.s.run!.durationSeconds + 2 * phaseDecisionTimeout + 1));
+      // Each checkpoint waits for a decision: take the defaults.
+      c.act((g) => g.advance(c.game.s.run!.durationSeconds + 3, onStep: decideDefaults(g)));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byKey(const ValueKey('pending-benchmark-strip')), findsOneWidget);
       expect(tester.takeException(), isNull);

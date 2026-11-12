@@ -7,10 +7,10 @@ import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/sim/model_design.dart';
-import 'package:ai_lab_tycoon/sim/run_phases.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'grid_helpers.dart';
+import 'phase_helpers.dart';
 
 String snapshot(Game g) => jsonEncode(g.s.toJson());
 
@@ -89,8 +89,8 @@ void main() {
       final g = midGame();
       final good = ModelSpec.bestGuessFor(g.designContext);
       g.startTraining(fraction: 0.5, durationSeconds: g.runDurations.first, spec: good);
-      // Online, each checkpoint waits up to phaseDecisionTimeout.
-      g.advance(g.runDurations.first + 2 * phaseDecisionTimeout + 1);
+      // Online, each checkpoint waits for a decision.
+      g.advance(g.runDurations.first + 3, onStep: decideDefaults(g));
       final predicted = g.pendingRating!;
       expect(g.s.pendingDesign!.spec, good);
       expect(g.release(open: false), isTrue);
@@ -128,7 +128,7 @@ void main() {
           durationSeconds: g.runDurations.first,
           spec: const ModelSpec(architecture: Architecture.moe),
         );
-        g.advance(g.runDurations.first + 2 * phaseDecisionTimeout + 1);
+        g.advance(g.runDurations.first + 3, onStep: decideDefaults(g));
         final done = g.events.whereType<TrainingFinished>().single;
         if (done.mishaps.isNotEmpty) collapses++;
       }
