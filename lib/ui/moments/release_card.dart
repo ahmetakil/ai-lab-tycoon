@@ -47,6 +47,10 @@ class ReleaseCardData {
   /// E.g. "RL reasoning won math" (strengthHeadline), or null.
   final String? designHeadline;
 
+  /// Launch reviews' average score and verdict (null without reviews).
+  final double? reviewAverage;
+  final String? reviewVerdict;
+
   const ReleaseCardData({
     required this.labName,
     required this.modelName,
@@ -61,6 +65,8 @@ class ReleaseCardData {
     required this.era,
     this.strengths,
     this.designHeadline,
+    this.reviewAverage,
+    this.reviewVerdict,
   });
 
   /// Card for [release] (default: the model currently serving).
@@ -87,6 +93,8 @@ class ReleaseCardData {
       era: g.s.era,
       strengths: r.design?.strengths,
       designHeadline: r.design == null ? null : strengthHeadline(r.design!.spec, r.design!.strengths),
+      reviewAverage: r.review?.average,
+      reviewVerdict: r.review?.verdict,
     );
   }
 
@@ -109,6 +117,7 @@ class ReleaseCardData {
       'Arena-ish rating ${rating.round()} · ${formatNumber(users)} users · '
       '${formatMoney(arr)} ARR.\n'
       '$benchmarkLine.\n'
+      '${reviewAverage == null ? '' : 'Critics: ${reviewAverage!.toStringAsFixed(1)}/10 ($reviewVerdict).\n'}'
       '${designHeadline == null ? '' : '$designHeadline.\n'}'
       'Started with one GPU in a garage. Your turn: $kGameUrl #AILabTycoon';
 }
@@ -200,9 +209,13 @@ class ReleaseCard extends StatelessWidget {
       children: [
         Row(
           children: [
-            _chip(data.labName.toUpperCase(), accent, filled: true),
+            Flexible(child: _chip(data.labName.toUpperCase(), accent, filled: true)),
             const SizedBox(width: 12),
             _chip('${data.year}', _text),
+            if (data.reviewAverage != null) ...[
+              const SizedBox(width: 12),
+              _chip('CRITICS ${data.reviewAverage!.toStringAsFixed(1)}/10', Neon.yellow),
+            ],
           ],
         ),
         const SizedBox(height: 26),

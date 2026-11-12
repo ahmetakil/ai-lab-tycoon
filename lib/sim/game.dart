@@ -6,6 +6,7 @@ import 'game_state.dart';
 import 'grid.dart';
 import 'model_design.dart';
 import 'news.dart';
+import 'reviews.dart';
 
 export 'grid.dart' show TileStatus, Cluster, minThrottleSpeed;
 
@@ -458,6 +459,7 @@ class Game {
         math.pow(10, (rating - ratingBase) / demandRatingScale) *
         modelDemandMult *
         s.hype *
+        reviewBuzz *
         (s.viralSecondsLeft > 0 ? viralDemandMult : 1),
   );
 
@@ -1020,6 +1022,7 @@ class Game {
       open: open,
       time: s.time,
       design: s.pendingDesign,
+      review: reviewPending(open: open, stuntId: stunt.id, stuntSucceeded: success),
     );
     s.releases.add(release);
     s.pendingEffectiveCompute = null;

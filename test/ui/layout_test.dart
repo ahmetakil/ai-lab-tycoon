@@ -16,6 +16,7 @@ import 'package:ai_lab_tycoon/sim/news.dart';
 import 'package:ai_lab_tycoon/ui/app.dart';
 import 'package:ai_lab_tycoon/ui/game_controller.dart';
 import 'package:ai_lab_tycoon/ui/moments/event_presenter.dart';
+import 'package:ai_lab_tycoon/ui/moments/launch_reviews.dart';
 import 'package:ai_lab_tycoon/ui/moments/release_card.dart';
 import 'package:ai_lab_tycoon/ui/shell/game_modal.dart';
 import 'package:ai_lab_tycoon/ui/world/world_layout.dart';
@@ -459,5 +460,90 @@ void main() {
       c.dispose();
       await _setSize(tester, null);
     });
+  }
+  // Launch reviews: mid-reveal, revealed, the share card with the critics
+  // chip, and the stats panel's review history.
+  for (final size in sizes) {
+    for (final stage in ['startup', 'frontier']) {
+      testWidgets('launch reviews at ${size.width.toInt()}w, $stage', (tester) async {
+        if (_out != null) await tester.runAsync(_loadFonts);
+        SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
+        await _setSize(tester, size);
+        final c = await GameController.load();
+        c.game = Game(_stateAt(stage, stages[stage]!.$1, casual: stages[stage]!.$2)..run = null);
+        final key = GlobalKey();
+        await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
+        await _settle(tester);
+        final tag = '${size.width.toInt()}_${stage}_reviews';
+
+        final g = c.game;
+        c.act((g) => g.startTraining(
+              fraction: 0.6,
+              durationSeconds: g.runDurations.first,
+              spec: ModelSpec.bestGuessFor(g.designContext),
+            ));
+        c.act((g) => g.advance(g.runDurations.first + 1));
+        // Let the "training done" toast time out, as it would before the
+        // player opens the release sheet.
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(seconds: 1));
+        }
+        // Like showReleaseSheet: toasts and celebrations wait for the reviews.
+        launchReviewsActive.value = true;
+        c.act((g) => g.release(open: true, stuntId: 'cryptic_tweet', name: 'Parrot-3 Turbo Preview'));
+        final review = g.s.currentModel.review!;
+        final ctx = tester.element(find.byType(Scaffold).first);
+        unawaited(showLaunchReviewsDialog(ctx, g.s.currentModel));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 1100));
+        expect(tester.takeException(), isNull, reason: 'reviews mid-reveal');
+        await _shot(tester, key, '${tag}_0');
+        await tester.pump(kReviewRevealDuration);
+        await _settle(tester, 300);
+        expect(find.byKey(const ValueKey('reviews-verdict')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'reviews revealed');
+        await _shot(tester, key, '${tag}_1');
+        await tester.tap(find.byKey(const ValueKey('reviews-tap')));
+        await _settle(tester, 400);
+        expect(find.byKey(const ValueKey('launch-reviews')), findsNothing);
+        launchReviewsActive.value = false;
+        // Celebrations (a rival passed) that waited for the reviews.
+        while (find.text('Continue').evaluate().isNotEmpty) {
+          await tester.tap(find.text('Continue').last);
+          await _settle(tester, 600);
+        }
+
+        unawaited(showReleaseCardDialog(ctx, ReleaseCardData.fromGame(g), headline: 'Parrot-3 is live!'));
+        await _settle(tester, 800);
+        expect(find.text('CRITICS ${review.averageText}/10'), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'release card with critics');
+        await _shot(tester, key, '${tag}_card');
+        // The release toast (held during the reviews) times out first.
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(seconds: 1));
+        }
+        await tester.tap(find.text('Done'));
+        await _settle(tester, 400);
+
+        await _tapTool(tester, 'stats');
+        await _settle(tester, 500);
+        final history = find.byKey(const ValueKey('review-history'));
+        await tester.scrollUntilVisible(
+          history,
+          300,
+          scrollable: find.descendant(of: find.byType(GameModalCard), matching: find.byType(Scrollable)).first,
+        );
+        await tester.drag(history, const Offset(0, -120), warnIfMissed: false);
+        await _settle(tester, 300);
+        expect(history, findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'review history');
+        await _shot(tester, key, '${tag}_history');
+
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(seconds: 15));
+        c.dispose();
+        await _setSize(tester, null);
+      });
+    }
   }
 }

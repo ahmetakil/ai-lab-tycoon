@@ -9,6 +9,7 @@ import '../../sim/game.dart';
 import '../format.dart';
 import '../game_controller.dart';
 import '../sound.dart';
+import 'launch_reviews.dart';
 import 'moments_style.dart';
 import 'naming_joke.dart';
 import 'release_card.dart';
@@ -30,7 +31,17 @@ Future<void> showReleaseSheet(BuildContext context, GameController controller) a
     selfScrolling: true,
     child: ReleaseSheet(controller: controller),
   );
-  if (released == true && context.mounted) {
+  if (released != true || !context.mounted) {
+    launchReviewsActive.value = false;
+    return;
+  }
+  // The reviews flip in first (~2.4 s, tap to skip), then the share card.
+  try {
+    await showLaunchReviewsDialog(context, controller.game.s.currentModel);
+  } finally {
+    launchReviewsActive.value = false;
+  }
+  if (context.mounted) {
     final data = ReleaseCardData.fromGame(controller.game);
     await showReleaseCardDialog(context, data, headline: '${data.modelName} is live!');
   }
@@ -71,6 +82,8 @@ class _ReleaseSheetState extends State<ReleaseSheet> {
 
   void _release() {
     final name = _name.text.trim().isEmpty ? defaultModelName(g) : _name.text.trim();
+    // Hold toasts and celebrations until the reviews have played.
+    launchReviewsActive.value = true;
     final ok = widget.controller.act((g) => g.release(open: _open, stuntId: _stunt, name: name));
     Navigator.of(context).pop(ok);
   }

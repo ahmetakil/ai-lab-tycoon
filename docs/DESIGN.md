@@ -33,6 +33,15 @@ beat rival labs.
 ## Moments
 - Training runs: commit X% of compute for N minutes; live progress; predicted rating.
 - Release: open vs closed choice, plus a launch stunt (cryptic tweet / risky live demo).
+- Launch reviews (lib/sim/reviews.dart, Game Dev Tycoon style): four parody
+  outlets (LLM Arena-ish, The Benchmarker, Tech Twitter Vibes, HackerNooz)
+  score each release /10 with a quip naming why: the gap to the best rival on
+  the board, the rating jump, benchmark strengths, mishaps, open weights,
+  serving cost, the stunt, and novelty (shipping the exact same design again
+  scores lower, once there are real options to vary). The average sets a
+  demand buzz ×0.8–×1.5 that fades over half the era's shortest run; it is
+  centred on what the bot averages, so it nets out to ~×1. Scores flip in
+  one at a time (~2.4 s, tap to skip) before the share card.
 - Viral spike: demand x4 for 90s. Fix: pause training, rent cloud, quantize.
 - Rival ladder: parody labs at historical snapshots; beat rating AND users to pass.
 - Live rival feed (lib/sim/news.dart): rivals show up on the leaderboard as

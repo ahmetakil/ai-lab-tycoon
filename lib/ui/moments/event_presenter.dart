@@ -22,6 +22,7 @@ import 'confetti.dart';
 import 'intro.dart';
 import 'moments_style.dart';
 import 'news_feed.dart';
+import 'launch_reviews.dart';
 import 'release_card.dart';
 import 'release_sheet.dart';
 import 'rivals_screen.dart';
@@ -82,6 +83,9 @@ class _EventPresenterState extends State<EventPresenter> {
 
   /// True while the intro or offline dialog is up; celebrations wait.
   bool _blocked = true;
+
+  /// Toasts held while the launch reviews play (launchReviewsActive).
+  final _heldToasts = <VoidCallback>[];
   bool _offlineShowing = false;
 
   GameController get c => widget.controller;
@@ -91,6 +95,7 @@ class _EventPresenterState extends State<EventPresenter> {
     super.initState();
     _sub = c.events.listen(_onEvent);
     c.addListener(_onController);
+    launchReviewsActive.addListener(_onReviews);
     // News from before this screen (last session, or offline) isn't toasted.
     _newsSeen = c.game.lastNewsSerial;
     WidgetsBinding.instance.addPostFrameCallback((_) => _startup());
@@ -111,6 +116,7 @@ class _EventPresenterState extends State<EventPresenter> {
   void dispose() {
     _sub?.cancel();
     c.removeListener(_onController);
+    launchReviewsActive.removeListener(_onReviews);
     _layer?.remove();
     _layer?.dispose();
     _changed.dispose();
@@ -118,6 +124,20 @@ class _EventPresenterState extends State<EventPresenter> {
   }
 
   void _bump() => _changed.value++;
+
+  /// The reviews closed: show what waited.
+  void _onReviews() {
+    if (!mounted) return;
+    _bump(); // hides / shows the bottom toasts
+    if (launchReviewsActive.value) return;
+    final held = List.of(_heldToasts);
+    _heldToasts.clear();
+    for (final t in held) {
+      t();
+    }
+    _advanceQueue();
+    _advanceNews();
+  }
 
   Future<void> _startup() async {
     if (!mounted) return;
@@ -182,7 +202,9 @@ class _EventPresenterState extends State<EventPresenter> {
   }
 
   void _advanceNews() {
-    if (_blocked || _newsCurrent != null || _current != null || _newsQueue.isEmpty || !mounted) return;
+    if (_blocked || launchReviewsActive.value || _newsCurrent != null || _current != null || _newsQueue.isEmpty || !mounted) {
+      return;
+    }
     _newsCurrent = _newsQueue.removeFirst();
     _bump();
   }
@@ -253,15 +275,19 @@ class _EventPresenterState extends State<EventPresenter> {
         );
       case ModelReleased(:final release, :final stunt, :final stuntSucceeded):
         Sound.play(stuntSucceeded ? Sfx.release : Sfx.stuntFail);
-        _toast(
+        final hold = launchReviewsActive.value;
+        void show() => _toast(
           icon:
               stuntSucceeded
                   ? Icons.rocket_launch_rounded
                   : Icons.local_fire_department_rounded,
           color: stuntSucceeded ? Neon.cyan : Neon.red,
           title: '${release.name} is live',
-          message: stuntResultText(stunt, stuntSucceeded),
+          message:
+              '${stuntResultText(stunt, stuntSucceeded)}'
+              '${release.review == null ? '' : ' Critics: ${release.review!.averageText}/10.'}',
         );
+        hold ? _heldToasts.add(show) : show();
       case ViralSpikeStarted():
         Sound.play(Sfx.viralAlarm);
         _bump();
@@ -315,7 +341,7 @@ class _EventPresenterState extends State<EventPresenter> {
   }
 
   void _advanceQueue() {
-    if (_blocked || _current != null || _queue.isEmpty) return;
+    if (_blocked || launchReviewsActive.value || _current != null || _queue.isEmpty) return;
     _current = _queue.removeFirst();
     switch (_current) {
       case RivalBeaten():
@@ -388,49 +414,51 @@ class _EventPresenterState extends State<EventPresenter> {
             ),
             // Rival news ticker (one at a time) and toasts (bottom, where
             // the map is open; the HUD, toolbar and move sign live up top).
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 24,
-              child: SafeArea(
-                top: false,
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 480),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_newsCurrent case final n?)
-                          // On narrow screens, sit above the bottom-right
-                          // action buttons (release, rent cloud...).
-                          ListenableBuilder(
-                            listenable: c,
-                            builder:
-                                (ctx, child) => Padding(
-                                  padding: EdgeInsets.only(
-                                    bottom: MediaQuery.sizeOf(ctx).width < 950 ? _ctaCount(c.game) * 60.0 : 0,
+            // Hidden while the launch reviews play; they come back after.
+            if (!launchReviewsActive.value)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 24,
+                child: SafeArea(
+                  top: false,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_newsCurrent case final n?)
+                            // On narrow screens, sit above the bottom-right
+                            // action buttons (release, rent cloud...).
+                            ListenableBuilder(
+                              listenable: c,
+                              builder:
+                                  (ctx, child) => Padding(
+                                    padding: EdgeInsets.only(
+                                      bottom: MediaQuery.sizeOf(ctx).width < 950 ? _ctaCount(c.game) * 60.0 : 0,
+                                    ),
+                                    child: child,
                                   ),
-                                  child: child,
-                                ),
-                            child: NewsTicker(
-                              key: ValueKey('news-${n.serial}'),
-                              item: n,
-                              onTap: () => _openNews(n),
-                              onDone: _dismissNews,
+                              child: NewsTicker(
+                                key: ValueKey('news-${n.serial}'),
+                                item: n,
+                                onTap: () => _openNews(n),
+                                onDone: _dismissNews,
+                              ),
                             ),
-                          ),
-                        for (final t in _toasts)
-                          _ToastView(
-                            key: ValueKey(t.id),
-                            data: t,
-                            onDone: () => _removeToast(t.id),
-                          ),
-                      ],
+                          for (final t in _toasts)
+                            _ToastView(
+                              key: ValueKey(t.id),
+                              data: t,
+                              onDone: () => _removeToast(t.id),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
             // Full-screen celebration.
             if (current != null)
               Positioned.fill(

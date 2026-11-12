@@ -2,6 +2,7 @@ import 'balance.dart';
 import 'content.dart';
 import 'model_design.dart';
 import 'news.dart';
+import 'reviews.dart';
 
 class TrainingRun {
   /// Fraction of effective compute committed to training (0..1).
@@ -130,6 +131,10 @@ class ModelRelease {
   /// The design it was trained with; null for the starting model.
   final DesignOutcome? design;
 
+  /// Launch reviews (reviews.dart); null for the starting model and for
+  /// releases from saves made before reviews.
+  final LaunchReview? review;
+
   const ModelRelease({
     required this.name,
     required this.effectiveCompute,
@@ -137,6 +142,7 @@ class ModelRelease {
     required this.open,
     required this.time,
     this.design,
+    this.review,
   });
 
   Map<String, dynamic> toJson() => {
@@ -146,6 +152,7 @@ class ModelRelease {
     'open': open,
     'time': time,
     if (design != null) 'design': design!.toJson(),
+    if (review != null) 'review': review!.toJson(),
   };
 
   factory ModelRelease.fromJson(Map<String, dynamic> j) => ModelRelease(
@@ -155,6 +162,7 @@ class ModelRelease {
     open: j['open'] as bool,
     time: (j['time'] as num).toDouble(),
     design: DesignOutcome.fromJson(j['design']),
+    review: LaunchReview.fromJson(j['review']),
   );
 }
 
@@ -162,7 +170,8 @@ class ModelRelease {
 /// v3: six eras (v2 had three) and per-run time compression.
 /// v4: one room at a time (you move, your tiles come with you); network and
 /// central cooling are global tiers (no switch tiles). Model design (run
-/// specs, design outcomes) added optional fields to v4, no bump.
+/// specs, design outcomes) and launch reviews added optional fields to v4,
+/// no bump.
 const saveVersion = 4;
 
 /// Where the starting RTX 4090 (gpu_gamer) sits in the garage.

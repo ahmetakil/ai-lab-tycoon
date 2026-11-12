@@ -13,6 +13,7 @@ import '../game_controller.dart';
 import '../grid/grid_hints.dart';
 import '../model_design/benchmark_strip.dart';
 import '../model_design/run_setup.dart';
+import '../moments/launch_reviews.dart';
 import '../moments/release_sheet.dart';
 import '../sound.dart';
 import '../theme.dart';
@@ -66,6 +67,10 @@ class _OverviewScreenState extends State<OverviewScreen> {
             ClusterSummaryCard(game: g),
             gap12,
             _ModelCard(game: g),
+            if (g.s.releases.any((r) => r.review != null)) ...[
+              gap12,
+              _ReviewHistory(game: g),
+            ],
             gap12,
             _RivalCard(game: g),
           ],
@@ -1050,6 +1055,68 @@ class _ModelCard extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Past launch reviews ---------------------------------------------------------
+
+/// The last few releases' review averages; a row opens the full reviews.
+class _ReviewHistory extends StatelessWidget {
+  final Game game;
+  const _ReviewHistory({required this.game});
+
+  @override
+  Widget build(BuildContext context) {
+    final reviewed = game.s.releases.reversed.where((r) => r.review != null).take(6).toList();
+    return Panel(
+      key: const ValueKey('review-history'),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('LAUNCH REVIEWS', style: labelStyle(size: 10)),
+          const SizedBox(height: 4),
+          for (final m in reviewed)
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                Sound.play(Sfx.click);
+                showLaunchReviewsDialog(context, m, animate: false);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        m.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        m.review!.verdict,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      m.review!.averageText,
+                      style: numStyle(size: 15, color: reviewScoreColor(m.review!.average), weight: FontWeight.w700),
+                    ),
+                    const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.faint),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
