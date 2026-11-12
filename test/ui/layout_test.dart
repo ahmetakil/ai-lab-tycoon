@@ -100,6 +100,16 @@ Future<void> _settle(WidgetTester tester, [int ms = 600]) async {
   }
 }
 
+/// Taps a toolbar button, opening the phone rail's "More" first if needed.
+Future<void> _tapTool(WidgetTester tester, String id) async {
+  final f = find.byKey(ValueKey('tool-$id'));
+  if (f.evaluate().isEmpty) {
+    await tester.tap(find.byKey(const ValueKey('tool-more')));
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  await tester.tap(f);
+}
+
 void main() {
   const sizes = [Size(360, 740), Size(390, 844), Size(1400, 900)];
   // (seconds, casual schedule?): Garage, Startup, Small lab, Medium lab
@@ -131,7 +141,7 @@ void main() {
         await _shot(tester, key, '${tag}_map');
 
         for (final tool in tools) {
-          await tester.tap(find.byKey(ValueKey('tool-$tool')));
+          await _tapTool(tester, tool);
           await _settle(tester, 500);
           expect(tester.takeException(), isNull, reason: '$tool modal');
           await _shot(tester, key, '${tag}_$tool');
@@ -271,7 +281,7 @@ void main() {
               spec: ModelSpec.bestGuessFor(g.designContext),
             ));
         c.act((g) => g.advance(g.runDurations.first + 1));
-        await tester.tap(find.byKey(const ValueKey('tool-stats')));
+        await _tapTool(tester, 'stats');
         await _settle(tester, 500);
         expect(find.byKey(const ValueKey('pending-benchmark-strip')), findsOneWidget);
         expect(tester.takeException(), isNull, reason: 'pending card');
