@@ -1,7 +1,8 @@
 // OWNER: ui-moments agent.
 // Wraps the app: listens to controller.events and shows toasts, banners,
-// full-screen celebrations (queued, never stacked), the offline
-// "while you were away" dialog and the first-launch intro.
+// full-screen celebrations (queued, never stacked), the rival news ticker
+// (one card at a time), the offline "while you were away" dialog and the
+// first-launch intro.
 import 'dart:async';
 import 'dart:collection';
 import 'dart:ui' as ui;
@@ -12,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../sim/balance.dart';
 import '../../sim/content.dart';
 import '../../sim/game.dart';
+import '../../sim/news.dart';
 import '../shell/hud_overlay.dart' show hudHeight;
 import '../format.dart';
 import '../game_controller.dart';
@@ -19,8 +21,10 @@ import '../sound.dart';
 import 'confetti.dart';
 import 'intro.dart';
 import 'moments_style.dart';
+import 'news_feed.dart';
 import 'release_card.dart';
 import 'release_sheet.dart';
+import 'rivals_screen.dart';
 
 const kIntroSeenKey = 'intro_seen_v1';
 
@@ -70,6 +74,12 @@ class _EventPresenterState extends State<EventPresenter> {
   GameEvent? _current;
   int _nextId = 0;
 
+  /// Rival feed: news items not shown yet, the one on screen, and the
+  /// newest serial already queued (or put in the offline digest).
+  final _newsQueue = Queue<NewsItem>();
+  NewsItem? _newsCurrent;
+  int _newsSeen = 0;
+
   /// True while the intro or offline dialog is up; celebrations wait.
   bool _blocked = true;
   bool _offlineShowing = false;
@@ -81,6 +91,8 @@ class _EventPresenterState extends State<EventPresenter> {
     super.initState();
     _sub = c.events.listen(_onEvent);
     c.addListener(_onController);
+    // News from before this screen (last session, or offline) isn't toasted.
+    _newsSeen = c.game.lastNewsSerial;
     WidgetsBinding.instance.addPostFrameCallback((_) => _startup());
   }
 
@@ -118,6 +130,7 @@ class _EventPresenterState extends State<EventPresenter> {
     await _maybeShowOffline();
     _blocked = false;
     _advanceQueue();
+    _advanceNews();
   }
 
   Future<void> _maybeShowIntro() async {
@@ -143,6 +156,66 @@ class _EventPresenterState extends State<EventPresenter> {
     if (!_blocked && !_offlineShowing && c.offlineReport != null) {
       _maybeShowOffline();
     }
+    _checkNews();
+  }
+
+  /// Queue news posted since the last look. Offline news goes to the
+  /// "while you were away" digest instead; a reset game starts over.
+  void _checkNews() {
+    final g = c.game;
+    final last = g.lastNewsSerial;
+    if (last == _newsSeen) return;
+    if (last < _newsSeen || c.offlineReport != null) {
+      _newsSeen = last;
+      return;
+    }
+    for (final n in g.s.news) {
+      if (n.serial > _newsSeen) _newsQueue.add(n);
+    }
+    _newsSeen = last;
+    // Keep it light: a burst (several rivals passed at once) shows the
+    // newest few.
+    while (_newsQueue.length > 3) {
+      _newsQueue.removeFirst();
+    }
+    _advanceNews();
+  }
+
+  void _advanceNews() {
+    if (_blocked || _newsCurrent != null || _current != null || _newsQueue.isEmpty || !mounted) return;
+    _newsCurrent = _newsQueue.removeFirst();
+    _bump();
+  }
+
+  void _dismissNews() {
+    _newsCurrent = null;
+    _bump();
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) _advanceNews();
+    });
+  }
+
+  /// How many action buttons ContextButtons (hud_overlay.dart) shows in the
+  /// bottom-right corner right now.
+  static int _ctaCount(Game g) {
+    final s = g.s;
+    var n = 0;
+    if (s.viralSecondsLeft > 0 || g.overloaded) {
+      n++;
+      if (s.run != null && !s.run!.paused) n++;
+    }
+    if (s.pendingEffectiveCompute != null) n++;
+    return n;
+  }
+
+  void _openNews(NewsItem n) {
+    Sound.play(Sfx.click);
+    showLeaderboard(
+      context,
+      c,
+      highlight: n.kind == NewsKind.rival ? n.index : null,
+      news: n.kind == NewsKind.flavour,
+    );
   }
 
   Future<void> _maybeShowOffline() async {
@@ -259,7 +332,10 @@ class _EventPresenterState extends State<EventPresenter> {
     _bump();
     // Small breather between back-to-back celebrations.
     Future.delayed(const Duration(milliseconds: 250), () {
-      if (mounted) _advanceQueue();
+      if (mounted) {
+        _advanceQueue();
+        _advanceNews();
+      }
     });
   }
 
@@ -310,7 +386,8 @@ class _EventPresenterState extends State<EventPresenter> {
                 ),
               ),
             ),
-            // Toasts (bottom, above the nav bar).
+            // Rival news ticker (one at a time) and toasts (bottom, where
+            // the map is open; the HUD, toolbar and move sign live up top).
             Positioned(
               left: 12,
               right: 12,
@@ -323,6 +400,25 @@ class _EventPresenterState extends State<EventPresenter> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (_newsCurrent case final n?)
+                          // On narrow screens, sit above the bottom-right
+                          // action buttons (release, rent cloud...).
+                          ListenableBuilder(
+                            listenable: c,
+                            builder:
+                                (ctx, child) => Padding(
+                                  padding: EdgeInsets.only(
+                                    bottom: MediaQuery.sizeOf(ctx).width < 950 ? _ctaCount(c.game) * 60.0 : 0,
+                                  ),
+                                  child: child,
+                                ),
+                            child: NewsTicker(
+                              key: ValueKey('news-${n.serial}'),
+                              item: n,
+                              onTap: () => _openNews(n),
+                              onDone: _dismissNews,
+                            ),
+                          ),
                         for (final t in _toasts)
                           _ToastView(
                             key: ValueKey(t.id),
@@ -1142,15 +1238,24 @@ class OfflineReportDialog extends StatelessWidget {
             children: [
               Icon(icon, size: 20, color: scheme.onSurfaceVariant),
               const SizedBox(width: 10),
-              Expanded(child: Text(label)),
-              Text(
-                value,
-                style: mono(context, 16, color: color, weight: FontWeight.w700),
+              Text(label),
+              const SizedBox(width: 8),
+              // Big late-game numbers ("394.4M → 473.3M") shrink on phones.
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    value,
+                    style: mono(context, 16, color: color, weight: FontWeight.w700),
+                  ),
+                ),
               ),
             ],
           ),
         );
     return AlertDialog(
+      scrollable: true,
       icon: Icon(Icons.nightlight_round, color: scheme.primary, size: 36),
       title: Text('While you were away', style: display(context, 24)),
       content: ConstrainedBox(
@@ -1196,6 +1301,7 @@ class OfflineReportDialog extends StatelessWidget {
                   ],
                 ),
               ),
+            if (r.news.isNotEmpty) NewsDigest(news: r.news),
           ],
         ),
       ),

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../sim/game.dart';
 import '../sim/game_state.dart';
+import '../sim/news.dart';
 
 /// Owns the Game, drives the real-time loop, saves/loads, and broadcasts
 /// sim events to the UI. Widgets listen via ListenableBuilder / AnimatedBuilder.
@@ -44,7 +45,7 @@ class GameController extends ChangeNotifier with WidgetsBindingObserver {
                   .difference(DateTime.fromMillisecondsSinceEpoch(savedAt))
                   .inMilliseconds /
               1000.0;
-          if (away > 60) report = game.applyOffline(away);
+          if (away > 60) report = game.catchUp(away);
           game.events.clear();
         }
       } catch (_) {
@@ -71,7 +72,7 @@ class GameController extends ChangeNotifier with WidgetsBindingObserver {
     _lastTick = now;
     // Long gaps (tab hidden, app suspended) are handled as offline progress.
     if (dt > 5) {
-      final report = game.applyOffline(dt);
+      final report = game.catchUp(dt);
       if (dt > 60) offlineReport = report;
       game.events.clear();
       dt = 0;

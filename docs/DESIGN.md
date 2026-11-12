@@ -30,6 +30,14 @@ beat rival labs.
 - Release: open vs closed choice, plus a launch stunt (cryptic tweet / risky live demo).
 - Viral spike: demand x4 for 90s. Fix: pause training, rent cloud, quantize.
 - Rival ladder: parody labs at historical snapshots; beat rating AND users to pass.
+- Live rival feed (lib/sim/news.dart): rivals show up on the leaderboard as
+  they "release" ("yAI released Grokk 3: 1,503 rating..."), as a news card
+  at the bottom of the map (one at a time; tap opens the leaderboard on that
+  row) and in the leaderboard's News tab, plus ~18 lines of parody industry
+  gossip. Releases while you're away go in the "while you were away" digest.
+  The next rival to beat is always released; up to two more drip out ahead
+  of you over game time, only from eras you've reached. The feed never
+  changes gates or who can be beaten.
 - One place at a time: buying the next room *moves* you there with all your
   tiles (same layout, centred in the bigger floor); the old room is gone.
   Moving only costs money; an era's goal still unlocks its parts and tiers.

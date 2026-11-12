@@ -1,21 +1,59 @@
 // OWNER: ui-moments agent.
 // The leaderboard (your lab ranked among the rival labs by rating) on top of
-// the rival ladder as a timeline: beaten, current target, and the mysterious
-// future. Your own lab card (with the share button) sits above both.
+// the rival ladder as a timeline: beaten, current target, released rivals
+// ahead of you and the mysterious future. Your own lab card (with the share
+// button) sits above both. A News tab lists the live rival feed.
 import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
 import '../../sim/game.dart';
+import '../../sim/news.dart';
 import '../format.dart';
 import '../game_assets.dart';
 import '../game_controller.dart';
+import '../shell/game_modal.dart';
 import '../sound.dart';
+import '../theme.dart';
 import 'moments_style.dart';
+import 'news_feed.dart';
 import 'release_card.dart';
 
-class RivalsScreen extends StatelessWidget {
+/// Opens the leaderboard modal, optionally on the News tab or with a rival
+/// row (ladder index) highlighted.
+Future<void> showLeaderboard(
+  BuildContext context,
+  GameController controller, {
+  int? highlight,
+  bool news = false,
+}) => showGameModal<void>(
+  context,
+  title: 'Leaderboard',
+  icon: Icons.leaderboard_rounded,
+  color: AppColors.amber,
+  maxWidth: 680,
+  selfScrolling: true,
+  child: RivalsScreen(controller: controller, highlight: highlight, showNews: news),
+);
+
+class RivalsScreen extends StatefulWidget {
   final GameController controller;
-  const RivalsScreen({super.key, required this.controller});
+
+  /// Ladder index of a rival row to highlight (from a news toast).
+  final int? highlight;
+
+  /// Start on the News tab.
+  final bool showNews;
+  const RivalsScreen({super.key, required this.controller, this.highlight, this.showNews = false});
+
+  @override
+  State<RivalsScreen> createState() => _RivalsScreenState();
+}
+
+class _RivalsScreenState extends State<RivalsScreen> {
+  late bool _news = widget.showNews;
+  late int? _highlight = widget.highlight;
+
+  GameController get controller => widget.controller;
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +61,20 @@ class RivalsScreen extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final g = controller.game;
+        if (_news) {
+          return _list([
+            _tabs(g),
+            const SizedBox(height: 12),
+            NewsList(
+              news: g.s.news,
+              now: g.s.time,
+              onRival: (i) => setState(() {
+                _news = false;
+                _highlight = i;
+              }),
+            ),
+          ]);
+        }
         final items = <Widget>[];
         int? lastYear;
         for (final (i, r) in rivalLadder.indexed) {
@@ -35,6 +87,8 @@ class RivalsScreen extends StatelessWidget {
                   ? _Status.beaten
                   : i == g.s.rivalIndex
                   ? _Status.target
+                  : g.isReleased(i)
+                  ? _Status.released
                   : _Status.upcoming;
           items.add(
             _TimelineRow(
@@ -43,70 +97,97 @@ class RivalsScreen extends StatelessWidget {
               child: switch (status) {
                 _Status.beaten => _BeatenTile(rival: r),
                 _Status.target => _TargetCard(rival: r, game: g),
+                _Status.released => _ReleasedTile(rival: r, game: g),
                 _Status.upcoming => _UpcomingTile(rival: r),
               },
             ),
           );
         }
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-          children: [
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 640),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _MyLabCard(controller: controller),
-                    const SizedBox(height: 18),
-                    Leaderboard(game: g),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'The race',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: display(context, 24),
-                          ),
-                        ),
-                        Text(
-                          '${g.s.rivalIndex}/${rivalLadder.length} passed',
-                          style: mono(context, 13, color: Theme.of(context).colorScheme.primary),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ...items,
-                    if (g.nextRival == null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        'You passed everyone. History is now yours to write.',
-                        textAlign: TextAlign.center,
-                        style: display(context, 16),
-                      ),
-                    ],
-                    const SizedBox(height: 24),
-                    Text(
-                      'Rival stats are loosely based on public estimates. All names are parodies.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                    ),
-                  ],
+        return _list([
+          _tabs(g),
+          const SizedBox(height: 12),
+          _MyLabCard(controller: controller),
+          const SizedBox(height: 18),
+          Leaderboard(game: g, highlight: _highlight),
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'The race',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: display(context, 24),
                 ),
               ),
+              Text(
+                '${g.s.rivalIndex}/${rivalLadder.length} passed',
+                style: mono(context, 13, color: Theme.of(context).colorScheme.primary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...items,
+          if (g.nextRival == null) ...[
+            const SizedBox(height: 12),
+            Text(
+              'You passed everyone. History is now yours to write.',
+              textAlign: TextAlign.center,
+              style: display(context, 16),
             ),
           ],
-        );
+          const SizedBox(height: 24),
+          Text(
+            'Rival stats are loosely based on public estimates. All names are parodies.',
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        ]);
+      },
+    );
+  }
+
+  Widget _list(List<Widget> children) => ListView(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+    children: [
+      Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
+        ),
+      ),
+    ],
+  );
+
+  Widget _tabs(Game g) {
+    final fresh = g.s.news.where((n) => g.s.time - n.time < 600).length;
+    return SegmentedButton<bool>(
+      key: const ValueKey('rivals-tabs'),
+      showSelectedIcon: false,
+      segments: [
+        const ButtonSegment(
+          value: false,
+          icon: Icon(Icons.leaderboard_rounded, size: 18),
+          label: Text('Board', key: ValueKey('tab-board')),
+        ),
+        ButtonSegment(
+          value: true,
+          icon: const Icon(Icons.newspaper_rounded, size: 18),
+          label: Text(fresh > 0 ? 'News ($fresh new)' : 'News', key: const ValueKey('tab-news')),
+        ),
+      ],
+      selected: {_news},
+      onSelectionChanged: (v) {
+        Sound.play(Sfx.click);
+        setState(() => _news = v.first);
       },
     );
   }
 }
 
-enum _Status { beaten, target, upcoming }
+enum _Status { beaten, target, released, upcoming }
 
 class _MyLabCard extends StatelessWidget {
   final GameController controller;
@@ -354,6 +435,49 @@ class _BeatenTile extends StatelessWidget {
   }
 }
 
+/// A rival that's out (on the leaderboard) but not your target yet.
+class _ReleasedTile extends StatelessWidget {
+  final RivalSnapshot rival;
+  final Game game;
+  const _ReleasedTile({required this.rival, required this.game});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final gap = rival.rating - game.rating;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+      ),
+      child: Row(
+        children: [
+          RivalLogo(rival.lab, size: 34),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(rival.lab, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                Text(rival.model, style: display(context, 16, weight: FontWeight.w600)),
+                Text(
+                  'rating ${formatRating(rival.rating)} · ${formatNumber(rival.users)} users',
+                  style: mono(context, 11, color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (gap > 0)
+            Text('+${gap.ceil()}', style: mono(context, 12, color: Neon.magenta, weight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+}
+
 class _UpcomingTile extends StatelessWidget {
   final RivalSnapshot rival;
   const _UpcomingTile({required this.rival});
@@ -571,15 +695,20 @@ class _VersusBar extends StatelessWidget {
 /// marked, and the gap to the next one.
 class Leaderboard extends StatelessWidget {
   final Game game;
-  const Leaderboard({super.key, required this.game});
+
+  /// Ladder index of a rival row to show and highlight (fresh news).
+  final int? highlight;
+  const Leaderboard({super.key, required this.game, this.highlight});
 
   @override
   Widget build(BuildContext context) {
     final g = game;
     final scheme = Theme.of(context).colorScheme;
     // (rival or null for you, ladder index)
+    // Only rivals that have released a model so far (news.dart).
     final rows = <(RivalSnapshot?, int)>[
-      for (final (i, r) in rivalLadder.indexed) (r, i),
+      for (final (i, r) in rivalLadder.indexed)
+        if (g.isReleased(i)) (r, i),
       (null, -1),
     ];
     double ratingOf((RivalSnapshot?, int) e) => e.$1?.rating ?? g.rating;
@@ -589,8 +718,11 @@ class Leaderboard extends StatelessWidget {
       return a.$1 == null ? -1 : (b.$1 == null ? 1 : 0); // ties: you first
     });
     final me = rows.indexWhere((e) => e.$1 == null);
-    final from = (me - 4).clamp(0, rows.length);
-    final to = (me + 4).clamp(0, rows.length);
+    // Centre the window on you, or on the highlighted row if it's far off.
+    final hi = highlight == null ? -1 : rows.indexWhere((e) => e.$1 != null && e.$2 == highlight);
+    final centre = hi >= 0 && (hi - me).abs() >= 4 ? hi : me;
+    final from = (centre - 4).clamp(0, rows.length);
+    final to = (centre + 4).clamp(0, rows.length);
     final next = g.nextRival;
     String gap() {
       if (next == null) return 'You top the leaderboard.';
@@ -652,6 +784,7 @@ class Leaderboard extends StatelessWidget {
               rival: rows[i].$1,
               beaten: rows[i].$1 != null && rows[i].$2 < g.s.rivalIndex,
               target: rows[i].$1 != null && rows[i].$2 == g.s.rivalIndex,
+              highlighted: hi >= 0 && i == hi,
               game: g,
               cell: cell,
             ),
@@ -666,6 +799,7 @@ class _LeaderRow extends StatelessWidget {
   final RivalSnapshot? rival;
   final bool beaten;
   final bool target;
+  final bool highlighted;
   final Game game;
   final Widget Function(String t, {double? w, TextAlign align, TextStyle? style, int flex}) cell;
 
@@ -674,6 +808,7 @@ class _LeaderRow extends StatelessWidget {
     required this.rival,
     required this.beaten,
     required this.target,
+    this.highlighted = false,
     required this.game,
     required this.cell,
   });
@@ -695,13 +830,21 @@ class _LeaderRow extends StatelessWidget {
             ? '${game.s.labName} · ${game.s.releases.last.name}'
             : '${r.lab} · ${r.model}';
     return Container(
-      key: you ? const ValueKey('leaderboard-you') : null,
+      key: you ? const ValueKey('leaderboard-you') : (highlighted ? const ValueKey('leaderboard-highlight') : null),
       margin: const EdgeInsets.only(bottom: 2),
       padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
       decoration: BoxDecoration(
-        color: you ? const Color(0x2239FF9F) : (target ? const Color(0x14FFB547) : null),
+        color:
+            you
+                ? const Color(0x2239FF9F)
+                : highlighted
+                ? Neon.cyan.withValues(alpha: 0.14)
+                : (target ? const Color(0x14FFB547) : null),
         borderRadius: BorderRadius.circular(8),
-        border: you ? Border.all(color: const Color(0xAA39FF9F)) : null,
+        border:
+            you
+                ? Border.all(color: const Color(0xAA39FF9F))
+                : (highlighted ? Border.all(color: Neon.cyan.withValues(alpha: 0.8)) : null),
       ),
       child: Row(
         children: [
@@ -715,6 +858,11 @@ class _LeaderRow extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.only(right: 4),
               child: Icon(Icons.gps_fixed, size: 13, color: Color(0xFFFFB547)),
+            )
+          else if (highlighted)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Icon(Icons.fiber_new_rounded, size: 14, color: Neon.cyan),
             ),
           cell(
             beaten ? '$name · beaten' : (target ? '$name · next' : name),

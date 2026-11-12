@@ -387,6 +387,12 @@ corpus $12M, test-time compute $22B, expert data +23 rating, Frontier time
 compression 40 (8 h = 13 days of compute), Medium-lab gate 1130 and
 Frontier gate 1490.
 
+**Live rival feed.** `lib/sim/news.dart` only decides when a rival appears
+on the leaderboard (in ladder order: the next rival always, plus up to two
+more on a per-era game-time drip, from reached eras only) and posts flavour
+news. It uses no RNG and doesn't touch `canBeat`, so the casual run above is
+byte-identical with and without it.
+
 **Unchanged from v2:** the grid rules, demand/hype/viral numbers, rival
 ratings and users, hype cap 8, overload settle, cloud rental cost, the 8 h
 offline cap.

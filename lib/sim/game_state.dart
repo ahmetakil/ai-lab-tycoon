@@ -1,6 +1,7 @@
 import 'balance.dart';
 import 'content.dart';
 import 'model_design.dart';
+import 'news.dart';
 
 class TrainingRun {
   /// Fraction of effective compute committed to training (0..1).
@@ -199,6 +200,15 @@ class GameState {
 
   List<ModelRelease> releases;
   int rivalIndex; // first unbeaten rival in rivalLadder
+
+  /// Live rival feed (news.dart): rivals released so far (a prefix of
+  /// rivalLadder), when the last one came out, flavour lines posted, when
+  /// the last one was posted, and the news log (oldest first, capped).
+  int rivalsReleased;
+  double lastRivalReleaseAt;
+  int flavourShown;
+  double lastFlavourAt;
+  List<NewsItem> news;
   double viralSecondsLeft;
   double cloudSecondsLeft;
 
@@ -233,6 +243,11 @@ class GameState {
     this.lastSpec = const ModelSpec(),
     List<ModelRelease>? releases,
     this.rivalIndex = 0,
+    this.rivalsReleased = 1,
+    this.lastRivalReleaseAt = 0,
+    this.flavourShown = 0,
+    this.lastFlavourAt = 0,
+    List<NewsItem>? news,
     this.viralSecondsLeft = 0,
     this.cloudSecondsLeft = 0,
     this.viralCooldownLeft = 0,
@@ -242,6 +257,7 @@ class GameState {
   }) : assert(grids == null || grids.length == 1, 'one room at a time'),
        grids = grids ?? startGrids(),
        ownedUpgrades = ownedUpgrades ?? {},
+       news = news ?? [],
        releases =
            releases ??
            [
@@ -326,6 +342,11 @@ class GameState {
     'spec': lastSpec.toJson(),
     'releases': releases.map((r) => r.toJson()).toList(),
     'rivalIndex': rivalIndex,
+    'rivalsReleased': rivalsReleased,
+    'rivalReleaseAt': lastRivalReleaseAt,
+    'flavourShown': flavourShown,
+    'flavourAt': lastFlavourAt,
+    'news': news.map((n) => n.toJson()).toList(),
     'viral': viralSecondsLeft,
     'cloud': cloudSecondsLeft,
     'viralCd': viralCooldownLeft,
@@ -364,8 +385,14 @@ class GameState {
         break;
       }
     }
+    final time = num_('time', 0);
+    final rivalIndex = ((j['rivalIndex'] as num?)?.toInt() ?? 0).clamp(0, rivalLadder.length);
+    final era = Era.values.asNameMap()[eraName] ?? Era.garage;
+    // Saves from before the rival feed derive it from progress: everything
+    // up to the next rival is out, and earlier eras' gossip is skipped.
+    final hasFeed = j.containsKey('rivalsReleased');
     return GameState(
-      time: num_('time', 0),
+      time: time,
       money: num_('money', startMoney),
       users: num_('users', 0),
       hype: num_('hype', 1),
@@ -383,12 +410,26 @@ class GameState {
           (j['releases'] as List?)
               ?.map((r) => ModelRelease.fromJson(r as Map<String, dynamic>))
               .toList(),
-      rivalIndex: ((j['rivalIndex'] as num?)?.toInt() ?? 0).clamp(0, rivalLadder.length),
+      rivalIndex: rivalIndex,
+      rivalsReleased:
+          hasFeed
+              ? ((j['rivalsReleased'] as num?)?.toInt() ?? 0).clamp(0, rivalLadder.length)
+              : (rivalIndex + 1).clamp(0, rivalLadder.length),
+      lastRivalReleaseAt: hasFeed ? num_('rivalReleaseAt', 0) : time,
+      flavourShown:
+          hasFeed
+              ? ((j['flavourShown'] as num?)?.toInt() ?? 0).clamp(0, flavourNews.length)
+              : flavourBefore(era),
+      lastFlavourAt: hasFeed ? num_('flavourAt', 0) : time,
+      news: [
+        for (final n in (j['news'] as List?) ?? const [])
+          if (NewsItem.fromJson(n) case final item?) item,
+      ],
       viralSecondsLeft: num_('viral', 0),
       cloudSecondsLeft: num_('cloud', 0),
       viralCooldownLeft: num_('viralCd', 0),
       rngState: (j['rng'] as num?)?.toInt() ?? 12345,
-      era: Era.values.asNameMap()[eraName] ?? Era.garage,
+      era: era,
       labName: j['labName'] as String? ?? 'Garage Labs',
     );
   }

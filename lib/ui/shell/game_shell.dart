@@ -327,15 +327,7 @@ class _GameShellState extends State<GameShell> {
     child: ResearchScreen(controller: c),
   );
 
-  void _openRivals() => showGameModal<void>(
-    context,
-    title: 'Leaderboard',
-    icon: Icons.leaderboard_rounded,
-    color: AppColors.amber,
-    maxWidth: 680,
-    selfScrolling: true,
-    child: RivalsScreen(controller: c),
-  );
+  void _openRivals() => showLeaderboard(context, c);
 
   void _openStats() => showGameModal<void>(
     context,
