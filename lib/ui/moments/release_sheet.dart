@@ -89,7 +89,7 @@ class _ReleaseSheetState extends State<ReleaseSheet> {
     if (pending == null) {
       return const Padding(padding: EdgeInsets.all(32), child: Text('Nothing to release.'));
     }
-    final predicted = g.ratingOf(pending);
+    final predicted = g.pendingRating!;
     final current = g.rating;
     final delta = predicted - current;
     final joke = namingJoke(_name.text);

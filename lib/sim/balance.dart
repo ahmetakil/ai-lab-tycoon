@@ -39,7 +39,9 @@ const ratingPerDoubling = 23.0;
 /// demand = demandBase * 10^((rating - ratingBase) / demandRatingScale)
 /// Early on users are demand-limited, so demandBase mostly paces the Garage
 /// and Startup eras; later demand dwarfs capacity and stops mattering.
-const demandBase = 90.0;
+/// × the model design's demand multiplier (the garage default design, 2k
+/// context, is ×0.92: 98 × 0.92 ≈ the old 90).
+const demandBase = 98.0;
 const demandRatingScale = 87.0;
 
 /// Per-second rate at which users move toward demand.
@@ -62,9 +64,11 @@ const maxUsers = 5e9;
 
 /// Serving cost per user in effective TFLOPS, grows with model size:
 /// perUser = servingBase * (effectiveCompute / 1e18)^servingExponent
-/// (÷ serving upgrades). Late-game users are capacity-limited, so servingBase
+/// (÷ serving upgrades, × the model design's serving multiplier: the garage
+/// default design, Kaplan-sized with 2k context, is ×1.30, so 0.0115 × 1.30
+/// ≈ the old 0.015). Late-game users are capacity-limited, so servingBase
 /// is the main knob for the users side of the rival ladder and final ARR.
-const servingBase = 0.015;
+const servingBase = 0.0115;
 const servingExponent = 0.36;
 
 /// revenue/s = revenueScale * servedUsers^revenueExponent * arpuMult
@@ -122,7 +126,7 @@ const startupUnlockUsers = 3e3;
 
 /// Startup → Small lab: model quality, between GPT-ish-2 and Meenie. A full
 /// server closet + startup software gets there.
-const smallLabUnlockRating = 1000.0;
+const smallLabUnlockRating = 990.0;
 
 /// Small lab → Medium lab: just past GPT-ish-3 (1120). Needs a full colo cage
 /// of H100 servers on InfiniBand and the small-lab data work (the books

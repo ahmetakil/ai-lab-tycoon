@@ -1,6 +1,7 @@
 import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
+import 'package:ai_lab_tycoon/sim/model_design.dart';
 import 'package:ai_lab_tycoon/ui/app.dart';
 import 'package:ai_lab_tycoon/ui/format.dart';
 import 'package:ai_lab_tycoon/ui/game_controller.dart';
@@ -420,21 +421,21 @@ void main() {
     }, state: GameState(money: 2e6));
   });
 
-  testWidgets('research tabs: available now, then one track per category', (tester) async {
+  testWidgets('research tabs: available now, then one tab per research track', (tester) async {
     await withApp(tester, (c) async {
       await openTool(tester, 'research');
-      final data = upgrades.firstWhere((u) => u.category == UpgradeCategory.data && u.era == Era.garage);
-      final soft = upgrades.firstWhere((u) => u.category == UpgradeCategory.software && u.era == Era.garage);
-      final later = upgrades.firstWhere((u) => u.category == UpgradeCategory.data && u.era == Era.startup);
+      final data = allUpgrades.firstWhere((u) => trackOf(u.id) == ResearchTrack.data && u.era == Era.garage);
+      final soft = allUpgrades.firstWhere((u) => trackOf(u.id) == ResearchTrack.infrastructure && u.era == Era.garage);
+      final later = allUpgrades.firstWhere((u) => trackOf(u.id) == ResearchTrack.data && u.era == Era.startup);
       // "Available now" is the default tab and lists garage research of every track.
-      for (final cat in [null, ...UpgradeCategory.values]) {
-        expect(find.byKey(ValueKey('research-tab-chip-${cat?.name ?? 'available'}')), findsOneWidget);
+      for (final t in [null, ...ResearchTrack.values]) {
+        expect(find.byKey(ValueKey('research-tab-chip-${t?.name ?? 'available'}')), findsOneWidget);
       }
       expect(find.byKey(const ValueKey('research-tab-available')), findsOneWidget);
       expect(find.text(soft.name), findsWidgets);
       expect(find.text(later.name), findsNothing);
       // Counts on the chips: what you can research now in each track.
-      final nData = upgrades.where((u) => u.category == UpgradeCategory.data && u.era == Era.garage).length;
+      final nData = allUpgrades.where((u) => trackOf(u.id) == ResearchTrack.data && u.era == Era.garage).length;
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('research-tab-chip-data')),
@@ -454,9 +455,9 @@ void main() {
       await tester.scrollUntilVisible(find.text(later.name), 200, scrollable: modalScrollable);
       expect(find.textContaining('Unlocks in Startup: reach 3k users'), findsWidgets);
 
-      await tester.ensureVisible(find.byKey(const ValueKey('research-tab-chip-software')));
+      await tester.ensureVisible(find.byKey(const ValueKey('research-tab-chip-infrastructure')));
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(find.byKey(const ValueKey('research-tab-chip-software')));
+      await tester.tap(find.byKey(const ValueKey('research-tab-chip-infrastructure')));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text(soft.name), findsWidgets);
       expect(find.text(data.name), findsNothing);
@@ -483,18 +484,51 @@ void main() {
     });
   });
 
-  test('effect chips flag costs', () {
-    final reasoning = upgrades.firstWhere((u) => u.id == 'reasoning');
-    final chips = effectChips(reasoning.effects);
-    expect(
-      chips.map((c) => c.text),
-      contains('×${formatNumber(reasoning.effects.serveEffMult)} serving efficiency'),
-    );
-    expect(
-      chips.map((c) => c.text),
-      contains('+${formatNumber(reasoning.effects.ratingAdd)} rating'),
-    );
+  testWidgets('training: model design is one tap away and remembered', (tester) async {
+    await withApp(tester, (c) async {
+      await openTool(tester, 'train');
+      // Collapsed by default: a summary row, no option chips.
+      expect(find.byKey(const ValueKey('run-setup-toggle')), findsOneWidget);
+      expect(find.byKey(const ValueKey('run-setup')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('run-setup-toggle')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const ValueKey('run-setup')), findsOneWidget);
+      // Locked options say why; picking an unlocked one changes the run.
+      final bigShort = find.byKey(const ValueKey('design-sizing-bigShort'));
+      await tester.scrollUntilVisible(bigShort, 200, scrollable: modalScrollable);
+      await tester.tap(bigShort);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.scrollUntilVisible(find.text('Start training'), 200, scrollable: modalScrollable);
+      await tester.tap(find.text('Start training'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(c.game.s.run!.spec.sizing, Sizing.bigShort);
+      expect(c.game.s.lastSpec.sizing, Sizing.bigShort);
+      expect(find.byKey(const ValueKey('run-spec')), findsOneWidget);
+      // The next run starts from the remembered setup with one tap.
+      c.act((g) => g.cancelTraining());
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.scrollUntilVisible(find.text('Start training'), 200, scrollable: modalScrollable);
+      await tester.tap(find.text('Start training'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(c.game.s.run!.spec.sizing, Sizing.bigShort);
+      // Finished: the benchmark profile shows before release.
+      c.act((g) => g.advance(c.game.s.run!.durationSeconds + 1));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const ValueKey('pending-benchmark-strip')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  test('effect chips flag costs; design research lists what it unlocks', () {
+    const costly = Effects(ratingAdd: 60, serveEffMult: 0.6);
+    final chips = effectChips(costly);
+    expect(chips.map((c) => c.text), contains('×${formatNumber(0.6)} serving efficiency'));
+    expect(chips.map((c) => c.text), contains('+${formatNumber(60)} rating'));
     expect(chips.firstWhere((c) => c.text.contains('serving')).isCost, isTrue);
+    // Reasoning's effect now lives in run setup.
+    expect(effectChips(researchById('reasoning')!.effects), isEmpty);
+    expect(designUnlockLines('reasoning'), ['Post-training: RL reasoning']);
+    expect(designUnlockLines('router_balancing'), ['Removes the MoE routing-collapse risk']);
     final cooling = upgrades.firstWhere((u) => u.id == 'liquid_cooling');
     expect(
       effectChips(cooling.effects).single.text,

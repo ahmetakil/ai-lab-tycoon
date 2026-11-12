@@ -1076,14 +1076,15 @@ const upgrades = <UpgradeDef>[
   ),
   UpgradeDef(
     id: 'quantization',
-    name: 'Quantization (INT8/INT4)',
+    name: 'Quantization (INT8)',
     blurb:
-        'Store weights in 8 or 4 bits instead of 16: a 2–4× smaller model '
-        'that serves faster, usually with little quality loss.',
+        'Store weights in 8 bits instead of 16, keeping rare outlier '
+        'features in 16-bit: half the memory, faster serving, no real loss.',
     category: UpgradeCategory.software,
     era: Era.startup,
     cost: 292500,
-    effects: Effects(serveEffMult: 2),
+    // Unlocks INT8 serving precision in run setup.
+    effects: Effects(),
   ),
   UpgradeDef(
     id: 'code_data',
@@ -1185,7 +1186,8 @@ const upgrades = <UpgradeDef>[
     category: UpgradeCategory.research,
     era: Era.smallLab,
     cost: 8.3e+06,
-    effects: Effects(trainEffMult: 1.3),
+    // Unlocks the compute-optimal (20 tokens/param) sizing in run setup.
+    effects: Effects(),
   ),
   UpgradeDef(
     id: 'zero_sharding',
@@ -1208,7 +1210,9 @@ const upgrades = <UpgradeDef>[
     category: UpgradeCategory.research,
     era: Era.mediumLab,
     cost: 7.5e+07,
-    effects: Effects(trainEffMult: 2.5, serveEffMult: 1.5),
+    // Unlocks the MoE architecture in run setup (model_design.dart), which
+    // carries the effect: ~2× quality per FLOP on a fast network.
+    effects: Effects(),
   ),
   UpgradeDef(
     id: 'rlhf',
@@ -1219,7 +1223,8 @@ const upgrades = <UpgradeDef>[
     category: UpgradeCategory.research,
     era: Era.mediumLab,
     cost: 1e+08,
-    effects: Effects(ratingAdd: 35, arpuMult: 1.2),
+    // The rating comes from the RLHF post-training choice in run setup.
+    effects: Effects(arpuMult: 1.2),
     requires: ['instruction_tuning'],
   ),
   UpgradeDef(
@@ -1289,7 +1294,9 @@ const upgrades = <UpgradeDef>[
     category: UpgradeCategory.software,
     era: Era.bigLab,
     cost: 2.25e+09,
-    effects: Effects(serveEffMult: 1.8),
+    // Mostly a latency win; at large batch sizes the throughput gain is
+    // smaller (was ×1.8 before model design added INT4, GQA and SSM serving).
+    effects: Effects(serveEffMult: 1.3),
   ),
   UpgradeDef(
     id: 'synthetic_data',
@@ -1323,7 +1330,8 @@ const upgrades = <UpgradeDef>[
     category: UpgradeCategory.research,
     era: Era.bigLab,
     cost: 1.5e9,
-    effects: Effects(ratingAdd: 10, arpuMult: 1.25),
+    // Unlocks 1M context (with YaRN) in run setup.
+    effects: Effects(),
     requires: ['parallelism'],
   ),
   UpgradeDef(
@@ -1335,7 +1343,8 @@ const upgrades = <UpgradeDef>[
     category: UpgradeCategory.research,
     era: Era.bigLab,
     cost: 2.5e9,
-    effects: Effects(ratingAdd: 60, serveEffMult: 0.6),
+    // Unlocks RL reasoning post-training in run setup.
+    effects: Effects(),
     requires: ['rlhf'],
   ),
   // --- Frontier lab ----------------------------------------------------------
@@ -1395,7 +1404,8 @@ const upgrades = <UpgradeDef>[
     category: UpgradeCategory.software,
     era: Era.globalLab,
     cost: 10e9,
-    effects: Effects(serveEffMult: 1.4),
+    // Was ×1.4 before model design added INT4, GQA and SSM serving.
+    effects: Effects(serveEffMult: 1.2),
   ),
 ];
 

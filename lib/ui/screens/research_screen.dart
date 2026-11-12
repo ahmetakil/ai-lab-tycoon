@@ -1,8 +1,10 @@
-// OWNER: ui-core agent. The "Research" tab: software, data and research upgrades.
+// OWNER: ui-core agent. The "Research" tab, by research track (pre-training,
+// post-training, data, infrastructure).
 import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
 import '../../sim/game.dart';
+import '../../sim/model_design.dart';
 import '../format.dart';
 import '../research_impact.dart';
 import '../shell/game_modal.dart';
@@ -48,26 +50,41 @@ List<EffectChip> effectChips(Effects e) => [
     ),
 ];
 
-const _categoryInfo = {
-  UpgradeCategory.software: (
-    'Software',
-    'Squeeze more out of every GPU. No extra power needed.',
-    Icons.code,
-    AppColors.cyan,
+/// What a research item adds to run setup (model design), e.g.
+/// "Attention: Grouped-query (GQA)" or "Removes the MoE routing-collapse risk".
+List<String> designUnlockLines(String id) => [
+  for (final (slot, c) in optionsUnlockedBy(id)) '${slot.label}: ${c.label}',
+  if (designResearchModifiers[id] case final m?) m,
+];
+
+const _trackInfo = {
+  ResearchTrack.preTraining: (
+    'Pre-training',
+    'Architecture, attention, context length and scaling: how the base model is built.',
+    Icons.account_tree_outlined,
+    AppColors.violet,
   ),
-  UpgradeCategory.data: (
+  ResearchTrack.postTraining: (
+    'Post-training',
+    'Instruction tuning, RLHF, DPO and RL reasoning: turning a base model into an assistant.',
+    Icons.psychology_alt_outlined,
+    AppColors.neon,
+  ),
+  ResearchTrack.data: (
     'Data',
     'More and better tokens, so extra compute keeps paying off.',
     Icons.dataset_outlined,
     AppColors.amber,
   ),
-  UpgradeCategory.research: (
-    'Research',
-    'Training tricks that make the model itself better.',
-    Icons.science_outlined,
-    AppColors.violet,
+  ResearchTrack.infrastructure: (
+    'Infrastructure',
+    'Kernels, parallelism and serving tricks: more out of every GPU.',
+    Icons.memory,
+    AppColors.cyan,
   ),
 };
+
+Color trackColor(String id) => _trackInfo[trackOf(id)]!.$4;
 
 class ResearchScreen extends StatefulWidget {
   final GameController controller;
@@ -77,9 +94,9 @@ class ResearchScreen extends StatefulWidget {
   State<ResearchScreen> createState() => _ResearchScreenState();
 }
 
-/// null = "Available now" across every category.
+/// null = "Available now" across every track.
 class _ResearchScreenState extends State<ResearchScreen> {
-  UpgradeCategory? _tab;
+  ResearchTrack? _tab;
 
   GameController get controller => widget.controller;
 
@@ -111,7 +128,7 @@ class _ResearchScreenState extends State<ResearchScreen> {
                 child: Row(
                   children: [
                     _tabChip(g, null),
-                    for (final cat in UpgradeCategory.values) _tabChip(g, cat),
+                    for (final t in ResearchTrack.values) _tabChip(g, t),
                   ],
                 ),
               ),
@@ -128,14 +145,14 @@ class _ResearchScreenState extends State<ResearchScreen> {
     );
   }
 
-  Widget _tabChip(Game g, UpgradeCategory? cat) {
-    final list = upgrades.where((u) => cat == null || u.category == cat);
+  Widget _tabChip(Game g, ResearchTrack? cat) {
+    final list = allUpgrades.where((u) => cat == null || trackOf(u.id) == cat);
     final available = list.where((u) => _availableNow(g, u)).length;
     final affordable = list.any((u) => g.canBuyUpgrade(u));
     final (label, icon, color) =
         cat == null
             ? ('Available now', Icons.bolt_rounded, AppColors.neon)
-            : (_categoryInfo[cat]!.$1, _categoryInfo[cat]!.$3, _categoryInfo[cat]!.$4);
+            : (_trackInfo[cat]!.$1, _trackInfo[cat]!.$3, _trackInfo[cat]!.$4);
     final selected = _tab == cat;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -196,7 +213,7 @@ class _ResearchScreenState extends State<ResearchScreen> {
   }
 
   List<Widget> _available(Game g) {
-    final list = upgrades.where((u) => _availableNow(g, u)).toList()
+    final list = allUpgrades.where((u) => _availableNow(g, u)).toList()
       ..sort((a, b) => a.cost.compareTo(b.cost));
     return [
       const Padding(
@@ -217,16 +234,16 @@ class _ResearchScreenState extends State<ResearchScreen> {
           ),
         ),
       for (final u in list) ...[
-        UpgradeCard(controller: controller, u: u, accent: _categoryInfo[u.category]!.$4),
+        UpgradeCard(controller: controller, u: u, accent: trackColor(u.id)),
         const SizedBox(height: 10),
       ],
     ];
   }
 
-  List<Widget> _section(Game g, UpgradeCategory cat) {
-    final (title, subtitle, icon, color) = _categoryInfo[cat]!;
+  List<Widget> _section(Game g, ResearchTrack track) {
+    final (title, subtitle, icon, color) = _trackInfo[track]!;
     final list =
-        upgrades.where((u) => u.category == cat).toList()..sort((a, b) {
+        allUpgrades.where((u) => trackOf(u.id) == track).toList()..sort((a, b) {
           final r = _rank(g, a).compareTo(_rank(g, b));
           return r != 0 ? r : a.cost.compareTo(b.cost);
         });
@@ -243,7 +260,7 @@ class _ResearchScreenState extends State<ResearchScreen> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: color.withValues(alpha: 0.4)),
           ),
-          child: Center(child: GameImage(GameArt.upgradeCategory(cat), size: 30, fallback: icon)),
+          child: Center(child: Icon(icon, size: 24, color: color)),
         ),
       ),
       Padding(
@@ -308,7 +325,7 @@ class UpgradeCard extends StatelessWidget {
         ],
       );
     } else if (missing.isNotEmpty) {
-      final names = missing.map((id) => upgrades.firstWhere((x) => x.id == id).name).join(', ');
+      final names = missing.map(researchName).join(', ');
       footer = Row(
         children: [
           const Icon(Icons.link, size: 16, color: AppColors.amber),
@@ -394,7 +411,7 @@ class UpgradeCard extends StatelessWidget {
                   child: GameImage(
                     GameArt.upgrade(u.id),
                     size: 44,
-                    fallback: _categoryInfo[u.category]!.$3,
+                    fallback: _trackInfo[trackOf(u.id)]!.$3,
                   ),
                 ),
               ),
@@ -428,6 +445,8 @@ class UpgradeCard extends StatelessWidget {
                   color: c.isCost ? AppColors.amber : AppColors.neon,
                   icon: c.isCost ? Icons.trending_down : Icons.trending_up,
                 ),
+              for (final line in designUnlockLines(u.id))
+                Tag('Run setup · $line', color: AppColors.cyan, icon: Icons.tune),
             ],
           ),
           const SizedBox(height: 12),
@@ -453,7 +472,10 @@ class _OwnedRowState extends State<_OwnedRow> {
   @override
   Widget build(BuildContext context) {
     final u = widget.u;
-    final chips = effectChips(u.effects);
+    final chips = [
+      ...effectChips(u.effects).map((c) => c.text),
+      ...designUnlockLines(u.id),
+    ];
     return GestureDetector(
       onTap: () => setState(() => _open = !_open),
       child: Panel(
@@ -476,7 +498,7 @@ class _OwnedRowState extends State<_OwnedRow> {
                 ),
                 Flexible(
                   child: Text(
-                    chips.map((c) => c.text).join(' · '),
+                    chips.join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.right,

@@ -4,6 +4,7 @@ import 'package:ai_lab_tycoon/sim/balance.dart';
 import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
+import 'package:ai_lab_tycoon/sim/model_design.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -290,12 +291,18 @@ void main() {
       }
     });
 
-    test('the final rival is reachable with the full upgrade stack', () {
-      final s = GameState(ownedUpgrades: upgrades.map((u) => u.id).toSet());
+    test('the final rival is reachable with the full upgrade stack and a good design', () {
+      final s = GameState(
+        ownedUpgrades: allUpgrades.map((u) => u.id).toSet(),
+        era: Era.globalLab,
+        networkTier: networkTiers.length - 1,
+      );
       final g = Game(s);
-      // Data-optimal compute (no diminishing returns yet) with every upgrade.
-      final best = g.ratingOf(g.dataOptimalCompute);
-      expect(best, greaterThan(rivalLadder.last.rating));
+      // Data-optimal compute (no diminishing returns yet) with every upgrade
+      // and the best design for rating.
+      final raw = g.dataOptimalCompute / g.trainEffMult;
+      final spec = ModelSpec.bestGuessFor(g.designContextFor(raw), serveWeight: 0, demandWeight: 0);
+      expect(g.predictRatingForFlops(raw, spec), greaterThan(rivalLadder.last.rating));
     });
   });
 }

@@ -275,7 +275,8 @@ class _GameShellState extends State<GameShell> {
         title: 'Train your first model',
         body:
             'Your GPU is already serving a few users. Training a model raises your '
-            'rating, and better models attract more users.',
+            'rating, and better models attract more users. The default model design '
+            'is fine: just tap Start training (open Model design later to tune it).',
         action: 'Set up a training run',
         onAction: _openTrain,
       );

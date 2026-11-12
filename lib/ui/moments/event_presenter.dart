@@ -156,14 +156,15 @@ class _EventPresenterState extends State<EventPresenter> {
 
   void _onEvent(GameEvent e) {
     switch (e) {
-      case TrainingFinished(:final predictedRating):
+      case TrainingFinished(:final predictedRating, :final mishaps):
         Sound.play(Sfx.trainingDone);
         final delta = predictedRating - c.game.rating;
         _toast(
           icon: Icons.model_training_rounded,
-          color: Neon.green,
-          title: 'Training done',
+          color: mishaps.isEmpty ? Neon.green : Neon.yellow,
+          title: mishaps.isEmpty ? 'Training done' : 'Training done, with a mishap',
           message:
+              '${mishaps.isEmpty ? '' : '${mishaps.first}. '}'
               'Predicted rating ${predictedRating.round()} '
               '(${delta >= 0 ? '+' : '−'}${delta.abs().round()}). Release it!',
           actionLabel: 'Release',

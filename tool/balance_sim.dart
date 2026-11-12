@@ -19,6 +19,7 @@ import 'package:ai_lab_tycoon/sim/balance.dart';
 import 'package:ai_lab_tycoon/sim/bot.dart';
 import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
+import 'package:ai_lab_tycoon/sim/model_design.dart';
 
 void main(List<String> args) {
   final minutes =
@@ -118,7 +119,7 @@ void printSummary(PlaythroughResult r) {
   }
   print(
     'rivals beaten: ${g.s.rivalIndex}/${rivalLadder.length}; '
-    'upgrades: ${g.s.ownedUpgrades.length}/${upgrades.length}; '
+    'upgrades: ${g.s.ownedUpgrades.length}/${allUpgrades.length}; '
     'releases: ${r.releases}; viral spikes: ${r.viralSpikes}',
   );
   print(
@@ -242,7 +243,7 @@ void scheduled(
   }
   print(
     'rivals beaten: ${g.s.rivalIndex}/${rivalLadder.length}; '
-    'upgrades: ${g.s.ownedUpgrades.length}/${upgrades.length}; '
+    'upgrades: ${g.s.ownedUpgrades.length}/${allUpgrades.length}; '
     'releases: ${r.releases}; viral spikes: ${r.viralSpikes}',
   );
   if (r.ladderDone) {

@@ -6,10 +6,13 @@ import 'package:flutter/material.dart';
 import '../../sim/balance.dart' show maxUtilization, ratingBase;
 import '../../sim/content.dart';
 import '../../sim/game.dart';
+import '../../sim/model_design.dart';
 import '../format.dart';
 import '../game_assets.dart';
 import '../game_controller.dart';
 import '../grid/grid_hints.dart';
+import '../model_design/benchmark_strip.dart';
+import '../model_design/run_setup.dart';
 import '../moments/release_sheet.dart';
 import '../sound.dart';
 import '../theme.dart';
@@ -86,6 +89,11 @@ class _TrainingPanelState extends State<TrainingPanel> {
   double _fraction = 0.5;
   double? _duration;
 
+  /// The model design being edited; null = the remembered one
+  /// (Game.nextSpec), so "Start training" stays one tap.
+  ModelSpec? _draft;
+  bool _designOpen = false;
+
   /// The picked run length if this era offers it, else the era's middle one.
   double _dur(Game g) {
     final opts = g.runDurations;
@@ -112,10 +120,13 @@ class _TrainingPanelState extends State<TrainingPanel> {
 
   Widget _setupCard(Game g) {
     final duration = _dur(g);
-    final predicted = g.predictRating(_fraction, duration);
+    final rawCompute = g.plannedFlops(_fraction, duration);
+    final ctx = g.designContextFor(rawCompute);
+    final spec = (_draft ?? g.s.lastSpec).clampTo(ctx);
+    final effects = evaluate(spec, ctx);
+    final predicted = g.predictRatingForFlops(rawCompute, spec);
     final current = g.rating;
-    final rawCompute = g.trainingFlopsPerSecond(_fraction) * duration;
-    final dataLimited = rawCompute * g.trainEffMult > g.dataOptimalCompute;
+    final dataLimited = g.isDataLimited(rawCompute, spec);
     final delta = predicted - current;
     final canStart = g.effectiveTflops > 0;
     return Panel(
@@ -155,6 +166,28 @@ class _TrainingPanelState extends State<TrainingPanel> {
               },
             ),
           ),
+          gap8,
+          _DesignSummary(
+            spec: spec,
+            effects: effects,
+            open: _designOpen,
+            onToggle: () {
+              Sound.play(Sfx.click);
+              setState(() => _designOpen = !_designOpen);
+            },
+          ),
+          if (_designOpen) ...[
+            gap8,
+            RunSetupPanel(
+              key: const ValueKey('run-setup'),
+              spec: spec,
+              ctx: ctx,
+              onChanged: (next) {
+                Sound.play(Sfx.click);
+                setState(() => _draft = next);
+              },
+            ),
+          ],
           const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(12),
@@ -241,9 +274,14 @@ class _TrainingPanelState extends State<TrainingPanel> {
                 canStart
                     ? () {
                       final ok = c.act(
-                        (g) => g.startTraining(fraction: _fraction, durationSeconds: duration),
+                        (g) => g.startTraining(
+                          fraction: _fraction,
+                          durationSeconds: duration,
+                          spec: spec,
+                        ),
                       );
                       Sound.play(ok ? Sfx.trainingStart : Sfx.error);
+                      if (ok) setState(() => _draft = null);
                     }
                     : null,
           ),
@@ -268,7 +306,7 @@ class _TrainingPanelState extends State<TrainingPanel> {
     final projectedFlops =
         run.computeFlops +
         g.trainingFlopsPerSecond(run.fraction) * (run.durationSeconds - run.elapsedSeconds);
-    final projected = g.ratingOf(g.effectiveComputeOf(projectedFlops));
+    final projected = g.predictRatingForFlops(projectedFlops, run.spec);
     final accent = run.paused ? AppColors.amber : AppColors.neon;
     return Panel(
       accent: accent,
@@ -301,6 +339,14 @@ class _TrainingPanelState extends State<TrainingPanel> {
                 ),
               ],
             ),
+          ),
+          gap8,
+          Text(
+            specSummary(run.spec),
+            key: const ValueKey('run-spec'),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.muted, fontSize: 12, height: 1.3),
           ),
           gap8,
           MeterBar(value: run.progress, color: accent, height: 10),
@@ -391,7 +437,7 @@ class _TrainingPanelState extends State<TrainingPanel> {
   }
 
   Widget _pendingCard(Game g) {
-    final newRating = g.ratingOf(g.s.pendingEffectiveCompute!);
+    final newRating = g.pendingRating!;
     final delta = newRating - g.rating;
     return Panel(
       accent: AppColors.neon,
@@ -428,6 +474,22 @@ class _TrainingPanelState extends State<TrainingPanel> {
             'Your new model is ready. Ship it to win users and hype.',
             style: TextStyle(color: AppColors.muted, fontSize: 13),
           ),
+          if (g.s.pendingDesign case final d?) ...[
+            for (final line in d.highlights.take(3))
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  line,
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12, height: 1.3),
+                ),
+              ),
+            const SizedBox(height: 12),
+            BenchmarkStrip(
+              key: const ValueKey('pending-benchmark-strip'),
+              strengths: d.strengths,
+              headline: strengthHeadline(d.spec, d.strengths),
+            ),
+          ],
           const SizedBox(height: 14),
           Pulse(
             child: NeonButton(
@@ -770,7 +832,7 @@ class _CapacityCard extends StatelessWidget {
         Text(
           over
               ? '${formatNumber(g.unservedUsers)} users hitting errors and churning. Free up compute for serving.'
-              : 'Demand ${formatNumber(g.demand)} · each user needs ${formatNumber(g.perUserTflops(s.currentModel.effectiveCompute), decimals: 2)} TFLOPS',
+              : 'Demand ${formatNumber(g.demand)} · each user needs ${formatNumber(g.currentPerUserTflops, decimals: 2)} TFLOPS',
           style: TextStyle(
             color: over ? AppColors.red : AppColors.muted,
             fontSize: 12.5,
@@ -1076,6 +1138,89 @@ class _RivalCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// "Dense · GQA · 8k · 20 tok/param · Balanced · RLHF · INT8".
+String specSummary(ModelSpec s) {
+  String short(String label) => label.split(' (').first;
+  return [
+    short(s.architecture.label),
+    switch (s.attention) {
+      Attention.mha => 'MHA',
+      Attention.gqa => 'GQA',
+      Attention.slidingWindow => 'Sliding window',
+      Attention.hybridSsm => 'Hybrid SSM',
+    },
+    s.context.label,
+    '${s.sizing.tokensPerParam.round()} tok/param',
+    s.dataMix.label,
+    s.postTraining.usesRl ? '${s.postTraining.label} (${s.rlStrength.label.toLowerCase()})' : s.postTraining.label,
+    s.quantization.label,
+  ].join(' · ');
+}
+
+/// One tappable row: the current setup and its headline effects, opening
+/// the full run-setup panel.
+class _DesignSummary extends StatelessWidget {
+  final ModelSpec spec;
+  final DesignEffects effects;
+  final bool open;
+  final VoidCallback onToggle;
+  const _DesignSummary({required this.spec, required this.effects, required this.open, required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    final bad = effects.notes.where((n) => n.tone == NoteTone.bad).length + effects.risks.length;
+    String m(double v) => '×${v.toStringAsFixed(v >= 10 ? 0 : 2)}';
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const ValueKey('run-setup-toggle'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: onToggle,
+        child: Ink(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          decoration: BoxDecoration(
+            color: open ? AppColors.violet.withValues(alpha: 0.10) : AppColors.surfaceHi,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: open ? AppColors.violet : AppColors.borderHi),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.tune, size: 18, color: AppColors.violet),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('MODEL DESIGN', style: labelStyle(size: 10, color: AppColors.violet)),
+                    const SizedBox(height: 3),
+                    Text(
+                      specSummary(spec),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5, height: 1.3),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'serving ${m(effects.serveCostMult)} · demand ${m(effects.demandMult)}'
+                      '${bad > 0 ? ' · $bad warning${bad == 1 ? '' : 's'}' : ''}',
+                      style: numStyle(
+                        size: 11,
+                        weight: FontWeight.w500,
+                        color: bad > 0 ? AppColors.amber : AppColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(open ? Icons.expand_less : Icons.expand_more, color: AppColors.muted),
+            ],
+          ),
+        ),
       ),
     );
   }

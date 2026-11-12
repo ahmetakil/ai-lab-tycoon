@@ -69,7 +69,8 @@ Network gate: `CEM_eff = (1 + (CEM − 1) × gain) × commEff`.
 | InfiniBand (1024–32767) | 0.6 | 0.9 | 1.44 / 1.98 |
 | Fat-tree / NVLink (≥ 32768) | 1.0 | 1.0 | 2.0 / 3.0 |
 
-An oversubscribed cluster (`clusterGpus > networkGpuCap`) drops one class. commEff is Design,
+A badly oversubscribed cluster (`clusterGpus > 2 × networkGpuCap`, scaling efficiency below
+~70%) drops one class; mild oversubscription only costs the game's scaling efficiency. commEff is Design,
 from DeepSeek-V3's ~1:1 compute:communication ratio. Without `router_balancing` there is a 25%
 **routing-collapse** risk (a `DesignRisk` the game rolls) that drops the MoE CEM to 1.2.
 
@@ -77,9 +78,9 @@ from DeepSeek-V3's ~1:1 compute:communication ratio. Without `router_balancing` 
 | Option | Unlock | CEM | Serving | KV growth per context tier | Long-context strength |
 |---|---|---|---|---|---|
 | Full (MHA) | — | 1.00 | ×1 | ×1.4 | ×1 |
-| GQA | `gqa` | 0.99 | ×0.5 | ×1.15 | ×1 |
-| Sliding window | `sliding_window` | 0.96 | ×0.4 | ×1.05 | ×0.8 |
-| Hybrid SSM | `ssm_hybrid` | 1.02 | ×0.35 | ×1.03 | ×0.92 |
+| GQA | `gqa` | 0.99 | ×0.7 | ×1.15 | ×1 |
+| Sliding window | `sliding_window` | 0.96 | ×0.6 | ×1.05 | ×0.8 |
+| Hybrid SSM | `ssm_hybrid` | 1.02 | ×0.5 | ×1.03 | ×0.92 |
 
 ### Context length (§4)
 Tiers: 2k (−1), 4k (0), 8k (1), 32k (2), 128k (3), 1M (4).
@@ -123,14 +124,16 @@ Tiers: 2k (−1), 4k (0), 8k (1), 32k (2), 128k (3), 1M (4).
 | SFT | — | 0 (absolute +60) | ×1.01 | ×1 | ×1 |
 | RLHF | `rlhf` | +70·g(x) | +4%·k | ×1 | ×(1 + 0.1·g) |
 | DPO | `dpo` | +63·g(x), d* ×0.8 | +1.2%·k | ×1 | ×(1 + 0.1·g) |
-| RL reasoning | `reasoning` | +40 + 70·g(x) | +14%·k | ×10 (×4 with `adaptive_thinking`) | ×1.25 (and ×(1 + 0.1·g)) |
+| RL reasoning | `reasoning` | +50 + 70·g(x) | +14%·k | ×6 (×2.5 with `adaptive_thinking`) | ×1.25 (and ×(1 + 0.1·g)) |
 
 - **RL strength** k ∈ {0.5, 1, 1.5, 2, 3} × the reward model's sweet spot d*. `x = k/d*`,
   `g(x) = x(1 − ln x)` (Gao 2022, normalised): g(1) = 1, g(0.5) = 0.85, g(2) = 0.61,
   g(3) = −0.30, so **Extreme RL is worse than plain SFT** (reward hacking).
 - `reward_model_scaling` moves d* to 1.5 and raises the bonus by 15%.
 - **Alignment tax** (without `ppo_ptx`): `−15 × (1 − min(1, N/50B))`, N = sqrt(C/(6r)).
-- RL reasoning: math ×3, coding ×2; the +40 is halved if the base model is below rating 1000.
+- RL reasoning: math ×3, coding ×2; the +50 is halved if the base model is below rating 1000.
+  Answers are often ~10× longer (Chen 2024), but not every request needs long thinking: ×6
+  serving is the game's blend (Design), and +50 replaces the old flat +60 reasoning upgrade.
 
 ### Serving precision (§8)
 | Option | Unlock | Serving | CEM |
@@ -170,7 +173,7 @@ New entries in `designUpgrades` (identity `Effects`; their value is the option t
 | `ssm_hybrid` | Hybrid state-space layers | Big lab | 1.2B | Pre-training | gqa | Hybrid SSM |
 | `dpo` | Direct Preference Optimization | Big lab | 500M | Post-training | rlhf | DPO |
 | `reward_model_scaling` | Bigger reward models | Big lab | 900M | Post-training | rlhf | RL sweet spot ×1.5 |
-| `adaptive_thinking` | Adaptive thinking budgets | Frontier lab | 12B | Post-training | reasoning | reasoning serving ×4 |
+| `adaptive_thinking` | Adaptive thinking budgets | Frontier lab | 12B | Post-training | reasoning | reasoning serving ×2.5 |
 
 Existing ids reused as unlocks: `moe`, `chinchilla_scaling`, `flash_attention`, `long_context`,
 `code_data`, `books_papers`, `synthetic_data`, `rlhf`, `reasoning`, `quantization`.
@@ -179,69 +182,52 @@ Existing ids reused as unlocks: `moe`, `chinchilla_scaling`, `flash_attention`, 
 every id in `upgrades` and `designUpgrades` to a track (`trackOf(id)`).
 `optionsUnlockedBy(id)` and `designResearchModifiers` give the "Unlocks: ..." text for cards.
 
-## Integration
+## Integration (wired in)
 
-Everything lives in new files. Wiring it in is a small diff:
+### State (`lib/sim/game_state.dart`)
+- `GameState.lastSpec`: the setup the last run used (`'spec'`); the next run starts from it, so
+  "Start training" stays one tap.
+- `TrainingRun.spec`: fixed when the run starts.
+- `DesignOutcome` (spec, `ratingAdd`, `serveCostMult`, `demandMult`, `serveCompute`, `strengths`,
+  `highlights`): evaluated when the run ends, kept on `GameState.pendingDesign` and then on
+  `ModelRelease.design`, so serving and demand follow the *current* model. The starting model has
+  none and counts as the garage default design (`Game.startDesign`).
+- Saves stay v4: every new field is optional; `ownedUpgrades` accepts `designUpgrades` ids.
 
-### `lib/sim/game_state.dart`
-1. `GameState`: add `ModelSpec lastSpec` (default `const ModelSpec()`), saved as `'spec'` with
-   `lastSpec.toJson()`, loaded with `ModelSpec.fromJson` (tolerant; missing = default).
-2. `TrainingRun`: add `final ModelSpec spec` (JSON key `'spec'`, default `const ModelSpec()`).
-3. Store the finished run's spec until release: `ModelSpec? pendingSpec` next to
-   `pendingEffectiveCompute` (key `'pendingSpec'`).
-4. `ModelRelease`: add `ModelSpec spec` and `BenchmarkStrengths strengths` (keys `'spec'`,
-   `'bench'`, both optional on load), plus `double serveCostMult` and `double demandMult`
-   (keys `'serve'`, `'demand'`, default 1) so serving and demand follow the *current* model.
-5. `fromJson`: accept `designUpgrades` ids in `ownedUpgrades` (the filter currently uses
-   `upgrades` only).
+### Game (`lib/sim/game.dart`)
+- Effects iterate `allUpgrades` (`upgrades` + `designUpgrades`).
+- `designContext` / `designContextFor(rawFlops)`: cluster GPUs, `networkCap` (the network tier's GPU
+  cap; all GPUs in the room are one cluster), data tokens, research, era, planned compute.
+- `startTraining({fraction, durationSeconds, ModelSpec? spec})`: default `lastSpec`, clamped to
+  what's unlocked.
+- Run end: `evaluate(run.spec, ...)`, risks rolled with the seeded RNG (a hit multiplies effective
+  compute and is reported in `TrainingFinished.mishaps`), effective compute through the design's
+  data budget.
+- `rating` / `pendingRating` add the design's `ratingAdd`; `demand` × `demandMult`;
+  `currentPerUserTflops` = `perUserTflops(serveCompute) × serveCostMult` (a smarter design isn't a
+  bigger model).
+- `predictRating(fraction, duration, {spec})`, `predictRatingForFlops(flops, spec)`,
+  `isDataLimited(flops, spec)`.
+- The `moe`, `chinchilla_scaling`, `quantization`, `long_context` and `reasoning` upgrades are now
+  unlock-only (identity effects); `rlhf` keeps only its ARPU (its rating is the RLHF choice).
+- `servingBase` 0.0115 and `demandBase` 98 absorb the garage default's ×1.30 serving and ×0.92
+  demand, so the start of the game plays as before.
 
-No save-version bump is needed: every new field defaults.
-
-### `lib/sim/game.dart`
-1. `_effects` and `buyUpgrade`/`canBuyUpgrade`: iterate `[...upgrades, ...designUpgrades]`
-   (or add `allUpgrades` to content.dart).
-2. Add `DesignContext get designContext => DesignContext(clusterGpus: grid.training?.gpus ?? 0,
-   networkGpuCap: grid.training?.gpuCap ?? 0, dataTokens: dataTokens, ownedResearch:
-   s.ownedUpgrades, eraIndex: s.era.index, plannedCompute: <raw FLOPs of a default run> ×
-   trainEffMult)`. Use whatever the new grid exposes as the bottleneck switch's GPU cap.
-3. `startTraining({..., ModelSpec? spec})`: `spec = (spec ?? s.lastSpec).clampTo(designContext)`,
-   store it on the run and in `s.lastSpec`.
-4. Run end (`tick`): replace `effectiveComputeOf(run.computeFlops)` with
-   `evaluate(run.spec, designContext).effectiveCompute(run.computeFlops * trainEffMult, dataTokens)`.
-   Roll `effects.risks` with `_random()`; on a hit multiply effC by `risk.cemMultOnHit` and emit
-   an event (e.g. "Router collapse: half the experts idle").
-5. `release`: rating = `ratingOf(effC) + effects.ratingAdd`; store spec, strengths, serve and
-   demand multipliers on the `ModelRelease`.
-6. `perUserTflops`: multiply by `currentModel.serveCostMult`. Feed it the effC without the design
-   CEM (`effC / cem`, or store the raw size) so a smarter design doesn't also look bigger.
-7. `demand`: multiply by `currentModel.demandMult`.
-8. `predictRating(fraction, duration, {ModelSpec? spec})`: same formula as step 4 plus `ratingAdd`.
-9. **Avoid double counting.** Set these existing upgrade effects to identity, because the design
-   choice now carries them: `moe` (trainEff 2.5, serve 1.5), `chinchilla_scaling` (trainEff 1.3),
-   `quantization` (serve 2), `long_context` (rating 10, ARPU 1.25: keep ARPU if wanted),
-   `reasoning` (rating 60, serve 0.6). Keep `instruction_tuning`, `rlhf`, `rlaif` and the data
-   upgrades as they are, or retune. Then run `dart run tool/balance_sim.dart 240`: expect an early
-   ~−4 rating and ×1.3 serving (Kaplan-style 2k model) and a bigger post-training swing later.
-
-### Training panel
-Show `RunSetupPanel(spec: draft, ctx: game.designContext, onChanged: setDraft)` above the
-fraction/duration controls, seeded with `game.s.lastSpec.clampTo(ctx)`. Start the run with
-`controller.act((g) => g.startTraining(fraction: f, durationSeconds: d, spec: draft))`.
-Keep it collapsible ("Model design ▸") so a run stays one tap. The panel lays out side by side at
-≥ 900 px (`runSetupWideBreakpoint`).
-
-### Release card
-Add `BenchmarkStrip(strengths: release.strengths, headline: strengthHeadline(release.spec,
-release.strengths))` under the existing cherry-picked benchmarks (`lib/ui/moments/release_card.dart`),
-and optionally `Tag`s for the spec (e.g. "MoE", "128k", "RL reasoning").
+### UI
+- Training panel (`lib/ui/screens/overview_screen.dart`): a "Model design" summary row (spec and
+  headline serving/demand, warnings count) opens `RunSetupPanel`; the predicted rating uses the
+  spec. The run card names the spec; the "Training complete" card shows highlights and a
+  `BenchmarkStrip`.
+- Release dialog (`lib/ui/moments/release_card.dart`): `BenchmarkStrip` with `strengthHeadline`
+  under the share card; the headline also goes in the post text.
+- Research (`lib/ui/screens/research_screen.dart`): tabs by `ResearchTrack` (plus "Available now");
+  cards list "Run setup · <slot>: <option>" from `optionsUnlockedBy` / `designResearchModifiers`.
 
 ### Bot (`lib/sim/bot.dart`)
-Pass `spec: ModelSpec.bestGuessFor(game.designContext, serveWeight: overloaded ? 15 : 6)` to
-`startTraining`, and include the `designUpgrades` in its research candidates. Value them through
-the CEM of the option they unlock, e.g. `designScore` of `bestGuessFor` with the id added to
-`ownedResearch` minus without.
-
-### Research screen (`lib/ui/screens/research_screen.dart`)
-Tab by `ResearchTrack.values` (`trackOf(u.id)`) over `[...upgrades, ...designUpgrades]`. For a
-design upgrade, show "Unlocks: <option labels>" from `optionsUnlockedBy(u.id)`, or
-`designResearchModifiers[u.id]`, in place of the effects line.
+`ModelSpec.bestGuessFor(ctx, serveWeight: w)` with `w` by what blocks progress: 4 (and demand
+weight 8) when rating blocks an era gate or rival, 23 when capacity-limited, else 6. When a rival
+needs users and we already have its rating, the cheapest-to-serve setup that still clears it. It
+spends before starting a run (a run's design is fixed at the start), values design research by the
+rating it unlocks while rating blocks, counts risks at their expected rating, and ships a cheaper
+model that keeps the rival's rating when users are what's missing. `Bot(fixedSpec:)` /
+`runSchedule(fixedSpec:)` force one design (the bad-design test).

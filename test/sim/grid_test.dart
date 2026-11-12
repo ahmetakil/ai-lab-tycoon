@@ -200,7 +200,7 @@ void main() {
       // The next era's gate is spelled out.
       expect(
         g.placeBlockReason('closet', 0, 0, 'srv_h_class'),
-        startsWith('Unlocks in Small lab: reach rating 1,000'),
+        startsWith('Unlocks in Small lab: reach rating 990'),
       );
       g.s.era = Era.garage;
       expect(g.placeBlockReason('closet', 0, 0, 'srv_a_class'), contains('reach 3k users'));

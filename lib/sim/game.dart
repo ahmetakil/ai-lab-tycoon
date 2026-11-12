@@ -4,6 +4,7 @@ import 'balance.dart';
 import 'content.dart';
 import 'game_state.dart';
 import 'grid.dart';
+import 'model_design.dart';
 
 export 'grid.dart' show TileStatus, Cluster, minThrottleSpeed;
 
@@ -29,7 +30,10 @@ class ViralSpikeStarted extends GameEvent {
 class TrainingFinished extends GameEvent {
   final double effectiveCompute;
   final double predictedRating;
-  const TrainingFinished(this.effectiveCompute, this.predictedRating);
+
+  /// Design risks that fired, e.g. "Router collapse: ...".
+  final List<String> mishaps;
+  const TrainingFinished(this.effectiveCompute, this.predictedRating, [this.mishaps = const []]);
 }
 
 /// You moved to the next room; every tile came along, shifted by [offset]
@@ -135,7 +139,7 @@ class Game {
   // Derived values
   // ---------------------------------------------------------------------------
 
-  Iterable<Effects> get _effects => upgrades
+  Iterable<Effects> get _effects => allUpgrades
       .where((u) => s.ownedUpgrades.contains(u.id))
       .map((u) => u.effects);
 
@@ -197,7 +201,7 @@ class Game {
     final missing = [
       for (final id in next.requires)
         if (!s.ownedUpgrades.contains(id))
-          upgrades.firstWhere((u) => u.id == id).name,
+          researchName(id),
     ];
     if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
     if (s.money < next.cost) {
@@ -237,7 +241,7 @@ class Game {
     final missing = [
       for (final id in next.requires)
         if (!s.ownedUpgrades.contains(id))
-          upgrades.firstWhere((u) => u.id == id).name,
+          researchName(id),
     ];
     if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
     if (s.money < next.cost) {
@@ -343,13 +347,37 @@ class Game {
       (training ? _trainingClusterEffective * s.run!.fraction : 0) +
       (s.cloudSecondsLeft > 0 ? effectiveTflops : 0);
 
+  /// Per-user TFLOPS for a model of [effectiveCompute] (its size), before
+  /// the design's serving multiplier.
   double perUserTflops(double effectiveCompute) =>
       servingBase *
       math.pow(effectiveCompute / startEffectiveCompute, servingExponent) /
       serveEffMult;
 
-  double get capacity =>
-      servingTflops / perUserTflops(s.currentModel.effectiveCompute);
+  /// The starting model counts as the plain garage design (dense, full
+  /// attention, 2k, Kaplan-style, web crawl, SFT, FP16).
+  static final DesignEffects startDesign = evaluate(const ModelSpec(), const DesignContext());
+
+  /// The current model's design serving and demand multipliers.
+  double get modelServeMult =>
+      s.currentModel.design?.serveCostMult ?? startDesign.serveCostMult;
+  double get modelDemandMult =>
+      s.currentModel.design?.demandMult ?? startDesign.demandMult;
+
+  /// What serving one user of the current model costs (its size and design).
+  double get currentPerUserTflops =>
+      perUserTflops(s.currentModel.design?.serveCompute ?? s.currentModel.effectiveCompute) *
+      modelServeMult;
+
+  double get capacity => servingTflops / currentPerUserTflops;
+
+  /// What serving one user of the pending model would cost, or null.
+  double? get pendingPerUserTflops {
+    final effC = s.pendingEffectiveCompute;
+    if (effC == null) return null;
+    final d = s.pendingDesign;
+    return perUserTflops(d?.serveCompute ?? effC) * (d?.serveCostMult ?? startDesign.serveCostMult);
+  }
 
   /// FLOPs that a data budget can use before returns diminish (Chinchilla-ish).
   double get dataOptimalCompute => chinchillaK * dataTokens * dataTokens;
@@ -369,12 +397,21 @@ class Game {
           (math.log(effectiveCompute / startEffectiveCompute) / math.ln2) +
       ratingBonus;
 
-  double get rating => ratingOf(s.currentModel.effectiveCompute);
+  double get rating =>
+      ratingOf(s.currentModel.effectiveCompute) + (s.currentModel.design?.ratingAdd ?? 0);
+
+  /// Rating of the finished model waiting to ship, or null.
+  double? get pendingRating {
+    final effC = s.pendingEffectiveCompute;
+    if (effC == null) return null;
+    return ratingOf(effC) + (s.pendingDesign?.ratingAdd ?? 0);
+  }
 
   double get demand => math.min(
     maxUsers,
     demandBase *
         math.pow(10, (rating - ratingBase) / demandRatingScale) *
+        modelDemandMult *
         s.hype *
         (s.viralSecondsLeft > 0 ? viralDemandMult : 1),
   );
@@ -400,23 +437,61 @@ class Game {
   double trainingFlopsPerSecond(double fraction) =>
       trainingClusterTflops * fraction * 1e12 * runTimeScale;
 
-  /// Rating of a run started now at [fraction] for [durationSeconds].
-  double predictRating(double fraction, double durationSeconds) => ratingOf(
-    effectiveComputeOf(
-      trainingClusterTflops *
-          fraction *
-          1e12 *
-          s.era.computeTimeScale *
-          durationSeconds,
-    ),
+  /// Raw FLOPs of a run started now at [fraction] for [durationSeconds].
+  double plannedFlops(double fraction, double durationSeconds) =>
+      trainingClusterTflops * fraction * 1e12 * s.era.computeTimeScale * durationSeconds;
+
+  // --- Model design ------------------------------------------------------------
+
+  /// The lab as the model-design rules see it: [rawFlops] is the planned
+  /// run's raw FLOPs (default: half the cluster for the era's middle run).
+  DesignContext designContextFor(double rawFlops) => DesignContext(
+    clusterGpus: grid.training?.gpus ?? 0,
+    networkGpuCap: networkCap,
+    dataTokens: dataTokens,
+    ownedResearch: s.ownedUpgrades,
+    eraIndex: s.era.index,
+    plannedCompute: rawFlops * trainEffMult,
   );
+
+  DesignContext get designContext =>
+      designContextFor(plannedFlops(0.5, runDurations[runDurations.length ~/ 2]));
+
+  /// The setup the next run starts with: the last one, with anything no
+  /// longer unlocked swapped for the safe default.
+  ModelSpec get nextSpec => s.lastSpec.clampTo(designContext);
+
+  /// What [spec] does for a run of [rawFlops].
+  DesignEffects designEffects(ModelSpec spec, double rawFlops) =>
+      evaluate(spec, designContextFor(rawFlops));
+
+  /// Raw training FLOPs → effective compute for a designed run (design
+  /// quality, training overhead and its data budget, then the data limit).
+  double designedEffectiveCompute(double rawFlops, ModelSpec spec, [DesignEffects? e]) =>
+      (e ?? designEffects(spec, rawFlops)).effectiveCompute(rawFlops * trainEffMult, dataTokens);
+
+  /// Rating of a run of [rawFlops] with [spec] (before risks).
+  double predictRatingForFlops(double rawFlops, ModelSpec spec) {
+    final e = designEffects(spec, rawFlops);
+    return ratingOf(designedEffectiveCompute(rawFlops, spec, e)) + e.ratingAdd;
+  }
+
+  /// Rating of a run started now at [fraction] for [durationSeconds] with
+  /// [spec] (default: [nextSpec]), before risks.
+  double predictRating(double fraction, double durationSeconds, {ModelSpec? spec}) =>
+      predictRatingForFlops(plannedFlops(fraction, durationSeconds), spec ?? nextSpec);
+
+  /// True if a run of [rawFlops] with [spec] hits the data wall.
+  bool isDataLimited(double rawFlops, ModelSpec spec) {
+    final e = designEffects(spec, rawFlops);
+    final c = rawFlops * trainEffMult * e.cem / e.trainCostMult;
+    return c > chinchillaK * math.pow(dataTokens * e.dataBudgetMult, 2);
+  }
 
   bool get dataLimited {
     final run = s.run;
     if (run == null) return false;
-    final projected =
-        trainingFlopsPerSecond(run.fraction) * run.durationSeconds;
-    return projected * trainEffMult > dataOptimalCompute;
+    return isDataLimited(trainingFlopsPerSecond(run.fraction) * run.durationSeconds, run.spec);
   }
 
   RivalSnapshot? get nextRival =>
@@ -634,7 +709,7 @@ class Game {
     final missing = [
       for (final id in t.requires)
         if (!s.ownedUpgrades.contains(id))
-          upgrades.firstWhere((u) => u.id == id).name,
+          researchName(id),
     ];
     if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
     if (s.powerTier < t.minPowerTier) {
@@ -836,8 +911,8 @@ class Game {
       s.money >= u.cost;
 
   bool buyUpgrade(String id) {
-    final u = upgrades.firstWhere((u) => u.id == id);
-    if (!canBuyUpgrade(u)) return false;
+    final u = researchById(id);
+    if (u == null || !canBuyUpgrade(u)) return false;
     s.money -= u.cost;
     s.ownedUpgrades.add(id);
     return true;
@@ -846,14 +921,21 @@ class Game {
   bool get canStartTraining =>
       s.run == null && s.pendingEffectiveCompute == null;
 
+  /// Start a run with [spec] (default: [nextSpec], the remembered setup).
+  /// Locked choices are swapped for the safe default; the spec is
+  /// remembered for the next run.
   bool startTraining({
     required double fraction,
     required double durationSeconds,
+    ModelSpec? spec,
   }) {
     if (!canStartTraining) return false;
+    final used = (spec ?? s.lastSpec).clampTo(designContext);
+    s.lastSpec = used;
     s.run = TrainingRun(
       fraction: fraction.clamp(0.05, 1.0),
       durationSeconds: durationSeconds,
+      spec: used,
       timeScale: s.era.computeTimeScale,
     );
     return true;
@@ -887,12 +969,14 @@ class Game {
     final release = ModelRelease(
       name: name ?? 'Model ${s.releases.length}',
       effectiveCompute: effC,
-      rating: ratingOf(effC),
+      rating: pendingRating!,
       open: open,
       time: s.time,
+      design: s.pendingDesign,
     );
     s.releases.add(release);
     s.pendingEffectiveCompute = null;
+    s.pendingDesign = null;
     if (open) s.openReleases++;
 
     final improvement = math.max(0.0, release.rating - oldRating);
@@ -908,7 +992,10 @@ class Game {
     return true;
   }
 
-  void discardPending() => s.pendingEffectiveCompute = null;
+  void discardPending() {
+    s.pendingEffectiveCompute = null;
+    s.pendingDesign = null;
+  }
 
   // ---------------------------------------------------------------------------
   // Simulation
@@ -922,12 +1009,7 @@ class Game {
     if (run != null && !run.paused) {
       run.computeFlops += trainingFlopsPerSecond(run.fraction) * dt;
       run.elapsedSeconds += dt;
-      if (run.done) {
-        final effC = effectiveComputeOf(run.computeFlops);
-        s.pendingEffectiveCompute = effC;
-        s.run = null;
-        events.add(TrainingFinished(effC, ratingOf(effC)));
-      }
+      if (run.done) _finishRun(run);
     }
 
     // Users drift toward demand; overload churns the unserved.
@@ -991,6 +1073,38 @@ class Game {
       events.add(RivalBeaten(nextRival!));
       s.rivalIndex++;
     }
+  }
+
+  /// Evaluate the run's design against the lab as it is now, roll its risks
+  /// with the seeded RNG and leave the model pending.
+  void _finishRun(TrainingRun run) {
+    final e = designEffects(run.spec, run.computeFlops);
+    var cemHit = 1.0;
+    final mishaps = <String>[];
+    for (final r in e.risks) {
+      if (_random() < r.chance) {
+        cemHit *= r.cemMultOnHit;
+        mishaps.add(riskHitText(r));
+      }
+    }
+    final effC = e.effectiveCompute(run.computeFlops * trainEffMult * cemHit, dataTokens);
+    final design = DesignOutcome(
+      spec: run.spec,
+      ratingAdd: e.ratingAdd,
+      serveCostMult: e.serveCostMult,
+      demandMult: e.demandMult,
+      serveCompute: effC / (e.cem * cemHit),
+      strengths: e.strengths,
+      highlights: [
+        ...mishaps,
+        for (final n in e.notes)
+          if (n.tone != NoteTone.neutral) n.text,
+      ].take(4).toList(),
+    );
+    s.pendingEffectiveCompute = effC;
+    s.pendingDesign = design;
+    s.run = null;
+    events.add(TrainingFinished(effC, pendingRating!, mishaps));
   }
 
   /// Advance by [seconds] in steps of at most [step] seconds.

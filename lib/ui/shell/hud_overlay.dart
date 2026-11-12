@@ -450,7 +450,13 @@ class _CoolingStat extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    hot > 0 ? '$hot hot' : '−${formatNumber(g.cooling.perGpuTile)}/tile',
+                    // Hot GPUs first; else what the central plant removes
+                    // per GPU tile (none before the first plant: all cool).
+                    hot > 0
+                        ? '$hot hot'
+                        : g.cooling.perGpuTile > 0
+                        ? '−${formatNumber(g.cooling.perGpuTile)}/GPU'
+                        : 'All cool',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: numStyle(size: 13, color: color, weight: FontWeight.w800),
@@ -549,7 +555,7 @@ class ProjectBar extends StatelessWidget {
     final IconData icon;
     if (pending) {
       title = 'Release ready: ${defaultModelName(g)}';
-      sub = 'rating ${formatRating(g.ratingOf(s.pendingEffectiveCompute!))} · tap to ship';
+      sub = 'rating ${formatRating(g.pendingRating!)} · tap to ship';
       progress = 1;
       color = AppColors.neon;
       icon = Icons.rocket_launch_rounded;
@@ -886,7 +892,7 @@ class ContextButtons extends StatelessWidget {
               icon: Icons.rocket_launch_rounded,
               color: AppColors.neon,
               title: 'Run done: release!',
-              sub: 'rating ${formatRating(g.ratingOf(s.pendingEffectiveCompute!))}',
+              sub: 'rating ${formatRating(g.pendingRating!)}',
               pulse: true,
               onTap: onRelease,
             ),

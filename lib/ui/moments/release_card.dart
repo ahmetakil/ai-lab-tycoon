@@ -13,8 +13,10 @@ import 'package:share_plus/share_plus.dart';
 import '../../sim/content.dart';
 import '../../sim/game.dart';
 import '../../sim/game_state.dart';
+import '../../sim/model_design.dart';
 import '../format.dart';
 import '../game_assets.dart';
+import '../model_design/benchmark_strip.dart';
 import '../sound.dart';
 import 'benchmarks.dart';
 import 'moments_style.dart';
@@ -39,6 +41,12 @@ class ReleaseCardData {
   final double rivalRating;
   final Era era;
 
+  /// The model's design benchmark profile (null for the starting model).
+  final BenchmarkStrengths? strengths;
+
+  /// E.g. "RL reasoning won math" (strengthHeadline), or null.
+  final String? designHeadline;
+
   const ReleaseCardData({
     required this.labName,
     required this.modelName,
@@ -51,6 +59,8 @@ class ReleaseCardData {
     required this.rivalModel,
     required this.rivalRating,
     required this.era,
+    this.strengths,
+    this.designHeadline,
   });
 
   /// Card for [release] (default: the model currently serving).
@@ -75,6 +85,8 @@ class ReleaseCardData {
       rivalModel: rival.model,
       rivalRating: rival.rating,
       era: g.s.era,
+      strengths: r.design?.strengths,
+      designHeadline: r.design == null ? null : strengthHeadline(r.design!.spec, r.design!.strengths),
     );
   }
 
@@ -97,6 +109,7 @@ class ReleaseCardData {
       'Arena-ish rating ${rating.round()} · ${formatNumber(users)} users · '
       '${formatMoney(arr)} ARR.\n'
       '$benchmarkLine.\n'
+      '${designHeadline == null ? '' : '$designHeadline.\n'}'
       'Started with one GPU in a garage. Your turn: $kGameUrl #AILabTycoon';
 }
 
@@ -587,71 +600,84 @@ class _ReleaseCardDialogState extends State<_ReleaseCardDialog> {
             padding: const EdgeInsets.all(16),
             child: Material(
               type: MaterialType.transparency,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.headline ?? 'Your latest model',
-                    textAlign: TextAlign.center,
-                    style: display(context, 26),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Post it. Tag a friend who still runs a garage GPU.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [BoxShadow(color: Neon.green.withValues(alpha: 0.25), blurRadius: 40)],
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.headline ?? 'Your latest model',
+                      textAlign: TextAlign.center,
+                      style: display(context, 26),
                     ),
-                    child: ScaledReleaseCard(data: widget.data, boundaryKey: _key),
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 12,
-                    runSpacing: 10,
-                    children: [
-                      FilledButton.icon(
-                        key: _shareKey,
-                        onPressed: _busy ? null : _share,
-                        icon:
-                            _busy
-                                ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                                : const Icon(Icons.ios_share_rounded),
-                        label: Text(kIsWeb ? 'Share / save image' : 'Share image'),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Post it. Tag a friend who still runs a garage GPU.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [BoxShadow(color: Neon.green.withValues(alpha: 0.25), blurRadius: 40)],
                       ),
-                      OutlinedButton.icon(
-                        onPressed: _copy,
-                        icon: const Icon(Icons.copy_rounded),
-                        label: const Text('Copy post text'),
+                      child: ScaledReleaseCard(data: widget.data, boundaryKey: _key),
+                    ),
+                    if (widget.data.strengths != null) ...[
+                      const SizedBox(height: 12),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        child: BenchmarkStrip(
+                          key: const ValueKey('release-benchmark-strip'),
+                          strengths: widget.data.strengths!,
+                          headline: widget.data.designHeadline,
+                        ),
                       ),
-                      TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Done')),
                     ],
-                  ),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
-                    child:
-                        _status.isEmpty
-                            ? const SizedBox(height: 28)
-                            : Padding(
-                              key: ValueKey(_status),
-                              padding: const EdgeInsets.only(top: 10),
-                              child: Text(
-                                _status,
-                                textAlign: TextAlign.center,
-                                style: mono(context, 13, color: theme.colorScheme.primary),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 12,
+                      runSpacing: 10,
+                      children: [
+                        FilledButton.icon(
+                          key: _shareKey,
+                          onPressed: _busy ? null : _share,
+                          icon:
+                              _busy
+                                  ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                  : const Icon(Icons.ios_share_rounded),
+                          label: Text(kIsWeb ? 'Share / save image' : 'Share image'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _copy,
+                          icon: const Icon(Icons.copy_rounded),
+                          label: const Text('Copy post text'),
+                        ),
+                        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Done')),
+                      ],
+                    ),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      child:
+                          _status.isEmpty
+                              ? const SizedBox(height: 28)
+                              : Padding(
+                                key: ValueKey(_status),
+                                padding: const EdgeInsets.only(top: 10),
+                                child: Text(
+                                  _status,
+                                  textAlign: TextAlign.center,
+                                  style: mono(context, 13, color: theme.colorScheme.primary),
+                                ),
                               ),
-                            ),
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

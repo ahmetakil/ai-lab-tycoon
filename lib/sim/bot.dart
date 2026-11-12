@@ -17,6 +17,7 @@ import 'balance.dart';
 import 'content.dart';
 import 'game.dart';
 import 'game_state.dart';
+import 'model_design.dart';
 
 enum BotStrategy {
   /// Scores every purchase by progress per dollar (hardware, power, software).
@@ -163,6 +164,14 @@ class Bot {
   double _nextThink = 0;
   bool _pausedForCrisis = false;
 
+  /// If set, every run uses this model design (clamped to what's unlocked)
+  /// instead of [ModelSpec.bestGuessFor]: for testing bad choices.
+  final ModelSpec? fixedSpec;
+
+  /// bestGuessFor per lab state (owned research, era, network tier, serving
+  /// pressure, data budget bucket), so what-ifs stay cheap.
+  final Map<String, ModelSpec> _specCache = {};
+
   /// The bot's own deterministic RNG (random placement), separate from the
   /// game's so it never changes game events.
   int _rng;
@@ -172,8 +181,77 @@ class Bot {
     this.strategy = BotStrategy.balanced,
     this.layout = BotLayout.template,
     this.thinkEvery = 3,
+    this.fixedSpec,
     int seed = 1,
   }) : _rng = seed & 0x7fffffff;
+
+  /// Serving-cost weight for the design pick. Low when rating is what
+  /// blocks progress (an era gate, or a rival whose users we already have):
+  /// then it trades serving for rating (e.g. RL reasoning). Otherwise higher
+  /// while capacity, not demand, limits users.
+  double get _serveWeight {
+    if (_ratingBlocks) return 4;
+    return g.s.users >= 0.9 * g.capacity ? 23 : 6;
+  }
+
+  /// True when a better rating, not users, is what the next step needs.
+  /// The first rival we can't beat yet (the ladder only advances on the
+  /// next tick, so one we already match doesn't count).
+  RivalSnapshot? get _rivalAhead {
+    for (var i = g.s.rivalIndex; i < rivalLadder.length; i++) {
+      if (!g.canBeat(rivalLadder[i])) return rivalLadder[i];
+    }
+    return null;
+  }
+
+  bool get _ratingBlocks {
+    final goal = g.nextEraGoal;
+    final rival = _rivalAhead;
+    return (goal != null && goal.metric == 'rating' && !goal.met) ||
+        (rival != null && g.isUnlocked(rival.era) && g.s.users >= rival.users && g.rating < rival.rating);
+  }
+
+  /// The model design the bot would pick now (what the run-setup panel's
+  /// best options would be for a thoughtful player).
+  ModelSpec get spec => specFor(g.plannedFlops(0.5, runSeconds));
+
+  /// The design for a run of [flops] raw FLOPs.
+  ModelSpec specFor(double flops) {
+    final fixed = fixedSpec;
+    if (fixed != null) return fixed.clampTo(g.designContext);
+    // Users block a rival whose rating we already have: the cheapest to
+    // serve setup that still clears its rating (a player keeps the rating
+    // and trades the rest for capacity).
+    final rival = _rivalAhead;
+    if (rival != null &&
+        g.isUnlocked(rival.era) &&
+        g.rating >= rival.rating &&
+        g.s.users < rival.users) {
+      for (final w in const [23.0, 15.0, 10.0, 6.0]) {
+        final sp = _specFor(w);
+        if (g.predictRatingForFlops(flops, sp) >= rival.rating + 1) return sp;
+      }
+      return _specFor(4);
+    }
+    // A run that can't beat the current model is wasted: aim for rating.
+    final sp = _specFor(_serveWeight);
+    if (g.predictRatingForFlops(flops, sp) < g.rating + 1) return _specFor(4);
+    return sp;
+  }
+
+  ModelSpec _specFor(double w) {
+    final ctx = g.designContext;
+    final key = [
+      (g.s.ownedUpgrades.toList()..sort()).join(','),
+      g.s.era.index,
+      g.s.networkTier,
+      w,
+      (math.log(ctx.plannedCompute + 1) / math.log(ctx.dataTokens * ctx.dataTokens + 1) * 20).round(),
+    ].join('|');
+    // Chasing rating (lowest serving weight): demand counts for little too.
+    return _specCache[key] ??= ModelSpec.bestGuessFor(ctx, serveWeight: w, demandWeight: w <= 4 ? 8 : 30);
+  }
+
 
   void act() {
     if (g.s.time < _nextThink) return;
@@ -181,11 +259,13 @@ class Bot {
     _release();
     _crisis();
     if (layout == BotLayout.template) _rearrange();
-    _train();
+    // Spend first, then start the run: research bought now unlocks run-setup
+    // options this run can use (a run's design is fixed when it starts).
     // Several purchases per look when money piles up (big new power tier).
     for (var i = 0; i < 12; i++) {
       if (!_spend()) break;
     }
+    _train();
   }
 
   void _meaningful() {
@@ -229,7 +309,15 @@ class Bot {
   void _release() {
     final pending = g.s.pendingEffectiveCompute;
     if (pending == null) return;
-    if (g.ratingOf(pending) > g.rating + 0.5) {
+    // Ship a better model, or one that serves far more users without
+    // dropping below the next rival's rating when users are what's missing.
+    final rival = _rivalAhead;
+    final cheaperForRival = rival != null &&
+        g.isUnlocked(rival.era) &&
+        g.s.users < rival.users &&
+        g.pendingRating! >= rival.rating &&
+        g.pendingPerUserTflops! < 0.7 * g.currentPerUserTflops;
+    if (g.pendingRating! > g.rating + 0.5 || cheaperForRival) {
       // Open weights early for hype + community help; closed once revenue
       // matters.
       g.release(open: g.s.era == Era.garage, stuntId: 'cryptic_tweet');
@@ -307,7 +395,7 @@ class Bot {
     final limit = math.max(def, sessionLeft.isInfinite ? def : sessionLeft);
     for (final d in g.runDurations) {
       if (d > limit) break;
-      if (g.predictRating(fraction, d) >= target + 0.5) return d;
+      if (g.predictRating(fraction, d, spec: specFor(g.plannedFlops(fraction, d))) >= target + 0.5) return d;
     }
     return def;
   }
@@ -317,15 +405,16 @@ class Bot {
     // Keep enough serving compute for the users we have (plus some growth);
     // train with the rest of the training cluster.
     final need =
-        math.min(g.demand, g.s.users * 1.2 + 10) *
-        g.perUserTflops(g.s.currentModel.effectiveCompute);
+        math.min(g.demand, g.s.users * 1.2 + 10) * g.currentPerUserTflops;
     final cluster = g.trainingCluster?.effectiveTflops ?? 0;
     final spare = (g.effectiveTflops - need) / math.max(1e-9, cluster);
     // UI choices: 25% / 50% / 75%.
     final fraction = spare >= 0.75 ? 0.75 : 0.5;
+    final duration = _runFor(fraction);
     if (g.startTraining(
       fraction: fraction,
-      durationSeconds: _runFor(fraction),
+      durationSeconds: duration,
+      spec: specFor(g.plannedFlops(fraction, duration)),
     )) {
       _meaningful();
     }
@@ -687,15 +776,25 @@ class Bot {
   /// Progress score: model rating (in compute doublings) + log of users we
   /// could serve + a little for revenue per user. [extraTrain] / [extraTotal]
   /// add hypothetical effective TFLOPS (to the training cluster / overall).
-  double _value({double extraTrain = 0, double extraTotal = 0}) {
+  /// The design this look's what-ifs assume (set at the start of [_spend]),
+  /// so a hypothetical purchase doesn't also flip the design choice.
+  ModelSpec? _lookSpec;
+
+  double _value({double extraTrain = 0, double extraTotal = 0, bool ratingOnly = false, ModelSpec? design}) {
     final train = g.trainingClusterTflops + extraTrain;
     final flops =
         train * 0.5 * 1e12 * g.s.era.computeTimeScale * runSeconds;
-    final effC = g.effectiveComputeOf(flops);
-    final r = g.ratingOf(effC);
+    final sp = design ?? _lookSpec ?? spec;
+    final e = g.designEffects(sp, flops);
+    final effC = g.designedEffectiveCompute(flops, sp, e);
+    var r = g.ratingOf(effC) + e.ratingAdd;
+    // Risks at their expected rating cost.
+    for (final risk in e.risks) {
+      r += risk.chance * ratingPerDoubling * math.log(risk.cemMultOnHit) / math.ln2;
+    }
     final demand = math.min(
       maxUsers,
-      demandBase * math.pow(10, (r - ratingBase) / demandRatingScale),
+      demandBase * math.pow(10, (r - ratingBase) / demandRatingScale) * e.demandMult,
     );
     // Like Game.servingTflops: the run takes its share of the cluster's
     // compute before scaling losses (the loss is wasted, not served).
@@ -703,14 +802,15 @@ class Bot {
     final serving = g.effectiveTflops + extraTotal - 0.5 * clusterEff;
     final cap =
         math.max(0.0, serving) /
-        g.perUserTflops(math.max(effC, g.s.currentModel.effectiveCompute));
+        (g.perUserTflops(effC / e.cem) * e.serveCostMult);
+    if (ratingOnly) return math.ln2 * r / ratingPerDoubling;
     return math.ln2 * r / ratingPerDoubling +
         math.log(math.max(1.0, math.min(demand, cap))) +
         0.5 * math.log(g.arpuMult);
   }
 
   List<UpgradeDef> get _availableUpgrades =>
-      upgrades
+      allUpgrades
           .where(
             (u) =>
                 !g.s.ownedUpgrades.contains(u.id) &&
@@ -728,6 +828,9 @@ class Bot {
   /// Returns true if it bought something.
   bool _spend() {
     final s = g.s;
+    _lookSpec = null;
+    final flops0 = g.plannedFlops(0.5, runSeconds);
+    _lookSpec = specFor(flops0);
     final v0 = _value();
     final cands = <_Cand>[];
 
@@ -748,8 +851,20 @@ class Bot {
           !hwPrereqs.contains(u.id)) {
         continue;
       }
+      // Research that unlocks a run-setup option: while rating is what
+      // blocks, value it by the rating it adds (a pricier-to-serve but
+      // smarter model, e.g. RL reasoning, is then worth it).
+      final designUnlock = _ratingBlocks &&
+          (optionsUnlockedBy(u.id).isNotEmpty || designResearchModifiers.containsKey(u.id));
+      final r0 = designUnlock ? _value(ratingOnly: true) : 0.0;
       s.ownedUpgrades.add(u.id);
-      var dv = _value() - v0;
+      // With the research, the design may change too: take the better of
+      // keeping this look's design and re-picking it.
+      final respec = specFor(flops0);
+      var dv = math.max(_value(), _value(design: respec)) - v0;
+      if (designUnlock) {
+        dv = math.max(dv, math.max(_value(ratingOnly: true), _value(ratingOnly: true, design: respec)) - r0);
+      }
       s.ownedUpgrades.remove(u.id);
       // Power savings = more GPUs under the same cap.
       if (u.effects.powerMult < 1) {
@@ -964,6 +1079,7 @@ class Bot {
   }
 }
 
+
 class _Cand {
   final double cost;
   final double dv;
@@ -1046,6 +1162,7 @@ PlaythroughResult runPlaythrough({
   void Function(Game g)? onTick,
   int seed = 12345,
   double thinkEvery = 3,
+  ModelSpec? fixedSpec,
 }) {
   final g = Game(GameState(rngState: seed));
   final bot = Bot(
@@ -1054,6 +1171,7 @@ PlaythroughResult runPlaythrough({
     layout: layout,
     seed: seed,
     thinkEvery: thinkEvery,
+    fixedSpec: fixedSpec,
   );
   final r = PlaythroughResult(strategy, g, layout: layout);
   r.eraTimes[Era.garage] = 0;
@@ -1174,6 +1292,7 @@ PlaythroughResult runSchedule({
   void Function(Game g, double wall)? onTick,
   int seed = 12345,
   double thinkEvery = 3,
+  ModelSpec? fixedSpec,
 }) {
   final g = Game(GameState(rngState: seed));
   final bot = Bot(
@@ -1182,6 +1301,7 @@ PlaythroughResult runSchedule({
     layout: layout,
     seed: seed,
     thinkEvery: thinkEvery,
+    fixedSpec: fixedSpec,
   );
   final r = PlaythroughResult(strategy, g, layout: layout);
   r.eraTimes[Era.garage] = 0;

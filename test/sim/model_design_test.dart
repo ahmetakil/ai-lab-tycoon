@@ -147,7 +147,7 @@ void main() {
   test('GQA cuts serving cost with a tiny quality change', () {
     final mha = evaluate(base, rich);
     final gqa = evaluate(base.copyWith(attention: Attention.gqa), rich);
-    expect(gqa.serveCostMult, closeTo(mha.serveCostMult * 0.5, 1e-9));
+    expect(gqa.serveCostMult, closeTo(mha.serveCostMult * 0.7, 1e-9));
     expect((gqa.ratingDelta - mha.ratingDelta).abs(), lessThan(0.5));
   });
 

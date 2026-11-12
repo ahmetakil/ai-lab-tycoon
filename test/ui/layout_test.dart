@@ -2,6 +2,7 @@
 // desktop sizes with early/mid/late-game saves, and fails on any layout
 // exception (overflows etc.).
 // Set LAYOUT_PREVIEW_DIR=/some/dir to also write PNG screenshots.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -10,8 +11,11 @@ import 'package:ai_lab_tycoon/sim/bot.dart';
 import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
+import 'package:ai_lab_tycoon/sim/model_design.dart';
 import 'package:ai_lab_tycoon/ui/app.dart';
 import 'package:ai_lab_tycoon/ui/game_controller.dart';
+import 'package:ai_lab_tycoon/ui/moments/release_card.dart';
+import 'package:ai_lab_tycoon/ui/shell/game_modal.dart';
 import 'package:ai_lab_tycoon/ui/world/world_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -100,7 +104,7 @@ void main() {
   const sizes = [Size(360, 740), Size(390, 844), Size(1400, 900)];
   // (seconds, casual schedule?): Garage, Startup, Small lab, Medium lab
   // (casual, day 1 evening), Frontier lab (casual, day 2 evening).
-  const stages = {
+  const stages = <String, (double, bool)>{
     'start': (0.0, false),
     'startup': (20 * 60.0, false),
     'smalllab': (100 * 60.0, false),
@@ -220,6 +224,78 @@ void main() {
       c.dispose();
       await _setSize(tester, null);
     });
+  }
+
+  // The training modal with the run-setup panel open (garage and a
+  // Medium-lab save), then the finished model's benchmark profile and the
+  // release card with its benchmark strip.
+  for (final size in sizes) {
+    for (final stage in ['start', 'mediumlab']) {
+      testWidgets('run setup at ${size.width.toInt()}w, $stage', (tester) async {
+        if (_out != null) await tester.runAsync(_loadFonts);
+        SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
+        await _setSize(tester, size);
+        final c = await GameController.load();
+        final st = _stateAt(stage, stages[stage]!.$1, casual: stages[stage]!.$2)
+          ..run = null
+          ..pendingEffectiveCompute = null
+          ..pendingDesign = null;
+        c.game = Game(st);
+        final key = GlobalKey();
+        await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
+        await _settle(tester);
+        final tag = '${size.width.toInt()}_${stage}_design';
+
+        await tester.tap(find.byKey(const ValueKey('tool-train')));
+        await _settle(tester, 500);
+        await tester.tap(find.byKey(const ValueKey('run-setup-toggle')));
+        await _settle(tester, 400);
+        expect(find.byKey(const ValueKey('run-setup')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'run setup open');
+        await _shot(tester, key, '${tag}_0');
+        final list = find.descendant(of: find.byType(GameModalCard), matching: find.byType(Scrollable));
+        for (var i = 1; i <= 5; i++) {
+          await tester.drag(list.first, Offset(0, -size.height * 0.7), warnIfMissed: false);
+          await _settle(tester, 200);
+          expect(tester.takeException(), isNull, reason: 'run setup scrolled $i');
+          await _shot(tester, key, '${tag}_$i');
+        }
+        await tester.tap(find.byKey(const ValueKey('modal-close')).last);
+        await _settle(tester, 400);
+
+        // Train the bot's pick, then look at the finished model.
+        final g = c.game;
+        c.act((g) => g.startTraining(
+              fraction: 0.5,
+              durationSeconds: g.runDurations.first,
+              spec: ModelSpec.bestGuessFor(g.designContext),
+            ));
+        c.act((g) => g.advance(g.runDurations.first + 1));
+        await tester.tap(find.byKey(const ValueKey('tool-stats')));
+        await _settle(tester, 500);
+        expect(find.byKey(const ValueKey('pending-benchmark-strip')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'pending card');
+        await _shot(tester, key, '${tag}_pending');
+        await tester.tap(find.byKey(const ValueKey('modal-close')).last);
+        await _settle(tester, 400);
+
+        c.act((g) => g.release(open: false, name: 'Parrot-2'));
+        unawaited(showReleaseCardDialog(
+          tester.element(find.byType(Scaffold).first),
+          ReleaseCardData.fromGame(g),
+          headline: 'Parrot-2 is live!',
+        ));
+        await _settle(tester, 800);
+        expect(find.byKey(const ValueKey('release-benchmark-strip')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'release card');
+        await _shot(tester, key, '${tag}_release');
+
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(seconds: 15));
+        c.dispose();
+        await _setSize(tester, null);
+      });
+    }
   }
 
   // The move-to-closet modal: the requirements checklist.

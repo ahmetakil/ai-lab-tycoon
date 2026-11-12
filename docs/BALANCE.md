@@ -197,61 +197,100 @@ own formula.
 
 ## Pacing: casual schedule (balanced bot, template layout, seed 12345)
 
-Since v4 (one place at a time, network and central cooling tiers, money-only
-moves, bigger rooms).
+Since model design (v4 saves, run setup choices; see docs/MODEL_DESIGN.md).
 
 | Milestone | Wall-clock | (sim) | Target |
 |---|---|---|---|
 | Startup | 0h12 | 0h12 | ~12 min |
-| Small lab | 0h53 | 0h53 | ~1 h |
+| Small lab | 0h58 | 0h58 | ~1 h |
 | Medium lab | 7h15 | 7h15 | ~7–14 h |
 | Big lab | 24h00 | 19h45 | ~24–32 h |
-| Frontier lab | 34h45 | 30h30 | ~35–50 h |
-| Final rival (GPT-ish-6 Astral) | **55h15** | 46h45 | ~50–70 h |
+| Frontier lab | 31h15 | 27h00 | ~35–50 h |
+| Final rival (GPT-ish-6 Astral) | **58h45** | 50h15 | ~50–70 h |
 
-Moves (money only, so about an era early): closet 0h11, colo and hall 3h30,
-campus 7h15, gigasite 24h00. 11 sessions, 8h45 of active play. At the final
-rival: 3.3B users, $39B ARR, 1.6M H100e, 1.3 GW.
+Moves: closet 0h11, colo and hall 3h30, campus 10h45, gigasite 48h00. 12
+sessions, 9h45 of active play. At the final rival: 4.7B users, $24B ARR,
+1.8M H100e, 1.4 GW. The Frontier arrives a session early (31h15) and the
+Frontier lab then takes ~27 h: its rivals are paced by rating, which now comes
+from design choices and big research rather than flat bonuses.
 
 ```
 sess | wall start | sim start | len | era at start | ran away | 1st act | decisions (buy/rel) | idle max | rivals | eras
-   0 |       0h00 |      0h00 |  60 | Parents' garage | -        |   0s   |   45 (26/9)         |   5.4m |      4 | Startup, Small lab
-   1 |       3h30 |      3h30 |  45 | Small lab    | yes      |   0s   |   67 (63/2)         |   6.7m |      2 | 
-   2 |       7h15 |      7h15 |  30 | Small lab    | yes      |   0s   |   34 (32/1)         |   5.3m |      0 | Medium lab
-   3 |      10h45 |     10h45 |  60 | Medium lab   | yes      |   0s   |   30 (28/1)         |   7.0m |      1 | 
-   4 |      24h00 |     19h45 |  60 | Medium lab   | yes      |   0s   |   41 (39/1)         |   5.2m |      1 | Big lab
-   5 |      27h30 |     23h15 |  45 | Big lab      | yes      |   0s   |   20 (18/1)         |  11.3m |      5 | 
-   6 |      31h15 |     27h00 |  30 | Big lab      | yes      |   0s   |   15 (13/1)         |   7.0m |      0 | 
-   7 |      34h45 |     30h30 |  60 | Big lab      | yes      |   0s   |   30 (28/1)         |   5.7m |      0 | Frontier lab
-   8 |      48h00 |     39h30 |  60 | Frontier lab | yes      |   0s   |   71 (69/1)         |  11.1m |      5 | 
-   9 |      51h30 |     43h00 |  45 | Frontier lab | yes      |   0s   |   10 (9/0)          |   6.9m |      0 | 
-  10 |      55h15 |     46h45 |  30 | Frontier lab | yes      |   0s   |   11 (9/1)          |   0.0m |      4 |
+   0 |       0h00 |      0h00 |  60 | Parents' garage | -        |   0s   |   43 (25/8)         |   6.8m |      4 | Startup, Small lab
+   1 |       3h30 |      3h30 |  45 | Small lab    | yes      |   0s   |   56 (52/2)         |   5.1m |      1 | 
+   2 |       7h15 |      7h15 |  30 | Small lab    | yes      |   0s   |   44 (42/1)         |   6.1m |      1 | Medium lab
+   3 |      10h45 |     10h45 |  60 | Medium lab   | yes      |   0s   |   32 (30/1)         |   9.3m |      0 | 
+   4 |      24h00 |     19h45 |  60 | Medium lab   | yes      |   0s   |   39 (37/1)         |   9.4m |      2 | Big lab
+   5 |      27h30 |     23h15 |  45 | Big lab      | yes      |   0s   |   32 (30/1)         |   5.0m |      2 | 
+   6 |      31h15 |     27h00 |  30 | Big lab      | yes      |   0s   |   54 (52/1)         |   9.7m |      3 | Frontier lab
+   7 |      34h45 |     30h30 |  60 | Frontier lab | yes      |   0s   |   31 (29/1)         |  10.5m |      1 | 
+   8 |      48h00 |     39h30 |  60 | Frontier lab | yes      |   0s   |   20 (18/1)         |  13.8m |      1 | 
+   9 |      51h30 |     43h00 |  45 | Frontier lab | yes      |   0s   |   24 (22/1)         |   6.4m |      1 | 
+  10 |      55h15 |     46h45 |  30 | Frontier lab | yes      |   0s   |   22 (20/1)         |   6.0m |      1 | 
+  11 |      58h45 |     50h15 |  60 | Frontier lab | yes      |   0s   |    7 (5/1)          |   0.0m |      5 |
 ```
 
-- **Longest active stretch with nothing to do: 11.3 min** (session 5, Big
-  lab, saving for research). Target ~10; every other session ≤ 11.1 min,
-  median ~6.5 min.
-- Seeds 1, 777, 2026 and 4242 give the same milestones (Startup 0h09–0h12,
-  Small lab 0h49–0h56, final 55h15 for all five seeds); max idle 11.3–13.5
-  min.
-- Sensitive spot: the final rivals are a few rating points apart, so a
-  change that costs ~2 rating points at the end of day 3's evening session
-  pushes the finish to the next morning (72h). Re-check seeds after any
-  late-game change.
+- **Longest active stretch with nothing to do: 13.8 min** (session 8,
+  Frontier, saving for agentic RL with users near the 5B cap). Every other
+  session ≤ 10.5 min.
+- Seeds: 1 → final 51h30, 777 → 58h45, 2026 → 58h45, 4242 → 72h00 (its last
+  three rivals miss the day-3 evening session by a few rating points; idle max
+  18.6 min). The eras land within the targets for every seed (Small lab
+  0h52–0h59, Big lab 24h00–24h33, Frontier 31h15–34h45).
+- Sensitive spot, as before: the last rivals (1618–1626) are a few points
+  apart, so ~5 rating at the end of day 3 moves the finish to the next
+  morning.
+
+### What model design changed in the balance
+
+- **Start unchanged.** The garage default design (dense, full attention, 2k,
+  Kaplan-sized, web crawl, SFT, FP16) serves at ×1.30 and demand ×0.92;
+  `servingBase` 0.015 → 0.0115 and `demandBase` 90 → 98 absorb that. It also
+  costs ~3 rating (Kaplan sizing), so the Small-lab gate is 990 (was 1000).
+- **No double counting.** `moe`, `chinchilla_scaling`, `quantization`,
+  `long_context` and `reasoning` only unlock options now; `rlhf` keeps its
+  ARPU (+20%) and the RLHF choice gives the rating (up to +70, +81 with bigger
+  reward models).
+- **Late serving.** GQA ×0.7, sliding window ×0.6, hybrid SSM ×0.5 (the KV
+  cache is only part of decode cost), INT8 ×0.55, INT4 ×0.35 and
+  compute-optimal sizing all stack, so speculative decoding went ×1.8 → ×1.3
+  and disaggregated serving ×1.4 → ×1.2. RL reasoning serves at ×6 (×2.5 with
+  adaptive thinking) and adds +50 rating: the late game is a real trade
+  between rating and users.
+- **Network.** MoE needs a fabric: below an InfiniBand-spine-class network
+  (32,768 GPUs) its gain shrinks, and a cluster more than 2× over the network
+  tier's cap counts one network class lower.
+- **Bad designs lose.** A bot locked to a huge, under-trained dense base model
+  (2 tok/param, web only, 2k, no post-training) beats fewer than half the
+  rivals, reaches the Medium lab 6+ hours later and never finishes
+  (`playthrough_test.dart`). Extreme RL is worse than plain SFT.
+
+### How the bot designs models
+
+`ModelSpec.bestGuessFor` with a serving weight that follows what blocks
+progress: 4 (demand weight 8) when rating blocks an era gate or rival, 23 when
+capacity-limited, else 6. If a rival needs users and we already have its
+rating, the cheapest-to-serve design that still clears it, and it ships such
+a cheaper model even if it isn't the top-rated one. It spends before starting
+a run (the design is fixed at the start, so research bought first can be
+used) and never starts a run predicted below its current model unless users
+are the goal.
 
 
 ## Pacing: continuous play (no gaps)
 
-Startup 0h12, Small lab 0h53, Medium lab 3h03, Big lab 10h28, Frontier
-33h27; 19/22 rivals by 46h09 and the last three around 58–62h (seed 12345,
-1 s / 3 s; the test runs it coarser and checks < casual + 8 h). Continuous
-play is now about as fast as casual: the frontier is data-limited and paced
-by 8 h runs, and offline earns at full rate. That's deliberate for a casual
-idle game (and it needs ~60 h of active play against ~9 h for the casual
-player).
+Startup 0h12, Small lab 0h58, Medium lab 3h46, Big lab 14h25, Frontier
+30h19; 21/22 rivals by 60h and the last one before 70h (seed 12345, 1 s /
+3 s; the test runs it coarser and checks 25–70 h and < casual + 8 h).
+Continuous play is about as fast as casual: the frontier is paced by rating
+(research, design and data) and 8 h runs, and offline earns at full rate.
 
 
 ## Strategies and placement
+
+(Measured before model design; the playthrough tests still check that naive
+and random placement reach the Small lab 2+ hours late, naive finishes 12+
+hours late, and hardware-only never leaves the Small lab.)
 
 ```
 continuous, 60h00 cap

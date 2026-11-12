@@ -1,5 +1,6 @@
 import 'balance.dart';
 import 'content.dart';
+import 'model_design.dart';
 
 class TrainingRun {
   /// Fraction of effective compute committed to training (0..1).
@@ -13,9 +14,13 @@ class TrainingRun {
   double computeFlops; // raw accumulated FLOPs (before algorithmic multipliers)
   bool paused;
 
+  /// The model design chosen when the run started.
+  final ModelSpec spec;
+
   TrainingRun({
     required this.fraction,
     required this.durationSeconds,
+    this.spec = const ModelSpec(),
     this.timeScale = computeTimeScale,
     this.elapsedSeconds = 0,
     this.computeFlops = 0,
@@ -32,9 +37,11 @@ class TrainingRun {
     'elapsed': elapsedSeconds,
     'flops': computeFlops,
     'paused': paused,
+    'spec': spec.toJson(),
   };
 
   factory TrainingRun.fromJson(Map<String, dynamic> j) => TrainingRun(
+    spec: _specFrom(j['spec']),
     fraction: (j['fraction'] as num).toDouble(),
     durationSeconds: (j['duration'] as num).toDouble(),
     timeScale: (j['scale'] as num?)?.toDouble() ?? computeTimeScale,
@@ -44,6 +51,74 @@ class TrainingRun {
   );
 }
 
+ModelSpec _specFrom(Object? j) =>
+    j is Map ? ModelSpec.fromJson(j.cast<String, dynamic>()) : const ModelSpec();
+
+/// What a finished run's model design did, fixed when the run ends (the
+/// design is evaluated against the lab as it was then). Kept on the pending
+/// model and on the release, so serving and demand follow the *current*
+/// model.
+class DesignOutcome {
+  final ModelSpec spec;
+
+  /// Flat rating from post-training, relative to SFT (DesignEffects.ratingAdd).
+  final double ratingAdd;
+
+  /// Per-user serving TFLOPS multiplier (DesignEffects.serveCostMult).
+  final double serveCostMult;
+
+  /// User demand multiplier (DesignEffects.demandMult).
+  final double demandMult;
+
+  /// Effective compute without the design's quality multiplier: what sets
+  /// the model's size for serving (a smarter design isn't a bigger model).
+  final double serveCompute;
+
+  final BenchmarkStrengths strengths;
+
+  /// Short lines for the release card: risks that fired, the biggest effects.
+  final List<String> highlights;
+
+  const DesignOutcome({
+    required this.spec,
+    required this.ratingAdd,
+    required this.serveCostMult,
+    required this.demandMult,
+    required this.serveCompute,
+    this.strengths = const BenchmarkStrengths(),
+    this.highlights = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+    'spec': spec.toJson(),
+    'ratingAdd': ratingAdd,
+    'serve': serveCostMult,
+    'demand': demandMult,
+    'serveC': serveCompute,
+    'bench': strengths.toJson(),
+    'notes': highlights,
+  };
+
+  /// Tolerant: missing fields default.
+  static DesignOutcome? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final j = raw.cast<String, dynamic>();
+    double n(String k, double d) => (j[k] as num?)?.toDouble() ?? d;
+    final bench = j['bench'];
+    return DesignOutcome(
+      spec: _specFrom(j['spec']),
+      ratingAdd: n('ratingAdd', 0),
+      serveCostMult: n('serve', 1),
+      demandMult: n('demand', 1),
+      serveCompute: n('serveC', startEffectiveCompute),
+      strengths: bench is Map
+          ? BenchmarkStrengths.fromJson(bench.cast<String, dynamic>())
+          : const BenchmarkStrengths(),
+      highlights: (j['notes'] as List?)?.whereType<String>().toList() ?? const [],
+    );
+  }
+}
+
 class ModelRelease {
   final String name;
   final double effectiveCompute;
@@ -51,12 +126,16 @@ class ModelRelease {
   final bool open;
   final double time;
 
+  /// The design it was trained with; null for the starting model.
+  final DesignOutcome? design;
+
   const ModelRelease({
     required this.name,
     required this.effectiveCompute,
     required this.rating,
     required this.open,
     required this.time,
+    this.design,
   });
 
   Map<String, dynamic> toJson() => {
@@ -65,6 +144,7 @@ class ModelRelease {
     'rating': rating,
     'open': open,
     'time': time,
+    if (design != null) 'design': design!.toJson(),
   };
 
   factory ModelRelease.fromJson(Map<String, dynamic> j) => ModelRelease(
@@ -73,13 +153,15 @@ class ModelRelease {
     rating: (j['rating'] as num).toDouble(),
     open: j['open'] as bool,
     time: (j['time'] as num).toDouble(),
+    design: DesignOutcome.fromJson(j['design']),
   );
 }
 
 /// Current save format. Older saves load as a fresh game (see fromJson).
 /// v3: six eras (v2 had three) and per-run time compression.
 /// v4: one room at a time (you move, your tiles come with you); network and
-/// central cooling are global tiers (no switch tiles).
+/// central cooling are global tiers (no switch tiles). Model design (run
+/// specs, design outcomes) added optional fields to v4, no bump.
 const saveVersion = 4;
 
 /// Where the starting RTX 4090 (gpu_gamer) sits in the garage.
@@ -106,6 +188,14 @@ class GameState {
 
   /// Finished run waiting for the player to choose how to release it.
   double? pendingEffectiveCompute;
+
+  /// The pending model's design outcome (null for a pending model from a
+  /// save made before model design, or set directly by tests).
+  DesignOutcome? pendingDesign;
+
+  /// The model design the last run used; the next run starts from it, so
+  /// starting a run stays one tap.
+  ModelSpec lastSpec;
 
   List<ModelRelease> releases;
   int rivalIndex; // first unbeaten rival in rivalLadder
@@ -139,6 +229,8 @@ class GameState {
     this.openReleases = 0,
     this.run,
     this.pendingEffectiveCompute,
+    this.pendingDesign,
+    this.lastSpec = const ModelSpec(),
     List<ModelRelease>? releases,
     this.rivalIndex = 0,
     this.viralSecondsLeft = 0,
@@ -230,6 +322,8 @@ class GameState {
     'openReleases': openReleases,
     'run': run?.toJson(),
     'pending': pendingEffectiveCompute,
+    if (pendingDesign != null) 'pendingDesign': pendingDesign!.toJson(),
+    'spec': lastSpec.toJson(),
     'releases': releases.map((r) => r.toJson()).toList(),
     'rivalIndex': rivalIndex,
     'viral': viralSecondsLeft,
@@ -248,7 +342,7 @@ class GameState {
       return GameState()..startedFromOldSave = true;
     }
     double num_(String k, double d) => (j[k] as num?)?.toDouble() ?? d;
-    final upgradeIds = upgrades.map((u) => u.id).toSet();
+    final upgradeIds = allUpgrades.map((u) => u.id).toSet();
     final eraName = j['era'] as String?;
     Map<String, List<String?>>? grids;
     final rawGrids = j['grids'];
@@ -283,6 +377,8 @@ class GameState {
       openReleases: (j['openReleases'] as num?)?.toInt() ?? 0,
       run: j['run'] == null ? null : TrainingRun.fromJson(j['run'] as Map<String, dynamic>),
       pendingEffectiveCompute: (j['pending'] as num?)?.toDouble(),
+      pendingDesign: DesignOutcome.fromJson(j['pendingDesign']),
+      lastSpec: _specFrom(j['spec']),
       releases:
           (j['releases'] as List?)
               ?.map((r) => ModelRelease.fromJson(r as Map<String, dynamic>))

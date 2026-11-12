@@ -6,6 +6,7 @@ import 'package:ai_lab_tycoon/sim/bot.dart';
 import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
+import 'package:ai_lab_tycoon/sim/model_design.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'grid_helpers.dart';
@@ -38,6 +39,119 @@ void scripted(Game g) {
 }
 
 void main() {
+  group('model design', () {
+    /// A Medium-lab state with a decent cluster and the era's research.
+    Game midGame() {
+      final g = Game(GameState(
+        era: Era.mediumLab,
+        networkTier: 4,
+        money: 1e12,
+        ownedUpgrades: {
+          for (final u in allUpgrades)
+            if (u.era.index <= Era.mediumLab.index) u.id,
+        },
+      ));
+      g.s.grids
+        ..clear()
+        ..['hall'] = GameState.emptyGrid(roomById('hall')!);
+      for (var i = 0; i < 20; i++) {
+        g.s.grids['hall']![i] = 'rack_h_class';
+      }
+      g.s.touchGrid();
+      return g;
+    }
+
+    test('a run remembers its setup; the next one starts from it', () {
+      final g = Game();
+      final spec = const ModelSpec(sizing: Sizing.bigShort);
+      expect(g.startTraining(fraction: 0.5, durationSeconds: 60, spec: spec), isTrue);
+      expect(g.s.run!.spec, spec);
+      expect(g.s.lastSpec, spec);
+      g.cancelTraining();
+      // One-tap start: no spec given = the remembered one.
+      g.startTraining(fraction: 0.5, durationSeconds: 60);
+      expect(g.s.run!.spec, spec);
+    });
+
+    test('locked choices fall back to the safe default', () {
+      final g = Game();
+      g.startTraining(
+        fraction: 0.5,
+        durationSeconds: 60,
+        spec: const ModelSpec(architecture: Architecture.moe, postTraining: PostTraining.reasoning),
+      );
+      expect(g.s.run!.spec.architecture, Architecture.dense);
+      expect(g.s.run!.spec.postTraining, PostTraining.sft);
+    });
+
+    test('the design reaches the release: rating, serving, demand, benchmarks', () {
+      final g = midGame();
+      final good = ModelSpec.bestGuessFor(g.designContext);
+      g.startTraining(fraction: 0.5, durationSeconds: g.runDurations.first, spec: good);
+      g.advance(g.runDurations.first + 1);
+      final predicted = g.pendingRating!;
+      expect(g.s.pendingDesign!.spec, good);
+      expect(g.release(open: false), isTrue);
+      final m = g.s.currentModel;
+      expect(m.rating, closeTo(predicted, 1e-9));
+      expect(m.design!.serveCostMult, closeTo(evaluate(good, g.designContext).serveCostMult, 1e-9));
+      expect(g.currentPerUserTflops,
+          closeTo(g.perUserTflops(m.design!.serveCompute) * m.design!.serveCostMult, 1e-12));
+      expect(m.design!.strengths.coding, greaterThan(1));
+    });
+
+    test('bad choices make a clearly worse model from the same run', () {
+      final g = midGame();
+      final d = g.runDurations.last;
+      final good = g.predictRating(0.5, d, spec: ModelSpec.bestGuessFor(g.designContext));
+      final bad = g.predictRating(0.5, d,
+          spec: const ModelSpec(sizing: Sizing.bigShort, postTraining: PostTraining.none, context: ContextLength.k2));
+      expect(bad, lessThan(good - 60));
+      // Extreme RL hacks the reward model: worse than plain SFT.
+      final sft = g.predictRating(0.5, d, spec: const ModelSpec(postTraining: PostTraining.sft));
+      final hacked = g.predictRating(0.5, d,
+          spec: const ModelSpec(postTraining: PostTraining.rlhf, rlStrength: RlStrength.extreme));
+      expect(hacked, lessThan(sft));
+    });
+
+    test('MoE without router balancing can collapse (seeded, deterministic)', () {
+      var collapses = 0;
+      for (var seed = 1; seed <= 40; seed++) {
+        final g = midGame()..s.rngState = seed;
+        g.s.ownedUpgrades.remove('router_balancing');
+        g.startTraining(
+          fraction: 0.5,
+          durationSeconds: g.runDurations.first,
+          spec: const ModelSpec(architecture: Architecture.moe),
+        );
+        g.advance(g.runDurations.first + 1);
+        final done = g.events.whereType<TrainingFinished>().single;
+        if (done.mishaps.isNotEmpty) collapses++;
+      }
+      expect(collapses, inInclusiveRange(4, 20)); // ~25%
+    });
+
+    test('design research is buyable and survives a save', () {
+      final g = midGame()..s.ownedUpgrades.removeAll(['gqa', 'sliding_window']);
+      expect(g.buyUpgrade('gqa'), isTrue);
+      g.startTraining(fraction: 0.5, durationSeconds: 60, spec: const ModelSpec(attention: Attention.gqa));
+      final loaded = GameState.fromJson(jsonDecode(jsonEncode(g.s.toJson())) as Map<String, dynamic>);
+      expect(loaded.ownedUpgrades, contains('gqa'));
+      expect(loaded.lastSpec.attention, Attention.gqa);
+      expect(loaded.run!.spec.attention, Attention.gqa);
+    });
+
+    test('the identity upgrades no longer double count their design option', () {
+      for (final id in ['moe', 'chinchilla_scaling', 'quantization', 'long_context', 'reasoning']) {
+        final e = researchById(id)!.effects;
+        expect(e.trainEffMult, 1, reason: id);
+        expect(e.serveEffMult, 1, reason: id);
+        expect(e.ratingAdd, 0, reason: id);
+        expect(optionsUnlockedBy(id), isNotEmpty, reason: id);
+      }
+    });
+  });
+
   group('determinism', () {
     test('same seed + same actions → same state', () {
       final a = Game(GameState(rngState: 42));

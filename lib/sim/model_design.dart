@@ -307,7 +307,8 @@ enum PostTraining implements DesignChoice {
   reasoning(
     'RL reasoning',
     'RL on verifiable rewards (math answers, unit tests): the model learns '
-        'to think at length. Much better at math, ~10× tokens per answer.',
+        'to think at length. Much better at math, but answers run several '
+        'times longer, so serving costs more.',
     ['reasoning'],
   );
 
@@ -579,8 +580,9 @@ class DesignContext {
   /// GPUs in the training cluster.
   final double clusterGpus;
 
-  /// GPUs the cluster's slowest switch can keep fed (TileDef.gpuCap of the
-  /// bottleneck network tile; 0 for a lone, unnetworked GPU).
+  /// GPUs the network tier keeps fed (Game.networkCap, NetworkDef.gpuCap):
+  /// all GPUs in the room are one cluster and the tier sets how many of them
+  /// train at full speed.
   final double networkGpuCap;
 
   /// Unique tokens in the data budget (Game.dataTokens).
@@ -625,9 +627,11 @@ class DesignContext {
         : networkGpuCap >= infinibandGpuCap
         ? NetworkClass.infiniband
         : NetworkClass.ethernet;
-    // An oversubscribed fabric (more GPUs than the switch can feed) behaves
-    // like the class below it.
-    if (clusterGpus > networkGpuCap && cls != NetworkClass.ethernet) {
+    // A badly oversubscribed fabric (scaling efficiency below ~70%, i.e.
+    // more than [oversubscribedRatio]× the GPUs the network tier feeds)
+    // behaves like the class below it. Mild oversubscription only costs
+    // the game's scaling efficiency.
+    if (clusterGpus > oversubscribedRatio * networkGpuCap && cls != NetworkClass.ethernet) {
       cls = NetworkClass.values[cls.index - 1];
     }
     return cls;
@@ -651,9 +655,14 @@ enum NetworkClass {
   final double commEfficiency;
 }
 
-/// Switch gpuCap at or above which the network counts as InfiniBand
-/// (net_ib is 4096) or a full fabric (net_ib_spine 32768 and up).
+/// Network tier gpuCap at or above which the network counts as InfiniBand
+/// (InfiniBand 400G feeds 4096) or a full fabric (InfiniBand spine, 32768,
+/// and up). Copper and 100G fiber (≤ 256) are Ethernet.
 const infinibandGpuCap = 1024.0;
+
+/// Cluster/cap ratio past which the network counts one class lower:
+/// scaling efficiency sqrt(cap/gpus) is then below 0.7.
+const oversubscribedRatio = 2.0;
 const fabricGpuCap = 32768.0;
 
 // ---------------------------------------------------------------------------
@@ -686,6 +695,13 @@ class DesignRisk {
   final String ref;
   const DesignRisk(this.id, this.chance, this.cemMultOnHit, this.text, this.ref);
 }
+
+/// What the player is told when [r] fires at the end of a run.
+String riskHitText(DesignRisk r) => switch (r.id) {
+  'routing_collapse' =>
+    'Router collapse: most tokens went to a few experts, the rest sat idle',
+  _ => 'Bad luck: ${r.text}',
+};
 
 /// Relative benchmark profile (1.0 = a plain dense SFT model on web data).
 class BenchmarkStrengths {
@@ -779,12 +795,15 @@ double rlCurve(double x) => x <= 0 ? 0 : x * (1 - math.log(x));
 /// ratingAdd] is reported relative to it.
 const sftRating = 60.0;
 const rlhfBonus = 70.0;
-const reasoningBonus = 40.0;
+const reasoningBonus = 50.0;
 const alignmentTaxRating = 15.0;
 const alignmentTaxParams = 50e9;
 const reasoningMinBaseRating = 1000.0;
-const reasoningServeMult = 10.0;
-const adaptiveReasoningServeMult = 4.0;
+/// Serving cost of an RL-reasoning model. Answers are often ~10× longer
+/// (Chen 2024), but not every request needs long thinking; ×6 is the game's
+/// blend (Design), ×2.5 once thinking budgets adapt to difficulty.
+const reasoningServeMult = 6.0;
+const adaptiveReasoningServeMult = 2.5;
 const moeCollapseChance = 0.25;
 const moeCollapsedCem = 1.2;
 
@@ -900,9 +919,11 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
   // --- Attention (§3) -------------------------------------------------------
   final (attnCem, attnServe, ctxGrowth, attnLong) = switch (spec.attention) {
     Attention.mha => (1.0, 1.0, 1.4, 1.0),
-    Attention.gqa => (0.99, 0.5, 1.15, 1.0),
-    Attention.slidingWindow => (0.99 * 0.97, 0.4, 1.05, 0.8),
-    Attention.hybridSsm => (1.02, 0.35, 1.03, 0.92),
+    // Serving: the KV cache is only part of decode cost (weight reads are
+    // the rest), so an ~8× smaller cache is ~1.4× more throughput (Design).
+    Attention.gqa => (0.99, 0.7, 1.15, 1.0),
+    Attention.slidingWindow => (0.99 * 0.97, 0.6, 1.05, 0.8),
+    Attention.hybridSsm => (1.02, 0.5, 1.03, 0.92),
   };
   cem *= attnCem;
   serve *= attnServe;
@@ -911,18 +932,18 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
     case Attention.mha:
       break;
     case Attention.gqa:
-      note(DesignSlot.attention, 'GQA: serving ×0.5, quality −1%', 'GQA, Ainslie 2023', NoteTone.good);
+      note(DesignSlot.attention, 'GQA: serving ×0.7, quality −1%', 'GQA, Ainslie 2023', NoteTone.good);
     case Attention.slidingWindow:
       note(
         DesignSlot.attention,
-        'Sliding window: serving ×0.4, KV cache capped; weaker long-range recall',
+        'Sliding window: serving ×0.6, KV cache capped; weaker long-range recall',
         'Mistral 7B, Jiang 2023',
         NoteTone.neutral,
       );
     case Attention.hybridSsm:
       note(
         DesignSlot.attention,
-        'Hybrid SSM: serving ×0.35, near-constant memory, quality +2%',
+        'Hybrid SSM: serving ×0.5, near-constant memory, quality +2%',
         'An Empirical Study of Mamba-based LMs, Waleffe 2024',
         NoteTone.good,
       );
@@ -1378,7 +1399,13 @@ const designUpgrades = <UpgradeDef>[
   ),
 ];
 
-final Map<String, UpgradeDef> _researchById = {for (final u in [...upgrades, ...designUpgrades]) u.id: u};
+/// Every research item: content.dart's [upgrades] plus [designUpgrades].
+final List<UpgradeDef> allUpgrades = List.unmodifiable([...upgrades, ...designUpgrades]);
+
+final Map<String, UpgradeDef> _researchById = {for (final u in allUpgrades) u.id: u};
+
+/// Research by id from either list, or null.
+UpgradeDef? researchById(String id) => _researchById[id];
 
 /// Display name of a research id from either list (falls back to the id).
 String researchName(String id) => _researchById[id]?.name ?? id;
@@ -1465,5 +1492,5 @@ const designResearchModifiers = <String, String>{
   'long_data': 'Long contexts (32k+) become fully usable',
   'ppo_ptx': 'Removes the alignment tax on small models',
   'reward_model_scaling': 'RL sweet spot ×1.5 further, RL bonus +15%',
-  'adaptive_thinking': 'RL reasoning serving ×10 → ×4',
+  'adaptive_thinking': 'RL reasoning serving ×6 → ×2.5',
 };

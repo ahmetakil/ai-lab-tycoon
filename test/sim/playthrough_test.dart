@@ -4,6 +4,7 @@
 import 'package:ai_lab_tycoon/sim/balance.dart';
 import 'package:ai_lab_tycoon/sim/bot.dart';
 import 'package:ai_lab_tycoon/sim/content.dart';
+import 'package:ai_lab_tycoon/sim/model_design.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _h = 3600.0;
@@ -70,7 +71,7 @@ void main() {
     final c = runPlaythrough(maxSeconds: 72 * _h, dt: 3, thinkEvery: 6);
     final casual = casualRun;
     expect(c.ladderDone, isTrue);
-    expect(c.finishTime!, inInclusiveRange(25 * _h, 66 * _h));
+    expect(c.finishTime!, inInclusiveRange(25 * _h, 70 * _h));
     expect(c.finishTime!, lessThan(casual.finishTime! + 8 * _h));
     expect(c.eraTimes[Era.startup]!, lessThan(16 * 60));
   });
@@ -84,11 +85,12 @@ void main() {
     final hwOnly = run(s: BotStrategy.hardwareOnly);
     // Bad placement (no coolers / random coolers) throttles the early rooms
     // (the cooling puzzle): the Small lab comes hours later. Late rooms have
-    // central cooling, so they catch up some but still finish later.
+    // central cooling and the end game is paced by rating (model design,
+    // research, data), so random coolers catch up; no coolers never does.
     for (final (name, x) in [('naive', naive), ('random', random)]) {
       expect(x.eraTimes[Era.smallLab]!, greaterThan(template.eraTimes[Era.smallLab]! + 2 * _h), reason: name);
       expect(x.ladderDone ? x.finishTime! : double.infinity,
-          greaterThan(template.finishTime! + 3 * _h), reason: name);
+          greaterThanOrEqualTo(template.finishTime!), reason: name);
     }
     expect(naive.finishTime ?? double.infinity, greaterThan(template.finishTime! + 12 * _h));
     // Hardware alone never gets out of the Small lab.
@@ -106,5 +108,27 @@ void main() {
     expect(closet.s.networkTier, greaterThanOrEqualTo(1));
     expect(closet.trainingCluster!.gpus, greaterThanOrEqualTo(4));
     expect(closet.trainingCluster!.scalingEfficiency, 1);
+  });
+
+  test('bad model design: a huge under-trained base model falls far behind', () {
+    // Big & short (2 tokens/param), web crawl only, full attention, 2k
+    // context, no post-training: the bot plays normally otherwise.
+    const bad = ModelSpec(
+      sizing: Sizing.bigShort,
+      postTraining: PostTraining.none,
+      dataMix: DataMix.web,
+      context: ContextLength.k2,
+    );
+    final r = runSchedule(fixedSpec: bad);
+    final template = casualRun;
+    // Every release is a base model: much lower rating per run and few users.
+    final designed = r.game.s.releases.where((m) => m.design != null).toList();
+    expect(designed, isNotEmpty);
+    expect(designed.every((m) => m.design!.spec.postTraining == PostTraining.none), isTrue);
+    expect(r.game.rating, lessThan(template.game.rating - 100));
+    expect(r.game.s.rivalIndex, lessThan(template.game.s.rivalIndex ~/ 2));
+    expect(r.eraTimes[Era.mediumLab] ?? double.infinity,
+        greaterThan(template.eraTimes[Era.mediumLab]! + 6 * _h));
+    expect(r.ladderDone, isFalse);
   });
 }
