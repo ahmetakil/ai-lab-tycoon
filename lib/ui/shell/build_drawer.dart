@@ -359,17 +359,24 @@ class _PartsTrayState extends State<PartsTray> {
     final w = widget;
     final g = w.game;
     final room = w.room, kind = w.kind, placing = w.placing;
-    // Current era's parts (and anything newer) first; older unlocked parts
-    // in a collapsed group, still placeable.
-    final all = [
-      for (final t in g.tilesForRoom(room.id))
-        if (!g.isOlderPart(t, room.id)) t,
+    // Usable parts first: unlocked parts from your current era, newest
+    // first. Older unlocked parts sit behind one toggle (auto-open when
+    // nothing newer is usable). Locked parts come last, and only the next
+    // two, so the tray never opens on a wall of padlocks.
+    final all = g.tilesForRoom(room.id);
+    final ofKind = all.where((t) => t.kind == kind).toList()
+      ..sort((a, b) => a.era.index.compareTo(b.era.index));
+    final unlocked = ofKind.where(g.isTileUnlocked).toList().reversed.toList();
+    final parts = [
+      for (final t in unlocked)
+        if (t.era.index >= g.s.era.index) t,
     ];
-    final parts = all.where((t) => t.kind == kind).toList();
     final older = [
-      for (final t in g.tilesForRoom(room.id))
-        if (t.kind == kind && g.isOlderPart(t, room.id) && g.isTileUnlocked(t)) t,
+      for (final t in unlocked)
+        if (t.era.index < g.s.era.index) t,
     ];
+    final locked = ofKind.where((t) => !g.isTileUnlocked(t)).take(2).toList();
+    final showOlder = _older || parts.isEmpty || older.any((t) => t.id == placing);
     final onKind = w.onKind, onPick = w.onPick, onCancel = w.onCancel;
     final modeActive = w.modeActive;
     return Container(
@@ -444,13 +451,7 @@ class _PartsTrayState extends State<PartsTray> {
                     selected: placing == t.id,
                     onTap: () => onPick(t),
                   ),
-                if (older.isNotEmpty)
-                  _OlderToggle(
-                    count: older.length,
-                    open: _older || older.any((t) => t.id == placing),
-                    onTap: () => setState(() => _older = !_older),
-                  ),
-                if (_older || older.any((t) => t.id == placing))
+                if (showOlder)
                   for (final t in older)
                     _PartCard(
                       key: ValueKey('part-${t.id}'),
@@ -459,7 +460,21 @@ class _PartsTrayState extends State<PartsTray> {
                       selected: placing == t.id,
                       onTap: () => onPick(t),
                     ),
-                if (parts.isEmpty && older.isEmpty)
+                if (older.isNotEmpty && parts.isNotEmpty)
+                  _OlderToggle(
+                    count: older.length,
+                    open: showOlder,
+                    onTap: () => setState(() => _older = !_older),
+                  ),
+                for (final t in locked)
+                  _PartCard(
+                    key: ValueKey('part-${t.id}'),
+                    game: g,
+                    tile: t,
+                    selected: placing == t.id,
+                    onTap: () => onPick(t),
+                  ),
+                if (parts.isEmpty && older.isEmpty && locked.isEmpty)
                   const Center(
                     child: Text(
                       'Nothing of this kind fits in this room.',

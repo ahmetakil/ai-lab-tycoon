@@ -75,8 +75,13 @@ void main() {
 
   testWidgets('locked options say what to research', (tester) async {
     await _pump(tester, 360, RunSetupPanel(spec: const ModelSpec(), ctx: const DesignContext(), onChanged: (_) {}));
-    expect(find.text('Research Mixture of Experts to unlock'), findsOneWidget);
-    expect(find.text('Research Grouped-query attention to unlock'), findsOneWidget);
+    // The reason lives in the chip's "?" popup (hover on web, tap on touch).
+    String tips() => tester
+        .widgetList<Tooltip>(find.byType(Tooltip))
+        .map((t) => t.richMessage?.toPlainText() ?? t.message ?? '')
+        .join('\n');
+    expect(tips(), contains('Research Mixture of Experts to unlock'));
+    expect(tips(), contains('Research Grouped-query attention to unlock'));
   });
 
   testWidgets('tapping an option calls onChanged; locked ones do not', (tester) async {

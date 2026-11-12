@@ -30,7 +30,11 @@ const kEraRevealDelay = Duration(milliseconds: 1900);
 class EventPresenter extends StatefulWidget {
   final GameController controller;
   final Widget child;
-  const EventPresenter({super.key, required this.controller, required this.child});
+  const EventPresenter({
+    super.key,
+    required this.controller,
+    required this.child,
+  });
 
   @override
   State<EventPresenter> createState() => _EventPresenterState();
@@ -162,7 +166,10 @@ class _EventPresenterState extends State<EventPresenter> {
         _toast(
           icon: Icons.model_training_rounded,
           color: mishaps.isEmpty ? Neon.green : Neon.yellow,
-          title: mishaps.isEmpty ? 'Training done' : 'Training done, with a mishap',
+          title:
+              mishaps.isEmpty
+                  ? 'Training done'
+                  : 'Training done, with a mishap',
           message:
               '${mishaps.isEmpty ? '' : '${mishaps.first}. '}'
               'Predicted rating ${predictedRating.round()} '
@@ -174,7 +181,10 @@ class _EventPresenterState extends State<EventPresenter> {
       case ModelReleased(:final release, :final stunt, :final stuntSucceeded):
         Sound.play(stuntSucceeded ? Sfx.release : Sfx.stuntFail);
         _toast(
-          icon: stuntSucceeded ? Icons.rocket_launch_rounded : Icons.local_fire_department_rounded,
+          icon:
+              stuntSucceeded
+                  ? Icons.rocket_launch_rounded
+                  : Icons.local_fire_department_rounded,
           color: stuntSucceeded ? Neon.cyan : Neon.red,
           title: '${release.name} is live',
           message: stuntResultText(stunt, stuntSucceeded),
@@ -286,8 +296,14 @@ class _EventPresenterState extends State<EventPresenter> {
                             ),
                         child:
                             left > 0
-                                ? ViralBanner(key: const ValueKey('viral'), secondsLeft: left)
-                                : const SizedBox(key: ValueKey('none'), width: double.infinity),
+                                ? ViralBanner(
+                                  key: const ValueKey('viral'),
+                                  secondsLeft: left,
+                                )
+                                : const SizedBox(
+                                  key: ValueKey('none'),
+                                  width: double.infinity,
+                                ),
                       );
                     },
                   ),
@@ -308,7 +324,11 @@ class _EventPresenterState extends State<EventPresenter> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         for (final t in _toasts)
-                          _ToastView(key: ValueKey(t.id), data: t, onDone: () => _removeToast(t.id)),
+                          _ToastView(
+                            key: ValueKey(t.id),
+                            data: t,
+                            onDone: () => _removeToast(t.id),
+                          ),
                       ],
                     ),
                   ),
@@ -333,7 +353,11 @@ class _EventPresenterState extends State<EventPresenter> {
                       );
                     },
                   ),
-                  EraUnlocked(:final era) => EraOverlay(key: ValueKey(current), era: era, onDone: _dismissCurrent),
+                  EraUnlocked(:final era) => EraOverlay(
+                    key: ValueKey(current),
+                    era: era,
+                    onDone: _dismissCurrent,
+                  ),
                   _ => const SizedBox.shrink(),
                 },
               ),
@@ -349,7 +373,8 @@ class _EventPresenterState extends State<EventPresenter> {
 
 /// Toast text for a release's launch stunt.
 String stuntResultText(LaunchStunt stunt, bool success) {
-  String pct(double m) => '${m >= 1 ? '+' : '−'}${((m - 1).abs() * 100).round()}%';
+  String pct(double m) =>
+      '${m >= 1 ? '+' : '−'}${((m - 1).abs() * 100).round()}%';
   if (!success) {
     return stunt.id == 'live_demo'
         ? 'Live demo FAILED on stage. Hype ${pct(stunt.hypeOnFail)}.'
@@ -357,8 +382,10 @@ String stuntResultText(LaunchStunt stunt, bool success) {
   }
   return switch (stunt.id) {
     'none' => 'Shipped quietly. The changelog says "improvements".',
-    'cryptic_tweet' => 'The cryptic tweet worked. Timeline is losing it. Hype ${pct(stunt.hypeOnSuccess)}.',
-    'live_demo' => 'Live demo crushed it on stage. Hype ${pct(stunt.hypeOnSuccess)}.',
+    'cryptic_tweet' =>
+      'The cryptic tweet worked. Timeline is losing it. Hype ${pct(stunt.hypeOnSuccess)}.',
+    'live_demo' =>
+      'Live demo crushed it on stage. Hype ${pct(stunt.hypeOnSuccess)}.',
     _ => '${stunt.name} landed. Hype ${pct(stunt.hypeOnSuccess)}.',
   };
 }
@@ -376,8 +403,12 @@ class _ToastView extends StatefulWidget {
   State<_ToastView> createState() => _ToastViewState();
 }
 
-class _ToastViewState extends State<_ToastView> with SingleTickerProviderStateMixin {
-  late final _a = AnimationController(vsync: this, duration: const Duration(milliseconds: 380))..forward();
+class _ToastViewState extends State<_ToastView>
+    with SingleTickerProviderStateMixin {
+  late final _a = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 380),
+  )..forward();
   Timer? _timer;
 
   @override
@@ -404,14 +435,21 @@ class _ToastViewState extends State<_ToastView> with SingleTickerProviderStateMi
   Widget build(BuildContext context) {
     final d = widget.data;
     final theme = Theme.of(context);
-    final curved = CurvedAnimation(parent: _a, curve: Curves.easeOutBack, reverseCurve: Curves.easeIn);
+    final curved = CurvedAnimation(
+      parent: _a,
+      curve: Curves.easeOutBack,
+      reverseCurve: Curves.easeIn,
+    );
     return SizeTransition(
       sizeFactor: CurvedAnimation(parent: _a, curve: Curves.easeOut),
       axisAlignment: 1,
       child: FadeTransition(
         opacity: _a,
         child: SlideTransition(
-          position: Tween(begin: const Offset(0, 0.6), end: Offset.zero).animate(curved),
+          position: Tween(
+            begin: const Offset(0, 0.6),
+            end: Offset.zero,
+          ).animate(curved),
           child: Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Material(
@@ -421,12 +459,21 @@ class _ToastViewState extends State<_ToastView> with SingleTickerProviderStateMi
                 onDismissed: (_) => widget.onDone(),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.97),
+                    color: theme.colorScheme.surfaceContainerHigh.withValues(
+                      alpha: 0.97,
+                    ),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: d.color.withValues(alpha: 0.6)),
                     boxShadow: [
-                      BoxShadow(color: d.color.withValues(alpha: 0.22), blurRadius: 18),
-                      const BoxShadow(color: Colors.black54, blurRadius: 12, offset: Offset(0, 4)),
+                      BoxShadow(
+                        color: d.color.withValues(alpha: 0.22),
+                        blurRadius: 18,
+                      ),
+                      const BoxShadow(
+                        color: Colors.black54,
+                        blurRadius: 12,
+                        offset: Offset(0, 4),
+                      ),
                     ],
                   ),
                   padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
@@ -447,9 +494,17 @@ class _ToastViewState extends State<_ToastView> with SingleTickerProviderStateMi
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(d.title, style: display(context, 15, color: d.color)),
+                            Text(
+                              d.title,
+                              style: display(context, 15, color: d.color),
+                            ),
                             const SizedBox(height: 2),
-                            Text(d.message, style: theme.textTheme.bodySmall?.copyWith(fontSize: 13)),
+                            Text(
+                              d.message,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 13,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -459,7 +514,13 @@ class _ToastViewState extends State<_ToastView> with SingleTickerProviderStateMi
                             d.onAction?.call();
                             _close();
                           },
-                          child: Text(d.actionLabel!, style: TextStyle(color: d.color, fontWeight: FontWeight.w700)),
+                          child: Text(
+                            d.actionLabel!,
+                            style: TextStyle(
+                              color: d.color,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
                     ],
                   ),
@@ -485,9 +546,12 @@ class ViralBanner extends StatefulWidget {
   State<ViralBanner> createState() => _ViralBannerState();
 }
 
-class _ViralBannerState extends State<ViralBanner> with SingleTickerProviderStateMixin {
-  late final _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))
-    ..repeat(reverse: true);
+class _ViralBannerState extends State<ViralBanner>
+    with SingleTickerProviderStateMixin {
+  late final _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
 
   @override
   void dispose() {
@@ -501,59 +565,74 @@ class _ViralBannerState extends State<ViralBanner> with SingleTickerProviderStat
       animation: _pulse,
       builder: (context, _) {
         final t = _pulse.value;
-        return Container(
-          margin: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Color.lerp(const Color(0xFFB0121C), Neon.red, t)!,
-                Color.lerp(Neon.red, const Color(0xFFFF2E63), t)!,
+        // Material gives the banner a text style; without it Flutter draws
+        // the debug yellow double underline under every word.
+        return Material(
+          type: MaterialType.transparency,
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color.lerp(const Color(0xFFB0121C), Neon.red, t)!,
+                  Color.lerp(Neon.red, const Color(0xFFFF2E63), t)!,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Neon.red.withValues(alpha: 0.35 + 0.35 * t),
+                  blurRadius: 12 + 14 * t,
+                ),
               ],
             ),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Neon.red.withValues(alpha: 0.35 + 0.35 * t), blurRadius: 12 + 14 * t)],
-          ),
-          child: Row(
-            children: [
-              Transform.rotate(
-                angle: (t - 0.5) * 0.3,
-                child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 26),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'VIRAL! Demand x${viralDemandMult.round()}',
-                      style: const TextStyle(
-                        fontFamily: kDisplayFont,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 17,
-                        color: Colors.white,
-                        letterSpacing: 1,
+            child: Row(
+              children: [
+                Transform.rotate(
+                  angle: (t - 0.5) * 0.3,
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.white,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'VIRAL! Demand x${viralDemandMult.round()}',
+                        style: const TextStyle(
+                          fontFamily: kDisplayFont,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                          color: Colors.white,
+                          letterSpacing: 1,
+                        ),
                       ),
-                    ),
-                    const Text(
-                      'Rent cloud, pause training or quantize before the servers melt.',
-                      style: TextStyle(color: Colors.white, fontSize: 12),
-                    ),
-                  ],
+                      const Text(
+                        'Demand is way above your serving capacity. Tap "Rent cloud" '
+                        '(bottom right) for ×2 serving, or pause training to free GPUs.',
+                        style: TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Text(
-                formatDuration(widget.secondsLeft),
-                style: const TextStyle(
-                  fontFamily: kMonoFont,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
-                  color: Colors.white,
-                  fontFeatures: [FontFeature.tabularFigures()],
+                Text(
+                  formatDuration(widget.secondsLeft),
+                  style: const TextStyle(
+                    fontFamily: kMonoFont,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    color: Colors.white,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -572,14 +651,23 @@ class _CelebrationShell extends StatefulWidget {
   final Widget? background;
   final VoidCallback onDone;
   final int confettiSeed;
-  const _CelebrationShell({required this.builder, required this.onDone, this.background, this.confettiSeed = 7});
+  const _CelebrationShell({
+    required this.builder,
+    required this.onDone,
+    this.background,
+    this.confettiSeed = 7,
+  });
 
   @override
   State<_CelebrationShell> createState() => _CelebrationShellState();
 }
 
-class _CelebrationShellState extends State<_CelebrationShell> with SingleTickerProviderStateMixin {
-  late final _a = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..forward();
+class _CelebrationShellState extends State<_CelebrationShell>
+    with SingleTickerProviderStateMixin {
+  late final _a = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..forward();
   Timer? _auto;
   bool _closing = false;
 
@@ -593,7 +681,11 @@ class _CelebrationShellState extends State<_CelebrationShell> with SingleTickerP
     if (_closing) return;
     _closing = true;
     _auto?.cancel();
-    await _a.animateBack(0, duration: const Duration(milliseconds: 250), curve: Curves.easeIn);
+    await _a.animateBack(
+      0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeIn,
+    );
     widget.onDone();
   }
 
@@ -624,7 +716,10 @@ class _CelebrationShellState extends State<_CelebrationShell> with SingleTickerP
                   filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                   child: Container(
                     decoration: const BoxDecoration(
-                      gradient: RadialGradient(radius: 1.1, colors: [Color(0xE60F2A20), Color(0xF2050809)]),
+                      gradient: RadialGradient(
+                        radius: 1.1,
+                        colors: [Color(0xE60F2A20), Color(0xF2050809)],
+                      ),
                     ),
                   ),
                 ),
@@ -649,14 +744,26 @@ class _CelebrationShellState extends State<_CelebrationShell> with SingleTickerP
 }
 
 /// Staggered entrance helper: [begin]..[end] are fractions of the timeline.
-Widget _stagger(Animation<double> a, double begin, double end, Widget child, {double dy = 24}) {
-  final t = CurvedAnimation(parent: a, curve: Interval(begin, end, curve: Curves.easeOutCubic));
+Widget _stagger(
+  Animation<double> a,
+  double begin,
+  double end,
+  Widget child, {
+  double dy = 24,
+}) {
+  final t = CurvedAnimation(
+    parent: a,
+    curve: Interval(begin, end, curve: Curves.easeOutCubic),
+  );
   return AnimatedBuilder(
     animation: t,
     builder:
         (_, c) => Opacity(
           opacity: t.value.clamp(0.0, 1.0),
-          child: Transform.translate(offset: Offset(0, dy * (1 - t.value)), child: c),
+          child: Transform.translate(
+            offset: Offset(0, dy * (1 - t.value)),
+            child: c,
+          ),
         ),
     child: child,
   );
@@ -667,7 +774,13 @@ class RivalBeatenOverlay extends StatelessWidget {
   final RivalSnapshot? next;
   final VoidCallback onDone;
   final VoidCallback? onShare;
-  const RivalBeatenOverlay({super.key, required this.rival, this.next, required this.onDone, this.onShare});
+  const RivalBeatenOverlay({
+    super.key,
+    required this.rival,
+    this.next,
+    required this.onDone,
+    this.onShare,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -676,7 +789,10 @@ class RivalBeatenOverlay extends StatelessWidget {
       onDone: onDone,
       confettiSeed: rival.year * 31 + rival.model.length,
       builder: (context, a) {
-        final logoScale = CurvedAnimation(parent: a, curve: const Interval(0.05, 0.55, curve: Curves.elasticOut));
+        final logoScale = CurvedAnimation(
+          parent: a,
+          curve: const Interval(0.05, 0.55, curve: Curves.elasticOut),
+        );
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -693,15 +809,30 @@ class RivalBeatenOverlay extends StatelessWidget {
                     bottom: 0,
                     child: Container(
                       padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
-                      child: const Icon(Icons.check_rounded, color: Neon.ink, size: 26),
+                      decoration: BoxDecoration(
+                        color: accent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.check_rounded,
+                        color: Neon.ink,
+                        size: 26,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 22),
-            _stagger(a, 0.2, 0.5, Text('You passed', style: display(context, 20, color: Colors.white70))),
+            _stagger(
+              a,
+              0.2,
+              0.5,
+              Text(
+                'You passed',
+                style: display(context, 20, color: Colors.white70),
+              ),
+            ),
             const SizedBox(height: 4),
             _stagger(
               a,
@@ -715,7 +846,14 @@ class RivalBeatenOverlay extends StatelessWidget {
                   38,
                   color: Colors.white,
                   height: 1.1,
-                ).copyWith(shadows: [Shadow(color: accent.withValues(alpha: 0.6), blurRadius: 24)]),
+                ).copyWith(
+                  shadows: [
+                    Shadow(
+                      color: accent.withValues(alpha: 0.6),
+                      blurRadius: 24,
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -767,7 +905,10 @@ class RivalBeatenOverlay extends StatelessWidget {
                       icon: const Icon(Icons.ios_share_rounded),
                       label: const Text('Brag'),
                     ),
-                  FilledButton(onPressed: onDone, child: const Text('Continue')),
+                  FilledButton(
+                    onPressed: onDone,
+                    child: const Text('Continue'),
+                  ),
                 ],
               ),
             ),
@@ -783,7 +924,8 @@ String eraTagline(Era era) =>
       Era.garage: 'One GPU, one dream, one very warm room.',
       Era.startup:
           '${formatNumber(startupUnlockUsers, decimals: 0)} users. Investors are suddenly returning your emails.',
-      Era.smallLab: 'Your model writes passable poetry. Time to rent a cage in a real datacenter.',
+      Era.smallLab:
+          'Your model writes passable poetry. Time to rent a cage in a real datacenter.',
       Era.mediumLab:
           'A GPT-ish-3-class model, built by you. Your own datacenter hall is next.',
       Era.bigLab:
@@ -814,7 +956,11 @@ class EraOverlay extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0x99000000), Color(0xCC000000), Color(0xF2000000)],
+                colors: [
+                  Color(0x99000000),
+                  Color(0xCC000000),
+                  Color(0xF2000000),
+                ],
               ),
             ),
           ),
@@ -830,7 +976,10 @@ class EraOverlay extends StatelessWidget {
                 a,
                 0.1,
                 0.45,
-                Text('Welcome to the', style: display(context, 22, color: Colors.white70)),
+                Text(
+                  'Welcome to the',
+                  style: display(context, 22, color: Colors.white70),
+                ),
                 dy: 40,
               ),
               _stagger(
@@ -838,11 +987,20 @@ class EraOverlay extends StatelessWidget {
                 0.15,
                 0.55,
                 ShaderMask(
-                  shaderCallback: (r) => LinearGradient(colors: [accent, Neon.cyan]).createShader(r),
+                  shaderCallback:
+                      (r) => LinearGradient(
+                        colors: [accent, Neon.cyan],
+                      ).createShader(r),
                   child: Text(
                     '${era.label} era',
                     textAlign: TextAlign.center,
-                    style: display(context, 54, color: Colors.white, height: 1.05, weight: FontWeight.w800),
+                    style: display(
+                      context,
+                      54,
+                      color: Colors.white,
+                      height: 1.05,
+                      weight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 dy: 40,
@@ -855,12 +1013,25 @@ class EraOverlay extends StatelessWidget {
                 Text(
                   eraTagline(era),
                   textAlign: TextAlign.center,
-                  style: display(context, 16, color: Colors.white70, weight: FontWeight.w500),
+                  style: display(
+                    context,
+                    16,
+                    color: Colors.white70,
+                    weight: FontWeight.w500,
+                  ),
                 ),
               ),
               if (unlocks.isNotEmpty) ...[
                 const SizedBox(height: 24),
-                _stagger(a, 0.4, 0.7, Text('NOW AVAILABLE', style: mono(context, 12, color: Colors.white54))),
+                _stagger(
+                  a,
+                  0.4,
+                  0.7,
+                  Text(
+                    'NOW AVAILABLE',
+                    style: mono(context, 12, color: Colors.white54),
+                  ),
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   alignment: WrapAlignment.center,
@@ -873,13 +1044,21 @@ class EraOverlay extends StatelessWidget {
                         (0.45 + i * 0.05).clamp(0.0, 0.85),
                         (0.7 + i * 0.05).clamp(0.0, 1.0),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 7,
+                          ),
                           decoration: BoxDecoration(
                             color: accent.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: accent.withValues(alpha: 0.5)),
+                            border: Border.all(
+                              color: accent.withValues(alpha: 0.5),
+                            ),
                           ),
-                          child: Text(u, style: mono(context, 12.5, color: Colors.white)),
+                          child: Text(
+                            u,
+                            style: mono(context, 12.5, color: Colors.white),
+                          ),
                         ),
                         dy: 12,
                       ),
@@ -888,13 +1067,21 @@ class EraOverlay extends StatelessWidget {
                         a,
                         0.8,
                         1.0,
-                        Text('+${unlocks.length - 8} more', style: mono(context, 12.5, color: Colors.white54)),
+                        Text(
+                          '+${unlocks.length - 8} more',
+                          style: mono(context, 12.5, color: Colors.white54),
+                        ),
                       ),
                   ],
                 ),
               ],
               const SizedBox(height: 28),
-              _stagger(a, 0.7, 1.0, FilledButton(onPressed: onDone, child: const Text("Let's go"))),
+              _stagger(
+                a,
+                0.7,
+                1.0,
+                FilledButton(onPressed: onDone, child: const Text("Let's go")),
+              ),
             ],
           ),
     );
@@ -914,7 +1101,15 @@ class _Tag extends StatelessWidget {
       border: Border.all(color: color.withValues(alpha: 0.7), width: 1.5),
       color: color.withValues(alpha: 0.1),
     ),
-    child: Text(text, style: mono(context, 13, color: color, weight: FontWeight.w700).copyWith(letterSpacing: 3)),
+    child: Text(
+      text,
+      style: mono(
+        context,
+        13,
+        color: color,
+        weight: FontWeight.w700,
+      ).copyWith(letterSpacing: 3),
+    ),
   );
 }
 
@@ -924,7 +1119,10 @@ class _Tag extends StatelessWidget {
 
 Future<void> showOfflineDialog(BuildContext context, OfflineReport r) {
   Sound.play(Sfx.click);
-  return showDialog<void>(context: context, builder: (ctx) => OfflineReportDialog(report: r));
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => OfflineReportDialog(report: r),
+  );
 }
 
 class OfflineReportDialog extends StatelessWidget {
@@ -937,17 +1135,21 @@ class OfflineReportDialog extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final userDelta = r.usersAfter - r.usersBefore;
     final capped = r.seconds >= offlineCapSeconds;
-    Widget row(IconData icon, String label, String value, {Color? color}) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 10),
-          Expanded(child: Text(label)),
-          Text(value, style: mono(context, 16, color: color, weight: FontWeight.w700)),
-        ],
-      ),
-    );
+    Widget row(IconData icon, String label, String value, {Color? color}) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 10),
+              Expanded(child: Text(label)),
+              Text(
+                value,
+                style: mono(context, 16, color: color, weight: FontWeight.w700),
+              ),
+            ],
+          ),
+        );
     return AlertDialog(
       icon: Icon(Icons.nightlight_round, color: scheme.primary, size: 36),
       title: Text('While you were away', style: display(context, 24)),
@@ -962,7 +1164,12 @@ class OfflineReportDialog extends StatelessWidget {
               style: TextStyle(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
-            row(Icons.payments_outlined, 'Money earned', '+${formatMoney(r.moneyEarned)}', color: scheme.primary),
+            row(
+              Icons.payments_outlined,
+              'Money earned',
+              '+${formatMoney(r.moneyEarned)}',
+              color: scheme.primary,
+            ),
             row(
               Icons.people_alt_outlined,
               'Users',
@@ -981,14 +1188,23 @@ class OfflineReportDialog extends StatelessWidget {
                   children: [
                     Icon(Icons.model_training_rounded, color: scheme.primary),
                     const SizedBox(width: 10),
-                    const Expanded(child: Text('Training finished. A new model is waiting to be released!')),
+                    const Expanded(
+                      child: Text(
+                        'Training finished. A new model is waiting to be released!',
+                      ),
+                    ),
                   ],
                 ),
               ),
           ],
         ),
       ),
-      actions: [FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Collect'))],
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Collect'),
+        ),
+      ],
     );
   }
 }

@@ -69,7 +69,17 @@ class _SlotPicker extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(slot.label.toUpperCase(), style: labelStyle()),
+          Row(
+            children: [
+              Flexible(child: Text(slot.label.toUpperCase(), style: labelStyle())),
+              const SizedBox(width: 6),
+              HelpDot(
+                key: ValueKey('design-help-${slot.name}'),
+                title: slot.label,
+                body: slotHelp[slot] ?? '',
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -79,6 +89,7 @@ class _SlotPicker extends StatelessWidget {
                 OptionChip(
                   key: ValueKey('design-${slot.name}-${c.id}'),
                   label: c.label,
+                  blurb: c.blurb,
                   selected: c == selected,
                   lockReason: ctx.lockReason(c),
                   onTap: () => onChanged(slot.set(spec, c)),
@@ -96,11 +107,19 @@ class _SlotPicker extends StatelessWidget {
 /// A chunky selectable chip. Locked chips are dimmed, show why, and ignore taps.
 class OptionChip extends StatelessWidget {
   final String label;
+  final String? blurb;
   final bool selected;
   final String? lockReason;
   final VoidCallback onTap;
 
-  const OptionChip({super.key, required this.label, required this.selected, required this.onTap, this.lockReason});
+  const OptionChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.lockReason,
+    this.blurb,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -112,7 +131,7 @@ class OptionChip extends StatelessWidget {
             ? AppColors.neon
             : AppColors.text;
     return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 44, maxWidth: 260),
+      constraints: const BoxConstraints(minHeight: 40, maxWidth: 260),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -150,18 +169,16 @@ class OptionChip extends StatelessWidget {
                         style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: color),
                       ),
                     ),
+                    if (blurb != null || locked) ...[
+                      const SizedBox(width: 6),
+                      HelpDot(
+                        title: label,
+                        body: blurb ?? '',
+                        footer: lockReason,
+                      ),
+                    ],
                   ],
                 ),
-                if (locked)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      lockReason!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11, color: AppColors.faint),
-                    ),
-                  ),
               ],
             ),
           ),
@@ -209,14 +226,20 @@ class DesignPreview extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const PanelHeader('Predicted effect', icon: Icons.insights),
+          const PanelHeader('Effect of these choices', icon: Icons.insights),
+          const Text(
+            'Compared with a plain model trained on the same compute. '
+            'It is already included in the predicted rating below.',
+            style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.3),
+          ),
+          gap12,
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: [
               _Stat(
                 key: const ValueKey('preview-rating'),
-                label: 'Rating',
+                label: 'Design rating',
                 value: '${dr >= 0 ? '+' : '−'}${dr.abs().toStringAsFixed(1)}',
                 color: ratingColor,
               ),
@@ -311,6 +334,91 @@ class _NoteLine extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// What each run-setup slot means, in one or two plain sentences.
+const slotHelp = <DesignSlot, String>{
+  DesignSlot.architecture:
+      'How the network is wired. Dense uses every weight for every token. '
+      'Mixture of Experts routes each token to a few expert blocks: more '
+      'quality per FLOP, but experts talk across GPUs, so it wants a fast network.',
+  DesignSlot.attention:
+      'How tokens look at each other. Full attention keeps keys and values '
+      'for every head; cheaper variants share or limit them so serving uses '
+      'less memory, at a small quality cost.',
+  DesignSlot.context:
+      'How much text the model can read at once. Longer context attracts more '
+      'users but costs training compute and memory per user when serving.',
+  DesignSlot.sizing:
+      'Split a fixed compute budget between model size and training tokens. '
+      'Chinchilla found ~20 tokens per parameter is compute-optimal; smaller, '
+      'longer-trained models cost less to serve.',
+  DesignSlot.dataMix:
+      'What the model reads. Code-heavy mixes win coding benchmarks, books and '
+      'papers help reasoning, and synthetic data stretches a limited supply.',
+  DesignSlot.postTraining:
+      'Training after pre-training that turns a text predictor into an '
+      'assistant: supervised examples (SFT), human preferences (RLHF, DPO) or '
+      'reinforcement learning on checkable answers (reasoning).',
+  DesignSlot.rlStrength:
+      'How hard to push RL. A little helps a lot; too much over-optimises the '
+      'reward and quality falls off.',
+  DesignSlot.quantization:
+      'Number format used when serving. Fewer bits per weight means less '
+      'memory and faster serving, with a small quality loss.',
+};
+
+/// A small "?" that explains something. Hover on web/desktop, tap on touch.
+class HelpDot extends StatelessWidget {
+  final String title;
+  final String body;
+  final String? footer;
+  const HelpDot({super.key, required this.title, required this.body, this.footer});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      triggerMode: TooltipTriggerMode.tap,
+      showDuration: const Duration(seconds: 8),
+      waitDuration: const Duration(milliseconds: 150),
+      preferBelow: false,
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceHi,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderHi),
+      ),
+      richMessage: TextSpan(
+        children: [
+          TextSpan(
+            text: '$title\n',
+            style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 13),
+          ),
+          if (body.isNotEmpty)
+            TextSpan(text: body, style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.35)),
+          if (footer != null)
+            TextSpan(
+              text: '\n\n🔒 $footer',
+              style: const TextStyle(color: AppColors.amber, fontSize: 12, height: 1.35),
+            ),
+        ],
+      ),
+      child: Container(
+        width: 18,
+        height: 18,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.borderHi),
+        ),
+        child: const Text(
+          '?',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.muted),
+        ),
       ),
     );
   }

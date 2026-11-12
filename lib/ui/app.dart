@@ -1,4 +1,6 @@
 // App shell: theme hookup and the game screen.
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:flutter/material.dart';
 
 import 'game_controller.dart';
@@ -14,10 +16,18 @@ class AiLabTycoonApp extends StatelessWidget {
     return MaterialApp(
       title: 'AI Lab Tycoon',
       debugShowCheckedModeBanner: false,
+      // Click-and-drag scrolls lists on web/desktop too, not just touch.
+      scrollBehavior: const _DragEverywhere(),
       theme: buildTheme(),
       darkTheme: buildTheme(),
       themeMode: ThemeMode.dark,
       home: GameShell(controller: controller),
     );
   }
+}
+
+class _DragEverywhere extends MaterialScrollBehavior {
+  const _DragEverywhere();
+  @override
+  Set<PointerDeviceKind> get dragDevices => PointerDeviceKind.values.toSet();
 }
