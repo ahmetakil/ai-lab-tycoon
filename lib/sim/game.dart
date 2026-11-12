@@ -5,6 +5,7 @@ import 'content.dart';
 import 'game_state.dart';
 import 'grid.dart';
 import 'model_design.dart';
+import 'news.dart';
 
 export 'grid.dart' show TileStatus, Cluster, minThrottleSpeed;
 
@@ -119,13 +120,27 @@ class OfflineReport {
   final double usersBefore;
   final double usersAfter;
   final bool trainingFinished;
+
+  /// Rival releases and industry news posted while you were away (filled
+  /// by NewsFeed.catchUp).
+  final List<NewsItem> news;
   const OfflineReport({
     required this.seconds,
     required this.moneyEarned,
     required this.usersBefore,
     required this.usersAfter,
     required this.trainingFinished,
+    this.news = const [],
   });
+
+  OfflineReport withNews(List<NewsItem> news) => OfflineReport(
+    seconds: seconds,
+    moneyEarned: moneyEarned,
+    usersBefore: usersBefore,
+    usersAfter: usersAfter,
+    trainingFinished: trainingFinished,
+    news: news,
+  );
 }
 
 /// The whole simulation. Pure Dart, deterministic for a given seed.
@@ -1100,10 +1115,13 @@ class Game {
       events.add(EraUnlocked(goal.era));
     }
 
-    // Rival ladder.
+    // Rival ladder. The live feed (news.dart) releases the next rival
+    // before it can be beaten; it never changes who can be beaten.
+    updateNews();
     while (nextRival != null && canBeat(nextRival!)) {
       events.add(RivalBeaten(nextRival!));
       s.rivalIndex++;
+      updateNews();
     }
   }
 

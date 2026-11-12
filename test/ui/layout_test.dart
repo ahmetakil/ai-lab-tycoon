@@ -12,8 +12,10 @@ import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/sim/model_design.dart';
+import 'package:ai_lab_tycoon/sim/news.dart';
 import 'package:ai_lab_tycoon/ui/app.dart';
 import 'package:ai_lab_tycoon/ui/game_controller.dart';
+import 'package:ai_lab_tycoon/ui/moments/event_presenter.dart';
 import 'package:ai_lab_tycoon/ui/moments/release_card.dart';
 import 'package:ai_lab_tycoon/ui/shell/game_modal.dart';
 import 'package:ai_lab_tycoon/ui/world/world_layout.dart';
@@ -299,6 +301,75 @@ void main() {
         expect(find.byKey(const ValueKey('release-benchmark-strip')), findsOneWidget);
         expect(tester.takeException(), isNull, reason: 'release card');
         await _shot(tester, key, '${tag}_release');
+
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(seconds: 15));
+        c.dispose();
+        await _setSize(tester, null);
+      });
+    }
+  }
+
+  // The live rival feed: a news card over the map, the leaderboard it opens
+  // (row highlighted), the News tab and the "while you were away" digest.
+  for (final size in sizes) {
+    for (final stage in ['mediumlab', 'frontier']) {
+      testWidgets('news feed at ${size.width.toInt()}w, $stage', (tester) async {
+        if (_out != null) await tester.runAsync(_loadFonts);
+        SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
+        await _setSize(tester, size);
+        final c = await GameController.load();
+        c.game = Game(_stateAt(stage, stages[stage]!.$1, casual: stages[stage]!.$2));
+        final key = GlobalKey();
+        await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
+        await _settle(tester);
+        final tag = '${size.width.toInt()}_${stage}_news';
+        final g = c.game;
+        expect(g.s.news, isNotEmpty, reason: 'the bot run posted news');
+
+        // The newest released rival makes the news again (as if just out).
+        final idx = g.releasedCount - 1;
+        c.act((g) => g.s.news.add(NewsItem(
+              serial: g.lastNewsSerial + 1,
+              time: g.s.time,
+              kind: NewsKind.rival,
+              index: idx,
+              playerRating: g.rating,
+            )));
+        await _settle(tester, 800);
+        expect(find.byKey(const ValueKey('news-toast')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'news toast');
+        await _shot(tester, key, '${tag}_toast');
+
+        await tester.tap(find.byKey(const ValueKey('news-toast')));
+        await _settle(tester, 500);
+        expect(find.byKey(const ValueKey('leaderboard-highlight')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'leaderboard from news');
+        await _shot(tester, key, '${tag}_board');
+
+        await tester.tap(find.byKey(const ValueKey('tab-news')));
+        await _settle(tester, 400);
+        expect(find.byKey(const ValueKey('news-list')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'news tab');
+        await _shot(tester, key, '${tag}_tab');
+        await tester.tap(find.byKey(const ValueKey('modal-close')).last);
+        await _settle(tester, 400);
+
+        unawaited(showOfflineDialog(
+          tester.element(find.byType(Scaffold).first),
+          OfflineReport(
+            seconds: 8 * 3600,
+            moneyEarned: 1e9,
+            usersBefore: g.s.users,
+            usersAfter: g.s.users * 1.2,
+            trainingFinished: true,
+            news: g.s.news.reversed.take(6).toList().reversed.toList(),
+          ),
+        ));
+        await _settle(tester, 600);
+        expect(find.byKey(const ValueKey('news-digest')), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'offline digest');
+        await _shot(tester, key, '${tag}_digest');
 
         await tester.pumpWidget(const SizedBox());
         await tester.pump(const Duration(seconds: 15));
