@@ -476,8 +476,24 @@ class ReleaseCard extends StatelessWidget {
             style: _m(15, color: _muted),
           ),
         ),
-        Text('Play: ', style: _m(20, color: _muted)),
-        Text(kGameUrl.replaceFirst(RegExp(r'^https?://'), ''), style: _m(20, color: accent, w: FontWeight.w700)),
+        Flexible(
+          flex: 2,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: 'Play: ', style: _m(20, color: _muted)),
+                  TextSpan(
+                    text: kGameUrl.replaceFirst(RegExp(r'^https?://'), ''),
+                    style: _m(20, color: accent, w: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
