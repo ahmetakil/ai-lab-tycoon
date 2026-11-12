@@ -206,7 +206,7 @@ class _InfraPlate extends StatelessWidget {
             ? AppColors.amber
             : const Color(0xFFFFE066);
     final pNext = g.nextPowerTier;
-    final pUp = pNext != null && g.isUnlocked(pNext.era) && g.s.money >= pNext.cost;
+    final pUp = pNext != null && g.powerBlockReason() == null;
     final pNudge = powerNudge(g);
 
     // Network.
@@ -222,7 +222,7 @@ class _InfraPlate extends StatelessWidget {
         key: const ValueKey('power-chip'),
         tooltip:
             'Power: ${formatPower(g.powerUsedKw)} of ${formatPower(g.powerCapKw)}. '
-            '${pNext == null ? 'Top tier.' : 'Tap to see or buy ${pNext.name} (${formatMoney(pNext.cost)}).'}',
+            '${pNext == null ? 'Top tier.' : g.powerNeedsMove ? 'Building maxed: move to grow.' : 'Tap to see or buy ${pNext.name} (${formatMoney(pNext.cost)}).'}',
         icon: Icons.bolt_rounded,
         color: pColor,
         frac: pFrac,
