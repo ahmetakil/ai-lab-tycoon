@@ -23,7 +23,7 @@ import 'benchmarks.dart';
 import 'moments_style.dart';
 
 /// Placeholder link printed on every card and post. Change before launch.
-const kGameUrl = 'https://ai-lab-tycoon.example';
+const kGameUrl = 'https://ahmetakil.github.io/ai-lab-tycoon';
 
 const kCardWidth = 1200.0;
 const kCardHeight = 675.0;
