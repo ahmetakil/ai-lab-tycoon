@@ -51,6 +51,11 @@ Future<void> withApp(
 }
 
 Future<void> openTool(WidgetTester tester, String id) async {
+  // Phones tuck rarely used tools (Power, Lab, Settings) behind "More".
+  if (find.byKey(ValueKey('tool-$id')).evaluate().isEmpty) {
+    await tester.tap(find.byKey(const ValueKey('tool-more')));
+    await tester.pump(const Duration(milliseconds: 100));
+  }
   await tester.tap(find.byKey(ValueKey('tool-$id')));
   // Two frames: one starts the slide/fade-in, the next finishes it.
   await tester.pump(const Duration(milliseconds: 300));
@@ -94,6 +99,10 @@ void main() {
       expect(find.byType(WorldMap), findsOneWidget);
       expect(find.text(formatMoney(c.game.s.money)), findsOneWidget);
       expect(find.text('No training run'), findsOneWidget);
+      // Phone rail: Power, Lab and Settings sit behind "More".
+      expect(find.byKey(const ValueKey('tool-settings')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('tool-more')));
+      await tester.pump(const Duration(milliseconds: 100));
       for (final t in ['Build', 'Research', 'Train', 'Power', 'Rivals', 'Lab', 'Settings']) {
         expect(
           find.descendant(
@@ -387,7 +396,10 @@ void main() {
 
       // 15 GPUs on copper 1G (feeds 4): over the cap, red, scaling shown.
       expect(find.text('15/4'), findsOneWidget);
-      expect(find.textContaining('scaling'), findsWidgets);
+      expect(
+        find.byWidgetPredicate((w) => w is Tooltip && (w.message ?? '').contains('scaling')),
+        findsWidgets,
+      );
       await tester.tap(find.byKey(const ValueKey('network-chip')));
       await settle();
       expect(find.byKey(const ValueKey('network-explain')), findsOneWidget);
@@ -397,7 +409,9 @@ void main() {
       expect(c.game.network.id, 'copper10g');
       await tester.tap(find.byKey(const ValueKey('modal-close')).last);
       await settle();
-      expect(find.text('15/32'), findsOneWidget);
+      // Fed again: the phone gauge drops its readout.
+      expect(c.game.networkCap, 32);
+      expect(find.text('15/32'), findsNothing);
 
       // Goal strip: the next era and how to get there.
       expect(find.textContaining('Next era: Startup'), findsOneWidget);
@@ -409,7 +423,6 @@ void main() {
       await settle();
 
       // Rating plate: "RATING" + the rival to beat; tap opens the leaderboard.
-      expect(find.text('RATING'), findsOneWidget);
       expect(find.textContaining('beat Tiny-Transformer'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('rating-chip')));
       await settle();

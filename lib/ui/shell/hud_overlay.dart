@@ -19,12 +19,19 @@ import '../widgets/game_builder.dart';
 import '../widgets/goals.dart';
 import '../widgets/hud.dart';
 
+part 'phone_hud.dart';
+
 /// Wide layouts put the stats beside the project bar; narrow ones stack them.
 bool isWideHud(double width) => width >= 760;
 
 /// Height of the top HUD (below the safe area, goal strip included), for
 /// anything that must sit under it.
-double hudHeight(double width) => isWideHud(width) ? 110 : 170;
+double hudHeight(double width) =>
+    isWideHud(width)
+        ? 110
+        : isPhoneHud(width)
+        ? PhoneHud.height
+        : 170;
 
 const _plate = Color(0xD90A101C);
 
@@ -65,6 +72,21 @@ class TopHud extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, box) {
         final wide = isWideHud(box.maxWidth);
+        if (isPhoneHud(box.maxWidth)) {
+          return GameBuilder(
+            controller: controller,
+            builder:
+                (context) => PhoneHud(
+                  controller: controller,
+                  onPower: onPower,
+                  onNetwork: onNetwork,
+                  onCooling: onCooling,
+                  onProject: onProject,
+                  onGoal: onGoal,
+                  onRivals: onRivals,
+                ),
+          );
+        }
         return GameBuilder(
           controller: controller,
           builder: (context) {
@@ -681,6 +703,15 @@ class ToolSpec {
 
   /// Gentler than [pulse]: a slow, small breathe (e.g. idle GPUs).
   final bool nudge;
+
+  /// The main action (Train / Release): drawn filled on the phone rail.
+  final bool primary;
+
+  /// Rarely used: tucked behind the "More" button on phones.
+  final bool overflow;
+
+  /// Small corner tag (e.g. the debug "×10" speed).
+  final String? tag;
   final VoidCallback onTap;
   const ToolSpec({
     required this.id,
@@ -693,24 +724,67 @@ class ToolSpec {
     this.badge = false,
     this.pulse = false,
     this.nudge = false,
+    this.primary = false,
+    this.overflow = false,
+    this.tag,
   });
 }
 
-class GameToolbar extends StatelessWidget {
+/// Width of the left tool rail.
+double toolbarWidth({required bool phone, required bool compact}) =>
+    phone
+        ? 46
+        : compact
+        ? 50
+        : 60;
+
+class GameToolbar extends StatefulWidget {
   final List<ToolSpec> tools;
   final bool compact;
-  const GameToolbar({super.key, required this.tools, this.compact = false});
+
+  /// Phone rail: slim icon-first buttons, [ToolSpec.overflow] items behind
+  /// a "More" toggle.
+  final bool phone;
+  const GameToolbar({super.key, required this.tools, this.compact = false, this.phone = false});
+
+  @override
+  State<GameToolbar> createState() => _GameToolbarState();
+}
+
+class _GameToolbarState extends State<GameToolbar> {
+  bool _more = false;
 
   @override
   Widget build(BuildContext context) {
-    final size = compact ? 50.0 : 60.0;
+    final phone = widget.phone;
+    final size = toolbarWidth(phone: phone, compact: widget.compact);
+    final gap = phone ? 6.0 : (widget.compact ? 6.0 : 8.0);
+    final shown = <ToolSpec>[
+      for (final t in widget.tools)
+        if (!phone || !t.overflow || _more) t,
+    ];
+    if (phone && widget.tools.any((t) => t.overflow)) {
+      final hidden = widget.tools.where((t) => t.overflow).toList();
+      shown.add(
+        ToolSpec(
+          id: 'more',
+          label: _more ? 'Less' : 'More',
+          tooltip: _more ? 'Hide extra tools' : 'More: ${hidden.map((t) => t.label).join(', ')}',
+          icon: _more ? Icons.expand_less_rounded : Icons.more_horiz_rounded,
+          color: AppColors.muted,
+          badge: !_more && hidden.any((t) => t.badge),
+          tag: _more ? null : hidden.map((t) => t.tag).whereType<String>().firstOrNull,
+          onTap: () => setState(() => _more = !_more),
+        ),
+      );
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (final t in tools)
+        for (final t in shown)
           Padding(
-            padding: EdgeInsets.only(bottom: compact ? 6 : 8),
-            child: _ToolButton(spec: t, size: size),
+            padding: EdgeInsets.only(bottom: gap),
+            child: _ToolButton(spec: t, size: size, phone: phone),
           ),
       ],
     );
@@ -720,7 +794,8 @@ class GameToolbar extends StatelessWidget {
 class _ToolButton extends StatefulWidget {
   final ToolSpec spec;
   final double size;
-  const _ToolButton({required this.spec, required this.size});
+  final bool phone;
+  const _ToolButton({required this.spec, required this.size, this.phone = false});
 
   @override
   State<_ToolButton> createState() => _ToolButtonState();
@@ -735,16 +810,21 @@ class _ToolButtonState extends State<_ToolButton> {
     final t = widget.spec;
     final s = widget.size;
     final c = t.color;
+    final phone = widget.phone;
+    // On phones the primary action is drawn filled so it stands out.
+    final filled = t.active || (phone && t.primary);
+    final h = phone && t.primary ? s + 8 : s;
+    const ink = Color(0xFF06100A);
     final face = Container(
       width: s,
-      height: s,
+      height: h,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(phone ? 12 : 14),
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors:
-              t.active
+              filled
                   ? [c, Color.lerp(c, Colors.black, 0.35)!]
                   : [
                     Color.lerp(const Color(0xFF1A2540), c, _hover ? 0.25 : 0.1)!,
@@ -753,29 +833,36 @@ class _ToolButtonState extends State<_ToolButton> {
         ),
         border: Border.all(
           color: t.active ? Colors.white.withValues(alpha: 0.7) : c.withValues(alpha: 0.6),
-          width: 2,
+          width: phone ? 1.6 : 2,
         ),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF000000), offset: Offset(0, _down ? 1 : 4)),
+          BoxShadow(color: const Color(0xFF000000), offset: Offset(0, _down ? 1 : (phone ? 3 : 4))),
           if (t.active || t.pulse) BoxShadow(color: c.withValues(alpha: 0.4), blurRadius: 14),
         ],
       ),
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(t.icon, size: s * 0.44, color: t.active ? const Color(0xFF06100A) : c),
-                SizedBox(height: s * 0.02),
-                Text(
-                  t.label,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: s * 0.17,
-                    fontWeight: FontWeight.w700,
-                    height: 1,
-                    color: t.active ? const Color(0xFF06100A) : AppColors.text,
+                Icon(t.icon, size: phone ? 20 : s * 0.44, color: filled ? ink : c),
+                SizedBox(height: phone ? 2 : s * 0.02),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      t.label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: phone ? 8.5 : s * 0.17,
+                        fontWeight: FontWeight.w700,
+                        height: 1,
+                        color: filled ? ink : (phone ? AppColors.muted : AppColors.text),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -783,15 +870,33 @@ class _ToolButtonState extends State<_ToolButton> {
           ),
           if (t.badge)
             Positioned(
-              right: 5,
-              top: 5,
+              right: phone ? 3 : 5,
+              top: phone ? 3 : 5,
               child: Container(
-                width: 10,
-                height: 10,
+                width: phone ? 8 : 10,
+                height: phone ? 8 : 10,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: AppColors.red,
                   border: Border.all(color: Colors.white, width: 1.5),
+                ),
+              ),
+            ),
+          if (t.tag != null)
+            Positioned(
+              right: -5,
+              bottom: -5,
+              child: Container(
+                key: ValueKey('tool-${t.id}-tag'),
+                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppColors.red,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.black),
+                ),
+                child: Text(
+                  t.tag!,
+                  style: numStyle(size: 8.5, color: Colors.white, weight: FontWeight.w800),
                 ),
               ),
             ),

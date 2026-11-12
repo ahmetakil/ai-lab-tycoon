@@ -634,6 +634,7 @@ class _GameShellState extends State<GameShell> {
         icon: pending ? Icons.rocket_launch_rounded : Icons.model_training_rounded,
         color: pending ? AppColors.neon : AppColors.cyan,
         pulse: pending,
+        primary: true,
         // Idle GPUs: a gentle nudge (no run, nothing to ship).
         nudge: !pending && g.s.run == null,
         onTap: _openTrain,
@@ -645,6 +646,8 @@ class _GameShellState extends State<GameShell> {
         icon: Icons.bolt_rounded,
         color: const Color(0xFFFFE066),
         badge: powerNudge(g),
+        // Phones: the infra plate in the HUD opens Power.
+        overflow: true,
         onTap: _openPower,
       ),
       ToolSpec(
@@ -661,6 +664,7 @@ class _GameShellState extends State<GameShell> {
         tooltip: 'Lab stats: serving, compute, model',
         icon: Icons.insights_rounded,
         color: AppColors.cyan,
+        overflow: true,
         onTap: _openStats,
       ),
       ToolSpec(
@@ -669,6 +673,9 @@ class _GameShellState extends State<GameShell> {
         tooltip: 'Sound and playtest speed',
         icon: Icons.settings_rounded,
         color: AppColors.muted,
+        overflow: true,
+        // Debug speed lives here instead of floating over the map.
+        tag: c.speed != 1 ? '×${formatNumber(c.speed)}' : null,
         onTap: _openSettings,
       ),
     ];
@@ -700,13 +707,14 @@ class _GameShellState extends State<GameShell> {
     final mq = MediaQuery.of(context);
     final w = box.maxWidth, h = box.maxHeight;
     final compact = w < 600 || h < 640;
+    final phone = isPhoneHud(w);
     final top = mq.padding.top + hudHeight(w);
-    final toolW = compact ? 50.0 : 60.0;
+    final toolW = toolbarWidth(phone: phone, compact: compact);
     final drawerH = _build ? _drawerH : 0.0;
     // The tutorial card sits above the drawer: keep the room clear of it.
     final coachH = _tutorialStep() == null ? 0.0 : 150.0;
     final safe = EdgeInsets.fromLTRB(
-      toolW + 16,
+      toolW + (phone ? 10 : 16),
       top + 6,
       8,
       drawerH + 8 + (_build ? coachH : math.max(0.0, coachH - 80)),
@@ -782,17 +790,6 @@ class _GameShellState extends State<GameShell> {
             onRivals: _openRivals,
           ),
         ),
-        if (c.speed != 1)
-          Positioned(
-            right: 10,
-            top: top + 4,
-            child: Tag(
-              '×${formatNumber(c.speed)} speed',
-              color: AppColors.red,
-              mono: true,
-              filled: true,
-            ),
-          ),
         Positioned(
           left: mq.padding.left + 8,
           top: top + 8,
@@ -800,7 +797,8 @@ class _GameShellState extends State<GameShell> {
           child: SingleChildScrollView(
             child: GameBuilder(
               controller: c,
-              builder: (context) => GameToolbar(tools: _tools(g), compact: compact),
+              builder:
+                  (context) => GameToolbar(tools: _tools(g), compact: compact, phone: phone),
             ),
           ),
         ),
