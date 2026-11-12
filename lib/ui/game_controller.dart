@@ -40,7 +40,10 @@ class GameController extends ChangeNotifier with WidgetsBindingObserver {
       try {
         game = Game(GameState.fromJson(jsonDecode(raw) as Map<String, dynamic>));
         final savedAt = prefs.getInt(_savedAtKey);
-        if (savedAt != null) {
+        // An old, incompatible save loads as a fresh game: it gets no
+        // offline progress (it would hand a brand-new lab up to 2 h of
+        // earnings, enough for a garage full of V100s at once).
+        if (savedAt != null && !game.s.startedFromOldSave) {
           final away = DateTime.now()
                   .difference(DateTime.fromMillisecondsSinceEpoch(savedAt))
                   .inMilliseconds /
@@ -111,6 +114,8 @@ class GameController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> resetGame() async {
     game = Game();
     offlineReport = null;
+    // A fresh game starts at normal speed, not at the last playtest speed.
+    speed = 1;
     await save();
     notifyListeners();
   }

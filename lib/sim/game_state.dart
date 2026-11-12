@@ -313,11 +313,11 @@ class GameState {
              ),
            ];
 
-  /// The starting layout: a garage with one RTX 4090 (gpu_gamer).
+  /// The starting layout: a garage with one used RTX 2060 (gpu_old).
   static Map<String, List<String?>> startGrids() {
     final room = roomById('garage')!;
     final garage = emptyGrid(room);
-    garage[startGpuCell.$2 * room.width + startGpuCell.$1] = 'gpu_gamer';
+    garage[startGpuCell.$2 * room.width + startGpuCell.$1] = 'gpu_old';
     return {'garage': garage};
   }
 

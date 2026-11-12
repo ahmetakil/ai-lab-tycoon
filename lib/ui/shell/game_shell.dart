@@ -504,7 +504,7 @@ class _GameShellState extends State<GameShell> {
                     if (!owned) ...[
                       Text(
                         'Everything you\'ve built comes with you: same layout, centred in the bigger floor. '
-                        'Moving only takes the cash; the ${room.era.label} era still unlocks the new parts.',
+                        'The ${room.name} opens in the ${room.era.label} era, with its new parts, power and research.',
                         style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.3),
                       ),
                       const SizedBox(height: 10),

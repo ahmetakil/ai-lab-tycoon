@@ -14,10 +14,11 @@ Source of truth: `lib/sim/content.dart` (data), `lib/sim/grid.dart` (rules),
 You live in exactly one room. The next room along the road is shown as a faint
 silhouette with a "Move here" sign; buying it **moves** you there:
 
-- **Money is the only gate.** You can move as soon as you have the cash, even
-  before the room's era. The era still has its normal goal and still unlocks
-  that room's parts, power and network tiers and research; moving early just
-  gives more floor and the room's free cooling. Rooms are strictly
+- **Two gates: the era and the cash.** A room opens with its era (Server
+  closet in the Startup, Colocation cage in the Small lab, and so on), along
+  with that era's parts, power and network tiers and research; then you
+  still need its price. So you fill each room during its era and feel the
+  walls before the next goal opens the way out. Rooms are strictly
   sequential (`Game.nextRoom`).
 - **Every tile comes along** with the same relative layout, centred in the
   bigger floor: `Game.moveOffset(from, to) = ((w₂ − w₁) ~/ 2, (h₂ − h₁) ~/ 2)`
@@ -25,13 +26,14 @@ silhouette with a "Move here" sign; buying it **moves** you there:
   least as big as the one before, so everything fits. The old room is gone.
 - The training run, users, upgrades and the power / network / cooling tiers
   carry on unchanged. `Game.moveTo(roomId)` emits `RoomMoved(from, to, offset)`.
-- `Game.moveRequirements(roomId)` is the modal's checklist: **Cash** (the
-  only required row), then the room's era goal as a "not needed to move,
-  unlocks the new parts" row (progress, hint, `RequirementAction.train`) and
-  a done info row for the bigger power limit ("Power limit: 50 kW → 500 kW
-  (up to Leased colo circuits)").
-  `roomBlockReason` is one sentence: "Costs $15.0k. You have $3.2k.",
-  "Move to the Server closet first.", "You're already in the Garage."
+- `Game.moveRequirements(roomId)` is the modal's checklist: the room's
+  **era** (its goal's progress and hint, `RequirementAction.train`) and
+  **Cash**, both required, then a done info row for the bigger power limit
+  ("Power limit: 65 kW → 500 kW (up to Leased colo circuits)").
+  `roomBlockReason` is one sentence, the era first: "Opens in the Startup
+  era: own 1.05 PFLOPS of GPUs (you have 640 TFLOPS).", then "Costs $15.0k. You have
+  $3.2k.", "Move to the Server closet first.", "You're already in the
+  Garage."
 
 Save v4 (one room, tiers). Older saves (v3 had several rooms at once) start
 fresh; the game is unreleased.
@@ -40,12 +42,12 @@ fresh; the game is unreleased.
 
 | room | era | size | GPU tile = | room cooling/cell (total) | cost | power limit (electrical service) |
 |---|---|---|---|---|---|---|
-| `garage` Garage | garage | 4×4 | 1 GPU | 1.0 (16) | free | 1 Upgraded electrical panel (8 kW) |
-| `closet` Server closet | startup | 7×7 | 8-GPU server | 2.5 (123) | $15k | 2 3-phase service (50 kW) |
-| `colo` Colocation cage | smallLab | 10×10 | 8-GPU server | 5.0 (500) | $2M | 3 Leased colo circuits (500 kW) |
-| `hall` Datacenter hall | mediumLab | 14×14 | rack (32–72 GPUs) | 18.0 (3528) | $3M | 5 On-site substation (20 MW) |
-| `campus` Datacenter campus | bigLab | 18×18 | pod (~1k GPUs) | 40.0 (12960) | $30M | 7 Gigawatt grid interconnect (1 GW) |
-| `gigasite` Gigawatt site | globalLab | 22×22 | building (~8k GPUs) | 70.0 (33880) | $400M | 9 Multi-site cluster (4 GW) |
+| `garage` Garage | garage | 4×4 | 1 GPU | 1.0 (16) | free | 1 Upgraded electrical panel (10 kW) |
+| `closet` Server closet | startup | 7×7 | 8-GPU server | 2.5 (123) | $15k | 2 3-phase service (65 kW) |
+| `colo` Colocation cage | smallLab | 10×10 | 8-GPU server | 5.0 (500) | $800k | 3 Leased colo circuits (500 kW) |
+| `hall` Datacenter hall | mediumLab | 14×14 | rack (32–72 GPUs) | 18.0 (3528) | $1.5M | 5 On-site substation (4 MW) |
+| `campus` Datacenter campus | bigLab | 18×18 | pod (~1k GPUs) | 40.0 (12960) | $7.5M | 7 Gigawatt grid interconnect (1 GW) |
+| `gigasite` Gigawatt site | globalLab | 22×22 | building (~8k GPUs) | 70.0 (33880) | $20M | 9 Multi-site cluster (4 GW) |
 
 The power limit (`RoomDef.maxPowerTier`) is the building's electrical
 service: the highest power tier you can buy while you're there. A tier past
@@ -75,23 +77,24 @@ and **cooling** (network switch tiles are gone since v4).
 
 ### GPU tiles
 
-| GPU tile | sold for | GPUs | TFLOPS | kW | heat | cost | locks |
+| GPU tile | sold for | GPUs | TFLOPS | kW | heat | cost (crunch/tile) | locks |
 |---|---|---|---|---|---|---|---|
-| `gpu_old` | garage | 1 | 30 | 0.35 | 6 | $900 |  |
-| `gpu_gamer` | garage | 1 | 80 | 0.45 | 4.5 | $2k |  |
-| `gpu_v_class` | garage | 1 | 125 | 0.5 | 5 | $3k |  |
-| `srv_a_class` | closet, colo | 8 | 2496 | 5.6 | 28 | $50k |  |
-| `srv_h_class` | closet, colo | 8 | 7920 | 10.4 | 42 | $150k | tier 3 (colo) |
-| `rack_h_class` | hall | 32 | 31.7k | 40 | 160 | $580k | tier 4 (hall) |
-| `rack_b_class` | hall | 72 | 162k | 172.8 | 260 | $2.85M | liquid_cooling, tier 5 (campus) |
-| `pod_b_class` | campus | 1024 | 2.3M | 2406.4 | 600 | $39M | liquid_cooling, tier 5 (campus) |
-| `rack_r_class` | hall | 72 | 252k | 244.8 | 340 | $3.9M | liquid_cooling, tier 6 (plant) |
-| `pod_r_class` | campus | 1024 | 3.6M | 3430 | 750 | $54.6M | liquid_cooling, tier 6 (plant) |
-| `bldg_r_class` | gigasite | 8.2k | 28.7M | 27.0k | 700 | $300M | liquid_cooling, tier 7 (gw_campus) |
+| `gpu_old` | garage | 1 | 30 | 0.35 | 6 | $900 (+25%) | (the starting GPU) |
+| `gpu_gamer` | garage | 1 | 80 | 0.45 | 4.5 | $2k (+15%) |  |
+| `gpu_v_class` | garage | 1 | 125 | 0.5 | 5 | $3k (+10%) | mixed_precision |
+| `srv_a_class` | closet, colo | 8 | 2496 | 5.6 | 28 | $57.5k (+5%) |  |
+| `srv_h_class` | closet, colo | 8 | 7920 | 10.4 | 42 | $180k (+12%) | tier 3 (colo) |
+| `rack_h_class` | hall | 32 | 31.7k | 40 | 160 | $928k (+10%) | tier 4 (hall) |
+| `rack_b_class` | hall | 72 | 162k | 172.8 | 260 | $4.56M (+10%) | liquid_cooling, tier 5 (campus) |
+| `pod_b_class` | campus | 1024 | 2.3M | 2406.4 | 600 | $11.7M (+12%) | liquid_cooling, tier 5 (campus) |
+| `rack_r_class` | hall, campus | 72 | 252k | 244.8 | 340 | $1.17M (+12%) | liquid_cooling, tier 6 (plant) |
+| `pod_r_class` | campus, gigasite | 1024 | 3.6M | 3430 | 750 | $16.4M (+12%) | liquid_cooling, tier 6 (plant) |
+| `bldg_r_class` | gigasite | 8.2k | 28.7M | 27.0k | 700 | $36M (+3%) | liquid_cooling, tier 7 (gw_campus) |
 
 **GPU supply crunch**: a GPU tile costs `cost × min(4, (1 + priceGrowth)^owned)`
-(`Game.tilePrice`). Garage GPUs and coolers have no crunch. Selling refunds
-half the list price.
+(`Game.tilePrice`). Garage GPUs have a steep one (the used market dries up),
+so the garage is an upgrade path: 2060s first, then 4090s, then V100s.
+Coolers have no crunch. Selling refunds half the list price.
 
 ### Cooling tiles
 
@@ -165,15 +168,15 @@ cooler shares)`.
 | power tier | era | cap | cost |
 |---|---|---|---|
 | `outlet` Garage outlet | garage | 1.8 kW | $0 |
-| `panel` Upgraded electrical panel | garage | 8 kW | $3k |
-| `office` 3-phase service | startup | 50 kW | $60k |
-| `colo` Leased colo circuits | smallLab | 500 kW | $1M |
-| `hall` Dedicated medium-voltage feed | mediumLab | 2 MW | $4M |
-| `campus` On-site substation | mediumLab | 20 MW | $7M |
-| `plant` Power plant deal (PPA) | bigLab | 300 MW | $120M |
-| `gw_campus` Gigawatt grid interconnect | globalLab | 1.0 GW | $350M |
-| `nuclear_restart` Restarted nuclear plant | globalLab | 2.0 GW | $1B |
-| `multi_site` Multi-site cluster | globalLab | 4.0 GW | $2B |
+| `panel` Upgraded electrical panel | garage | 10 kW | $3k |
+| `office` 3-phase service | startup | 65 kW | $46.6k |
+| `colo` Leased colo circuits | smallLab | 500 kW | $164k |
+| `hall` Dedicated medium-voltage feed | mediumLab | 2 MW | $488k |
+| `campus` On-site substation | mediumLab | 4 MW | $575k |
+| `plant` Power plant deal (PPA) | bigLab | 100 MW | $2.4M |
+| `gw_campus` Gigawatt grid interconnect | globalLab | 1.0 GW | $14.4M |
+| `nuclear_restart` Restarted nuclear plant | globalLab | 2.0 GW | $90.9M |
+| `multi_site` Multi-site cluster | globalLab | 4.0 GW | $300M |
 
 
 GPU tiles draw `powerKw × powerMult` (liquid cooling −15%), coolers their

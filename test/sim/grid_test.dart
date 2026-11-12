@@ -206,7 +206,7 @@ void main() {
         startsWith('Unlocks in Small lab: reach rating 990'),
       );
       g.s.era = Era.garage;
-      expect(g.placeBlockReason('closet', 0, 0, 'srv_a_class'), contains('reach 3k users'));
+      expect(g.placeBlockReason('closet', 0, 0, 'srv_a_class'), contains('own 1.05 PFLOPS of GPUs'));
     });
 
     test('any unlocked part goes in any room (an old card in a big hall is allowed)', () {
@@ -227,7 +227,7 @@ void main() {
 
     test('placing costs money; moving is free and swaps', () {
       final g = Game(GameState(money: 1000));
-      expect(g.tileAt('garage', 1, 1), 'gpu_gamer');
+      expect(g.tileAt('garage', 1, 1), 'gpu_old');
       expect(g.placeTile('garage', 0, 0, 'cool_fan'), isTrue);
       expect(g.s.money, 1000 - tileById('cool_fan')!.cost);
       final money = g.s.money;
@@ -235,7 +235,7 @@ void main() {
       expect(g.tileAt('garage', 3, 3), 'cool_fan');
       expect(g.moveTile('garage', 3, 3, 1, 1), isTrue); // swap
       expect(g.tileAt('garage', 1, 1), 'cool_fan');
-      expect(g.tileAt('garage', 3, 3), 'gpu_gamer');
+      expect(g.tileAt('garage', 3, 3), 'gpu_old');
       expect(g.s.money, money);
       expect(g.moveTile('garage', 0, 0, 1, 0), isFalse); // nothing there
       expect(g.moveTile('garage', 1, 1, 4, 1), isFalse); // out of bounds
@@ -260,6 +260,9 @@ void main() {
     test('replacing pays the difference', () {
       final g = gameWith(['G...', '....', '....', '....'], money: 2000, powerTier: 0, era: Era.garage);
       expect(g.replaceBlockReason('garage', 1, 0, 'cool_fan'), contains('nothing there'));
+      // The V100's tensor cores need mixed precision first.
+      expect(g.replaceBlockReason('garage', 0, 0, 'gpu_v_class'), contains('Research Mixed precision'));
+      g.s.ownedUpgrades.add('mixed_precision');
       expect(g.replaceTile('garage', 0, 0, 'gpu_v_class'), isTrue);
       expect(g.s.money, 2000 - 3000 + gamer.cost / 2);
     });
@@ -276,34 +279,46 @@ void main() {
   group('moving to the next room', () {
     Game readyGarage() {
       final g = gameWith(['GFo.', '.G..', 'W..V', '....'], era: Era.startup, powerTier: 2, networkTier: 1);
-      // Moving early (before the era) is allowed too; this one is on time.
       g.s.money = 1e6;
       return g;
     }
 
-    test('only the next room; money is the only gate; the checklist says the rest', () {
+    test('only the next room; it needs its era and its price; the checklist says both', () {
       final g = Game(GameState(money: 100));
       expect(g.nextRoom!.id, 'closet');
       expect(g.roomBlockReason('colo'), 'Move to the Server closet first.');
       expect(g.roomBlockReason('garage'), contains('already in'));
       final reqs = g.moveRequirements('closet');
-      expect(reqs.map((r) => r.kind), ['cash', 'era', 'power']);
-      expect(reqs.map((r) => r.required), [true, false, false]);
+      expect(reqs.map((r) => r.kind), ['era', 'cash', 'power']);
+      expect(reqs.map((r) => r.required), [true, true, false]);
       expect(reqs.take(2).every((r) => !r.done), isTrue);
-      expect(reqs[0].detail, '\$100 / \$15.0k');
-      expect(reqs[1].line, startsWith('Startup era: 0 / 3k users (grow users by releasing better models'));
-      expect(reqs[1].action, RequirementAction.train);
+      expect(reqs[0].line, 'Startup era: 0.03 / 1.05 PFLOPS (fill the room with faster GPUs; swap out the old ones)');
+      expect(reqs[0].action, RequirementAction.none);
+      expect(reqs[1].detail, '\$100 / \$15.0k');
       // Power is information: the bigger building lifts the limit.
-      expect(reqs[2].line, 'Power limit: 8.00 kW → 50 kW (up to 3-phase service)');
+      expect(reqs[2].line, 'Power limit: 10 kW → 65 kW (up to 3-phase service)');
       expect(reqs[2].done, isTrue);
       expect(reqs[2].action, RequirementAction.none);
-      // Only the cash blocks.
+      // The era comes first: cash alone doesn't open the closet.
+      expect(g.roomBlockReason('closet'),
+          'Opens in the Startup era: own 1.05 PFLOPS of GPUs (you have 30 TFLOPS).');
+      g.s.money = 1e6;
+      expect(g.canBuyRoom('closet'), isFalse);
+      expect(g.moveTo('closet'), isFalse);
+      expect(g.moveRequirements('closet')[1].done, isTrue);
+      // With the era, the price is the last gate.
+      g.s.era = Era.startup;
+      g.s.money = 100;
       expect(g.roomBlockReason('closet'), 'Costs \$15.0k. You have \$100.');
       g.s.money = 1e6;
       expect(g.canBuyRoom('closet'), isTrue);
-      expect(g.moveRequirements('closet').first.done, isTrue);
-      g.s.era = Era.startup;
       expect(g.moveRequirements('closet').every((r) => r.done), isTrue);
+      // A later room's era says which era comes first.
+      final h = Game(GameState(money: 1e9, era: Era.startup, grids: {'closet': GameState.emptyGrid(roomById('closet')!)}));
+      expect(h.roomBlockReason('colo'), startsWith('Opens in the Small lab era: reach rating 990'));
+      final late = Game(GameState(money: 1e9, era: Era.garage, grids: {'closet': GameState.emptyGrid(roomById('closet')!)}));
+      expect(late.roomBlockReason('colo'), 'Opens in the Small lab era (after Startup).');
+      expect(late.moveRequirements('colo').first.detail, 'after Startup');
     });
 
     test('moving carries every tile with the same relative layout', () {
@@ -361,7 +376,7 @@ void main() {
         final (ox, oy) = Game.moveOffset(rooms[i - 1], r);
         x += ox;
         y += oy;
-        expect(g.tileAt(r.id, x, y), 'gpu_gamer', reason: r.id);
+        expect(g.tileAt(r.id, x, y), 'gpu_old', reason: r.id);
       }
       expect(g.nextRoom, isNull);
       expect(g.currentRoom.id, 'gigasite');

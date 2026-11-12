@@ -167,7 +167,7 @@ class Game {
 
   double get trainEffMult =>
       _effects.fold(1.0, (a, e) => a * e.trainEffMult) *
-      math.pow(openSourceCommunityTrainBonus, s.openReleases);
+      math.pow(openSourceCommunityTrainBonus, math.min(s.openReleases, openSourceCommunityMaxStacks));
 
   double get serveEffMult => _effects.fold(1.0, (a, e) => a * e.serveEffMult);
   double get dataTokens =>
@@ -175,7 +175,8 @@ class Game {
   double get ratingBonus => _effects.fold(0.0, (a, e) => a + e.ratingAdd);
   double get arpuMult =>
       _effects.fold(1.0, (a, e) => a * e.arpuMult) *
-      (s.currentModel.open ? openSourceArpuMult : 1);
+      (s.currentModel.open ? openSourceArpuMult : 1) *
+      (s.era == Era.garage ? garageArpuMult : 1);
   double get powerMult => _effects.fold(1.0, (a, e) => a * e.powerMult);
 
   // --- Grid ------------------------------------------------------------------
@@ -559,7 +560,7 @@ class Game {
     final next = Era.values[s.era.index + 1];
     return switch (next) {
       Era.garage => null,
-      Era.startup => EraGoal(next, 'users', startupUnlockUsers, s.users),
+      Era.startup => EraGoal(next, 'compute', startupUnlockTflops, peakTflops),
       Era.smallLab => EraGoal(next, 'rating', smallLabUnlockRating, rating),
       Era.mediumLab => EraGoal(next, 'rating', mediumLabUnlockRating, rating),
       Era.bigLab => EraGoal(next, 'rating', bigLabUnlockRating, rating),
@@ -578,10 +579,13 @@ class Game {
     return 'Unlocks in ${era.label} (after ${Era.values[era.index - 1].label}).';
   }
 
-  /// "reach rating 1,000 (you're at 998)" / "reach 3k users (you have 1.2k)".
+  /// "reach rating 1,000 (you're at 998)" / "reach 3k users (you have 1.2k)"
+  /// / "own 1.20 PFLOPS of GPUs (you have 450 TFLOPS)".
   static String goalText(EraGoal goal) => switch (goal.metric) {
     'users' =>
       'reach ${_num(goal.target)} users (you have ${_num(goal.current)})',
+    'compute' =>
+      'own ${tflopsText(goal.target)} of GPUs (you have ${tflopsText(goal.current)})',
     'rating' =>
       'reach rating ${_int(goal.target)} (you\'re at ${_int(goal.current.floorToDouble())})',
     _ => 'reach ${_money(goal.target)} ARR (you have ${_money(goal.current)})',
@@ -590,6 +594,7 @@ class Game {
   /// How to make progress on a gate, for hints.
   static String goalHint(String metric) => switch (metric) {
     'users' => 'release better models and add serving GPUs',
+    'compute' => 'fill the room with faster GPUs; swap out the old ones',
     'rating' => 'train & release a better model',
     _ => 'grow revenue: more users, better pricing',
   };
@@ -632,15 +637,45 @@ class Game {
   static (int, int) moveOffset(RoomDef from, RoomDef to) =>
       ((to.width - from.width) ~/ 2, (to.height - from.height) ~/ 2);
 
-  /// The move checklist for [roomId]: the cash (the only thing that blocks
-  /// a move), then what the room's era brings (not required: moving early
-  /// just gives more floor and free cooling; new parts, power and network
-  /// tiers and research still wait for the era's goal). Empty for rooms you
-  /// can't move to at all (see [roomBlockReason]).
+  /// The move checklist for [roomId]: the room's era (its goal) and the
+  /// cash, both required, then the power limit the bigger building brings
+  /// (info). Empty for rooms you can't move to at all (see
+  /// [roomBlockReason]).
   List<Requirement> moveRequirements(String roomId) {
     final room = roomById(roomId);
     if (room == null || room.id != nextRoom?.id) return const [];
     final out = <Requirement>[];
+    // Era: the room is part of its era, like its parts, power and research.
+    final eraOk = isUnlocked(room.era);
+    final goal = nextEraGoal;
+    if (eraOk) {
+      out.add(Requirement(
+        kind: 'era',
+        title: '${room.era.label} era',
+        detail: 'reached',
+        done: true,
+        progress: 1,
+      ));
+    } else if (goal != null && goal.era == room.era) {
+      out.add(Requirement(
+        kind: 'era',
+        title: '${room.era.label} era',
+        detail: goalProgress(goal),
+        hint: goalHint(goal.metric),
+        done: false,
+        progress: goal.progress,
+        // A compute gate is built, not trained: nothing to open.
+        action: goal.metric == 'compute' ? RequirementAction.none : RequirementAction.train,
+      ));
+    } else {
+      out.add(Requirement(
+        kind: 'era',
+        title: '${room.era.label} era',
+        detail: 'after ${Era.values[room.era.index - 1].label}',
+        done: false,
+        progress: 0,
+      ));
+    }
     final cashOk = s.money >= room.cost;
     out.add(Requirement(
       kind: 'cash',
@@ -650,35 +685,6 @@ class Game {
       done: cashOk,
       progress: room.cost <= 0 ? 1 : (s.money / room.cost).clamp(0.0, 1.0),
     ));
-    // Era (optional): its parts, power, network and research.
-    final eraOk = isUnlocked(room.era);
-    final goal = nextEraGoal;
-    if (eraOk) {
-      out.add(Requirement(
-        kind: 'era',
-        title: '${room.era.label} era',
-        detail: 'reached: its parts are unlocked',
-        done: true,
-        progress: 1,
-        required: false,
-      ));
-    } else if (goal != null && goal.era == room.era) {
-      final users = goal.metric == 'users';
-      out.add(Requirement(
-        kind: 'era',
-        title: '${room.era.label} era',
-        detail: users
-            ? '${_num(goal.current)} / ${_num(goal.target)} users'
-            : 'rating ${goal.current.floor()} / ${goal.target.round()}',
-        hint: users
-            ? 'grow users by releasing better models; unlocks the new parts'
-            : 'train & release a better model; unlocks the new parts',
-        done: false,
-        progress: goal.progress,
-        action: RequirementAction.train,
-        required: false,
-      ));
-    }
     // Power (info): the bigger building's electrical service lifts the
     // power limit. Moving keeps your tier; buy the bigger supply after.
     if (room.maxPowerTier > currentRoom.maxPowerTier) {
@@ -696,8 +702,25 @@ class Game {
     return out;
   }
 
+  /// Peak GPU compute: "450 TFLOPS", "1.20 PFLOPS".
+  static String tflopsText(double tflops) => tflops >= 1000
+      ? '${(tflops / 1000).toStringAsFixed(2)} PFLOPS'
+      : '${tflops.round()} TFLOPS';
+
+  /// "1.2k / 3k users", "rating 998 / 1,000", "0.45 / 1.20 PFLOPS".
+  static String goalProgress(EraGoal goal) => switch (goal.metric) {
+    'users' => '${_num(goal.current)} / ${_num(goal.target)} users',
+    'compute' => goal.target >= 1000
+        ? '${(goal.current / 1000).toStringAsFixed(2)} / ${tflopsText(goal.target)}'
+        : '${goal.current.round()} / ${tflopsText(goal.target)}',
+    'rating' => 'rating ${_int(goal.current.floorToDouble())} / ${_int(goal.target)}',
+    _ => '${_money(goal.current)} / ${_money(goal.target)}',
+  };
+
   /// Why you can't move to [roomId] right now (one actionable sentence), or
-  /// null if you can. [moveRequirements] has the full checklist.
+  /// null if you can. Two gates: the room's era (a new place belongs to its
+  /// era, like its parts and power) and its price. [moveRequirements] has
+  /// the full checklist.
   String? roomBlockReason(String roomId) {
     final room = roomById(roomId);
     if (room == null) return 'Unknown room.';
@@ -705,7 +728,14 @@ class Game {
     final i = roomIndex(roomId), cur = roomIndex(s.roomId);
     if (i < cur) return 'You moved out of the ${room.name}.';
     if (i > cur + 1) return 'Move to the ${nextRoom!.name} first.';
-    // Money is the only gate.
+    if (!isUnlocked(room.era)) {
+      final goal = nextEraGoal;
+      if (goal != null && goal.era == room.era) {
+        return 'Opens in the ${room.era.label} era: ${goalText(goal)}.';
+      }
+      return 'Opens in the ${room.era.label} era '
+          '(after ${Era.values[room.era.index - 1].label}).';
+    }
     if (s.money < room.cost) {
       return 'Costs ${_money(room.cost)}. You have ${_money(s.money)}.';
     }
@@ -714,10 +744,15 @@ class Game {
 
   bool canBuyRoom(String roomId) => roomBlockReason(roomId) == null;
 
-  /// Move to [roomId] (the next room; money is the only gate): pay for it,
-  /// carry every tile over with
-  /// the same relative layout (centred, see [moveOffset]) and leave the old
-  /// room behind. Training, users and upgrades carry on unchanged.
+  /// [roomId] is the next room and its era is reached: only its price
+  /// stands in the way.
+  bool canMoveSoon(String roomId) =>
+      roomId == nextRoom?.id && isUnlocked(roomById(roomId)!.era);
+
+  /// Move to [roomId] (the next room, once its era is reached and you can
+  /// pay for it): pay, carry every tile over with the same relative layout
+  /// (centred, see [moveOffset]) and leave the old room behind. Training,
+  /// users and upgrades carry on unchanged.
   bool moveTo(String roomId) {
     if (!canBuyRoom(roomId)) return false;
     final from = currentRoom;

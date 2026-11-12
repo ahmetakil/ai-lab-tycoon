@@ -55,7 +55,7 @@ beat rival labs.
   changes gates or who can be beaten.
 - One place at a time: buying the next room *moves* you there with all your
   tiles (same layout, centred in the bigger floor); the old room is gone.
-  Moving only costs money; an era's goal still unlocks its parts and tiers.
+  A room opens with its era (with its parts and tiers) and then costs money.
   Moving is a short moment (truck along the road, fade, tiles pop in;
   tap to skip). Rules: docs/GRID.md.
 - Eras (six, one new room each; gates and unlocks in docs/BALANCE.md):
@@ -63,15 +63,17 @@ beat rival labs.
   | era | room (size) | gate | rivals |
   |---|---|---|---|
   | Parents' garage | Garage 4×4 | start | Tiny-Transformer, GPT-ish-1 |
-  | Startup | Server closet 7×7 | 3k users | BURT, GPT-ish-2 |
-  | Small lab | Colocation cage 10×10 | rating 1000 | Meenie, GPT-ish-3 |
+  | Startup | Server closet 7×7 | 1.05 PFLOPS of GPUs (a full garage) | BURT, GPT-ish-2 |
+  | Small lab | Colocation cage 10×10 | rating 990 | Meenie, GPT-ish-3 |
   | Medium lab | Datacenter hall 14×14 | rating 1130 | Mixtrawl, ChatGPT-ish |
   | Big lab | Datacenter campus 18×18 | rating 1260 | GPT-ish-4 → GPT-ish-4.5 (the big labs) |
   | Frontier lab | Gigawatt site 22×22 | rating 1490 | GPT-ish-5 → GPT-ish-6 Astral |
 
 - Pacing: an active game. A full playthrough (garage to the final rival) is
-  6–8 hours of active play: Startup at ~4 min, Small lab ~20 min, Medium lab
-  ~1h30, Big lab ~3h30, Frontier ~5h. Something worth doing comes up every
+  6–8 hours of active play (about 7h15): the garage takes ~50 min (2060s,
+  then 4090s, then V100s, until it's full), Small lab ~1h, Medium lab
+  ~1h45, Big lab ~3h40, Frontier ~4h40. Each room is filled during its era
+  and the next one opens a few minutes after it's full. Something worth doing comes up every
   30–90 s (a purchase, a release, a new run, a run-phase checkpoint or a
   viral spike), never two idle minutes. Training runs take 30 s–2 min in the
   garage and 1m/3m/5m from the Small lab on; time compression per era keeps

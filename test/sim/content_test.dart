@@ -166,11 +166,14 @@ void main() {
       }
       expect(powerTiers.last.capacityKw, greaterThanOrEqualTo(3e6)); // GW era
       // The old gaming GPU is the deliberate trap: cheap but worse on
-      // everything. Every other GPU tile beats all earlier ones.
+      // everything. Every other GPU tile beats all earlier ones, except that
+      // the hall's H100 rack costs more per TFLOPS than the HGX server before
+      // it (the 2023 shortage paces the hall; it still wins per kW and per
+      // cell).
       final gpus = tiles.where((t) => t.isGpu).toList();
       for (var i = 1; i < gpus.length; i++) {
         final a = gpus[i - 1], b = gpus[i];
-        if (a.id != 'gpu_old') {
+        if (a.id != 'gpu_old' && b.id != 'rack_h_class') {
           expect(
             b.tflops / b.cost,
             greaterThan(a.tflops / a.cost),

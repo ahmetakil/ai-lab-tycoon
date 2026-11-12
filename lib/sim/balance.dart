@@ -19,6 +19,12 @@ const secondsPerYear = 365 * 86400 / computeTimeScale;
 
 const startMoney = 500.0;
 
+/// Revenue per user in the Parents' garage: a hobby project lives on tips
+/// and the odd sponsor. The Startup era (you incorporate and sell plans)
+/// lifts it to 1. This is the garage's pace knob: at full rate a garage
+/// card cost seconds of income and the garage was over in 4 minutes.
+const garageArpuMult = 0.09;
+
 // --- Utilization (MFU) ------------------------------------------------------
 const baseUtilization = 0.25;
 const maxUtilization = 0.75;
@@ -93,7 +99,12 @@ const maxHype = 8.0;
 const openSourceArpuMult = 0.6;
 const openSourceHypeMult = 1.6;
 const openSourceCommunityTrainBonus =
-    1.05; // permanent, stacks per open release
+    1.05; // permanent, stacks per open release up to the cap below
+
+/// The community bonus stacks for this many open releases at most (×1.28).
+/// Uncapped, the 40-odd small open releases of a long garage stacked to ×7
+/// training efficiency and skipped most of the next eras.
+const openSourceCommunityMaxStacks = 5;
 
 // --- Events --------------------------------------------------------------------
 /// Chance per second of a viral spike while users ≥ 70% of capacity and
@@ -127,15 +138,20 @@ const offlineEarningsRate = 0.1;
 const maxSupplyPremium = 4.0;
 
 // --- Era unlocks -----------------------------------------------------------------
-// One condition per era, alternating users / rating / money so each era asks
-// for something different. Users are bounded by serving capacity, i.e. by the
+// The garage asks for hardware (a full garage), every later era for a model
+// rating. Users are bounded by serving capacity, i.e. by the
 // power tiers of the era you're in, so every gate is reachable with that
-// era's own room and tiers (checked by the playthrough tests). Moving to the
-// next room only costs money and doesn't need the era; the era still unlocks
-// the new parts, power and network tiers and research.
+// era's own room and tiers (checked by the playthrough tests). An era also
+// opens its room: moving needs the era and the room's price, so each room
+// is where you spend its whole era (fill it, then feel the walls).
 
-/// Garage → Startup: people use it (one maxed-out garage serves ~4k).
-const startupUnlockUsers = 3e3;
+/// Garage → Startup: a garage full of fast GPUs (peak TFLOPS of the GPUs
+/// you own). 12 used V100s are 1.5 PFLOPS, the most the garage holds. The
+/// bot fills all 16 cells at ~45 min with a mix of cards, then swaps two
+/// old ones for V100s and crosses this at ~49 min: you feel the walls a few
+/// minutes before the way out opens. Hardware, not users: a viral spike
+/// can't skip it.
+const startupUnlockTflops = 1050.0;
 
 /// Startup → Small lab: model quality, between GPT-ish-2 and Meenie. A full
 /// server closet + startup software gets there.
@@ -147,7 +163,8 @@ const smallLabUnlockRating = 990.0;
 const mediumLabUnlockRating = 1130.0;
 
 /// Medium lab → Big lab: a GPT-ish-4-class model (between ChatGPT-ish and
-/// GPT-ish-4). Needs a datacenter hall and RLHF.
+/// GPT-ish-4). Needs a full datacenter hall (the 4 MW substation tier) and
+/// RLHF; their prices and the Medium lab's time compression set the era.
 const bigLabUnlockRating = 1260.0;
 
 /// Big lab → Frontier lab: a reasoning-era model (between o-three and

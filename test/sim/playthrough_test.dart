@@ -18,19 +18,50 @@ void main() {
     late PlaythroughResult r;
     setUpAll(() => r = activeRun);
 
-    test('the ladder takes 6-8 hours of active play', () {
+    test('the ladder takes 6-8 hours of active play (about 7h15)', () {
       expect(r.ladderDone, isTrue, reason: 'stuck at rival ${r.game.s.rivalIndex}/${rivalLadder.length}');
       expect(r.finishTime!, inInclusiveRange(6 * _h, 8 * _h));
+      expect(r.finishTime!, inInclusiveRange(6.75 * _h, 7.75 * _h));
+    });
+
+    test('every room is full when its way out opens, and not full for long', () {
+      // At the moment the next room's era unlocks: the last cell used, or
+      // the power the building can take now nearly used up.
+      final fill = r.roomFill.snaps;
+      for (final room in rooms.take(rooms.length - 1)) {
+        final s = fill[room.id];
+        expect(s, isNotNull, reason: room.id);
+        expect(s!.exit, isTrue, reason: room.id);
+        final full = s.cellsUsed == room.cells || s.powerKw >= 0.85 * s.capKw;
+        expect(full, isTrue,
+            reason: '${room.id}: ${s.cellsUsed}/${room.cells} cells, '
+                '${s.powerKw.round()}/${s.capKw.round()} kW');
+        // Walls only shortly before the way out opens.
+        expect(s.firstWallSeconds ?? 0, lessThan(15 * _m), reason: room.id);
+      }
+    });
+
+    test('the garage: 2060s first, then 4090s, V100s last; full before the Startup', () {
+      final s = r.roomFill.snaps['garage']!;
+      expect(s.cellsUsed, 16);
+      expect(s.gpuTiles, greaterThanOrEqualTo(11));
+      expect(s.powerKw, greaterThan(0.8 * s.capKw));
+      // Full a few minutes before the way out opens, not long before.
+      expect(s.firstWallSeconds, isNotNull);
+      expect(s.firstWallSeconds!, lessThan(8 * _m));
+      // A few rivals and plenty of releases on the way.
+      final garageRivals = r.rivalTimes.where((x) => x.$2 < r.eraTimes[Era.startup]!).length;
+      expect(garageRivals, greaterThanOrEqualTo(2));
     });
 
     test('eras arrive on schedule', () {
       final e = r.eraTimes;
       // Targets (docs/BALANCE.md) with a few minutes of slack for seeds.
-      expect(e[Era.startup]!, inInclusiveRange(3 * _m, 5 * _m));
-      expect(e[Era.smallLab]!, inInclusiveRange(15 * _m, 25 * _m));
-      expect(e[Era.mediumLab]!, inInclusiveRange(75 * _m, 105 * _m));
-      expect(e[Era.bigLab]!, inInclusiveRange(2.9 * _h, 4 * _h));
-      expect(e[Era.globalLab]!, inInclusiveRange(4.4 * _h, 5.5 * _h));
+      expect(e[Era.startup]!, inInclusiveRange(45 * _m, 60 * _m));
+      expect(e[Era.smallLab]!, inInclusiveRange(55 * _m, 75 * _m));
+      expect(e[Era.mediumLab]!, inInclusiveRange(1.6 * _h, 2.1 * _h));
+      expect(e[Era.bigLab]!, inInclusiveRange(3.3 * _h, 4.1 * _h));
+      expect(e[Era.globalLab]!, inInclusiveRange(4.3 * _h, 5.2 * _h));
       for (var i = 1; i < Era.values.length; i++) {
         expect(e[Era.values[i]]!, greaterThanOrEqualTo(e[Era.values[i - 1]]!));
       }
@@ -87,8 +118,9 @@ void main() {
     expect(c.ladderDone, isTrue);
     expect(c.finishTime!, inInclusiveRange(20 * _h, 48 * _h));
     final played = c.sessions.fold(0.0, (a, s) => a + s.length);
-    // Breaks shave off some play, but most of the game is still played.
-    expect(played, greaterThan(0.8 * activeRun.finishTime!));
+    // Breaks shave off some play (2 h of 10% earnings each, and the run that
+    // finishes while you're away), but most of the game is still played.
+    expect(played, greaterThan(0.6 * activeRun.finishTime!));
     expect(c.longestIdle, lessThan(2 * _m));
   });
 
@@ -99,25 +131,38 @@ void main() {
     final naive = run(l: BotLayout.naive);
     final random = run(l: BotLayout.random);
     final hwOnly = run(s: BotStrategy.hardwareOnly);
-    // Bad placement (no coolers / random coolers) throttles the early rooms
-    // (the cooling puzzle): the Small lab comes later and so does the end.
+    // Bad placement (no coolers / random coolers) throttles the rooms (the
+    // cooling puzzle): the Medium lab comes later and so does the end. With
+    // no coolers at all the colo never reaches the Medium-lab gate.
     for (final (name, x) in [('naive', naive), ('random', random)]) {
-      expect(x.eraTimes[Era.smallLab]!, greaterThan(template.eraTimes[Era.smallLab]! + 8 * _m), reason: name);
+      expect(x.eraTimes[Era.mediumLab] ?? double.infinity,
+          greaterThan(template.eraTimes[Era.mediumLab]! + 10 * _m), reason: name);
       expect(x.ladderDone ? x.finishTime! : double.infinity,
-          greaterThan(template.finishTime! + 30 * _m), reason: name);
+          greaterThan(template.finishTime! + 5 * _m), reason: name);
     }
+    expect(naive.ladderDone, isFalse);
     // Hardware alone stalls by the Small lab.
     expect(hwOnly.ladderDone, isFalse);
     expect(hwOnly.game.s.era.index, lessThanOrEqualTo(Era.smallLab.index));
     expect(hwOnly.game.s.rivalIndex, lessThan(template.game.s.rivalIndex ~/ 3));
   });
 
-  test('early game: the bot cools hot GPUs, upgrades its network and moves out', () {
-    final garage = runPlaythrough(maxSeconds: 4 * _m, stopWhenDone: false).game;
-    expect(garage.currentRoom.id, 'garage');
-    expect(garage.s.tileCounts.keys.where((id) => id.startsWith('cool_')), isNotEmpty);
-    final closet = runPlaythrough(maxSeconds: 8 * _m, stopWhenDone: false).game;
+  test('early game: an upgrade path of garage cards, cooling, then the closet', () {
+    // A few minutes in: still the starting RTX 2060s, nothing pricier.
+    final early = runPlaythrough(maxSeconds: 10 * _m, stopWhenDone: false).game;
+    expect(early.currentRoom.id, 'garage');
+    expect(early.s.tileCounts.keys.where((id) => id.startsWith('gpu_')), ['gpu_old']);
+    expect(early.s.tileCounts.keys.where((id) => id.startsWith('cool_')), isNotEmpty);
+    // Half an hour in: RTX 4090s, no V100 yet, and cooling is a must.
+    final mid = runPlaythrough(maxSeconds: 30 * _m, stopWhenDone: false).game;
+    expect(mid.currentRoom.id, 'garage');
+    expect(mid.s.tileCounts['gpu_gamer'] ?? 0, greaterThan(0));
+    expect(mid.s.tileCounts['gpu_v_class'] ?? 0, 0);
+    expect(mid.s.tileCounts['cool_window_ac'] ?? 0, greaterThan(0));
+    // The garage ends on V100s; then the closet.
+    final closet = runPlaythrough(maxSeconds: 60 * _m, stopWhenDone: false).game;
     expect(closet.currentRoom.id, 'closet');
+    expect(closet.s.tileCounts['gpu_v_class'] ?? 0, greaterThanOrEqualTo(6));
     expect(closet.s.networkTier, greaterThanOrEqualTo(1));
     expect(closet.trainingCluster!.gpus, greaterThanOrEqualTo(4));
     expect(closet.trainingCluster!.scalingEfficiency, 1);

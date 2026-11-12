@@ -192,7 +192,10 @@ class _ReleaseSheetState extends State<ReleaseSheet> {
                       title: 'Open weights',
                       lines: [
                         'Hype x${openSourceHypeMult.toStringAsFixed(1)} at launch',
-                        '+${((openSourceCommunityTrainBonus - 1) * 100).round()}% training efficiency forever (community)',
+                        widget.controller.game.s.openReleases < openSourceCommunityMaxStacks
+                            ? '+${((openSourceCommunityTrainBonus - 1) * 100).round()}% training efficiency forever (community, '
+                                '${widget.controller.game.s.openReleases + 1} of $openSourceCommunityMaxStacks)'
+                            : 'Community bonus maxed (${openSourceCommunityMaxStacks}x +${((openSourceCommunityTrainBonus - 1) * 100).round()}%)',
                         '${((1 - openSourceArpuMult) * 100).round()}% less revenue per user',
                       ],
                       onTap: () => setState(() => _open = true),

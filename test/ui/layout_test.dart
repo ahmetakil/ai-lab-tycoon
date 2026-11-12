@@ -62,6 +62,9 @@ GameState _stateAt(String stage, double seconds, {bool casual = false}) {
         casual
             ? runSchedule(maxWallSeconds: seconds, stopWhenDone: false)
             : runPlaythrough(maxSeconds: seconds, stopWhenDone: false);
+    // The snapshot can land on a run checkpoint (it waits for the player
+    // and covers the screen): take its default, as the bot would.
+    decideDefaults(r.game)();
     r.game.events.clear();
     return jsonEncode(r.game.s.toJson());
   });
@@ -121,7 +124,7 @@ void main() {
   // (casual, day 1 evening), Frontier lab (casual, day 2 evening).
   const stages = <String, (double, bool)>{
     'start': (0.0, false),
-    'startup': (20 * 60.0, false),
+    'startup': (55 * 60.0, false),
     'smalllab': (100 * 60.0, false),
     'mediumlab': (12 * 3600.0, true),
     'frontier': (36 * 3600.0, true),
@@ -136,8 +139,11 @@ void main() {
         if (_out != null) await tester.runAsync(_loadFonts);
         SharedPreferences.setMockInitialValues({'intro_seen_v1': true});
         await _setSize(tester, size);
+        // Build the snapshot first: simulating hours of play takes real
+        // time, and a gap over a minute after load reads as time away.
+        final state = _stateAt(stage.key, stage.value.$1, casual: stage.value.$2);
         final c = await GameController.load();
-        c.game = Game(_stateAt(stage.key, stage.value.$1, casual: stage.value.$2));
+        c.game = Game(state);
         final key = GlobalKey();
         await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
         await _settle(tester);
@@ -250,11 +256,11 @@ void main() {
         if (_out != null) await tester.runAsync(_loadFonts);
         SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
         await _setSize(tester, size);
-        final c = await GameController.load();
         final st = _stateAt(stage, stages[stage]!.$1, casual: stages[stage]!.$2)
           ..run = null
           ..pendingEffectiveCompute = null
           ..pendingDesign = null;
+        final c = await GameController.load();
         c.game = Game(st);
         final key = GlobalKey();
         await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
@@ -358,8 +364,9 @@ void main() {
         if (_out != null) await tester.runAsync(_loadFonts);
         SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
         await _setSize(tester, size);
+        final state = _stateAt(stage, stages[stage]!.$1, casual: stages[stage]!.$2);
         final c = await GameController.load();
-        c.game = Game(_stateAt(stage, stages[stage]!.$1, casual: stages[stage]!.$2));
+        c.game = Game(state);
         final key = GlobalKey();
         await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
         await _settle(tester);
@@ -508,8 +515,9 @@ void main() {
         if (_out != null) await tester.runAsync(_loadFonts);
         SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
         await _setSize(tester, size);
+        final state = _stateAt(stage, stages[stage]!.$1, casual: stages[stage]!.$2)..run = null;
         final c = await GameController.load();
-        c.game = Game(_stateAt(stage, stages[stage]!.$1, casual: stages[stage]!.$2)..run = null);
+        c.game = Game(state);
         final key = GlobalKey();
         await tester.pumpWidget(RepaintBoundary(key: key, child: AiLabTycoonApp(controller: c)));
         await _settle(tester);

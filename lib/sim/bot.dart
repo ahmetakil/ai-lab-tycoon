@@ -878,8 +878,22 @@ class Bot {
     if (ratingOnly) return math.ln2 * r / ratingPerDoubling;
     return math.ln2 * r / ratingPerDoubling +
         math.log(math.max(1.0, math.min(demand, cap))) +
-        0.5 * math.log(g.arpuMult);
+        0.5 * math.log(g.arpuMult) +
+        _computeGoalValue(extraTotal);
   }
+
+  /// A compute gate (the Startup era: own N PFLOPS of GPUs) counts GPU
+  /// TFLOPS toward it, so the bot fills the room and swaps old cards out
+  /// even when users don't need the capacity.
+  double _computeGoalValue(double extraEffective) {
+    final goal = g.nextEraGoal;
+    if (goal == null || goal.metric != 'compute') return 0;
+    final peak = g.peakTflops + extraEffective / g.utilization;
+    return computeGoalWeight * math.log(math.max(1.0, math.min(goal.target, peak)));
+  }
+
+  /// How much a compute gate weighs against rating and users.
+  static const computeGoalWeight = 3.0;
 
   List<UpgradeDef> get _availableUpgrades =>
       allUpgrades
@@ -1066,11 +1080,10 @@ class Bot {
         )
         .floorToDouble();
 
-    // Next room: worth it when it can hold better or more GPUs. Moving only
-    // costs money (no era gate); before its era it's just more floor and
-    // free cooling for today's GPUs. Moving takes everything along; the
-    // template bot then re-lays it on the new plan.
-    if (nextRoom != null) {
+    // Next room: worth it when it can hold better or more GPUs. It opens
+    // with its era (then it costs money). Moving takes everything along;
+    // the template bot then re-lays it on the new plan.
+    if (nextRoom != null && g.canMoveSoon(nextRoom.id)) {
       final native = _bestGpu(nextRoom.id);
       final t = native ?? bestGpu;
       if (t != null) {
@@ -1240,6 +1253,9 @@ class PlaythroughResult {
   double h100eAtFinish = 0;
   double powerKwAtFinish = 0;
 
+  /// Each room's fill when its way out opened (continuous runs only).
+  final RoomFill roomFill = RoomFill();
+
   /// Scheduled runs only: the sessions, wall-clock length and the simulated
   /// (in-game) time at the final rival.
   final List<SessionStats> sessions = [];
@@ -1267,6 +1283,111 @@ class PlaythroughResult {
     }
     return gap;
   }
+}
+
+/// Each room's fill when the next room's era unlocks (the way out opens),
+/// and how long it had sat at its wall by then.
+class RoomFill {
+  final Map<String, RoomSnap> snaps = {};
+  String? _room;
+  double? _wallSince;
+  double? _firstWall;
+  double _enteredAt = 0;
+
+  /// The most power you could have here now: the building's top tier
+  /// among the eras you've reached.
+  static double capKw(Game g, [Era? era]) {
+    final reached = (era ?? g.s.era).index;
+    var i = g.currentRoom.maxPowerTier;
+    while (i > 0 && powerTiers[i].era.index > reached) {
+      i--;
+    }
+    return powerTiers[i].capacityKw;
+  }
+
+  /// The room is at its wall: no empty cell, or no GPU sold for it fits in
+  /// the power left under [capKw].
+  static bool atWall(Game g) {
+    final room = g.currentRoom;
+    final cells = g.s.grids[room.id]!;
+    final used = cells.where((c) => c != null).length;
+    if (used >= room.cells) return true;
+    final left = capKw(g) - g.powerUsedKw;
+    return !tiles.any((t) =>
+        t.isGpu && t.nativeTo(room.id) && g.isUnlocked(t.era) && g.tilePowerKw(t) <= left);
+  }
+
+  void onTick(Game g) {
+    final id = g.currentRoom.id;
+    if (id != _room) {
+      _room = id;
+      _wallSince = null;
+      _firstWall = null;
+      _enteredAt = g.s.time;
+    }
+    if (atWall(g)) {
+      _wallSince ??= g.s.time;
+      _firstWall ??= g.s.time;
+    } else {
+      _wallSince = null;
+    }
+  }
+
+  void onEvent(Game g, GameEvent e) {
+    if (e case EraUnlocked(:final era)) {
+      final next = g.nextRoom;
+      if (next != null && next.era == era) _snap(g, exit: true);
+    }
+  }
+
+  void _snap(Game g, {required bool exit}) {
+    final room = g.currentRoom;
+    final cells = g.s.grids[room.id]!;
+    final wall = atWall(g) ? (_wallSince ?? g.s.time) : null;
+    snaps[room.id] = RoomSnap(
+      room,
+      enteredAt: _room == room.id ? _enteredAt : g.s.time,
+      at: g.s.time,
+      exit: exit,
+      gpuTiles: g.grid.rooms[room.id]?.gpuTiles ?? 0,
+      cellsUsed: cells.where((c) => c != null).length,
+      powerKw: g.powerUsedKw,
+      // At an exit the era just moved on: the cap of the era it was.
+      capKw: capKw(g, exit ? Era.values[g.s.era.index - 1] : null),
+      wallSeconds: wall == null ? null : g.s.time - wall,
+      firstWallSeconds: _room == room.id && _firstWall != null ? g.s.time - _firstWall! : null,
+    );
+  }
+
+  /// The last room has no way out: its fill at the final rival (or the end
+  /// of the run).
+  void finish(Game g) {
+    if (!snaps.containsKey(g.currentRoom.id)) _snap(g, exit: false);
+  }
+}
+
+class RoomSnap {
+  final RoomDef room;
+  final double enteredAt, at, powerKw, capKw;
+  final bool exit;
+  final int gpuTiles, cellsUsed;
+  final double? wallSeconds;
+
+  /// Since the room first hit its wall (it may have dipped below it since,
+  /// e.g. while swapping GPUs).
+  final double? firstWallSeconds;
+  RoomSnap(
+    this.room, {
+    required this.enteredAt,
+    required this.at,
+    required this.exit,
+    required this.gpuTiles,
+    required this.cellsUsed,
+    required this.powerKw,
+    required this.capKw,
+    required this.wallSeconds,
+    required this.firstWallSeconds,
+  });
 }
 
 /// Plays [maxSeconds] (or until the ladder is done when [stopWhenDone]).
@@ -1320,11 +1441,14 @@ PlaythroughResult runPlaythrough({
         case RoomMoved():
           break;
       }
+      r.roomFill.onEvent(g, e);
       onEvent?.call(g, e);
     }
     g.events.clear();
+    r.roomFill.onTick(g);
     onTick?.call(g);
     if (r.ladderDone && !idleFrozen) {
+      r.roomFill.finish(g);
       r.usersAtFinish = g.s.users;
       r.arrAtFinish = g.arr;
       r.h100eAtFinish = g.peakTflops / 990;
@@ -1339,6 +1463,7 @@ PlaythroughResult runPlaythrough({
     }
     if (stopWhenDone && r.ladderDone) break;
   }
+  r.roomFill.finish(g);
   if (!idleFrozen) {
     bot.finish();
     r.longestIdle = bot.longestIdle;

@@ -262,7 +262,7 @@ void main() {
     test('a save without grids gets the starting garage', () {
       final s = GameState.fromJson({'v': saveVersion});
       expect(s.grids.keys, ['garage']);
-      expect(s.tileAt('garage', 1, 1), 'gpu_gamer');
+      expect(s.tileAt('garage', 1, 1), 'gpu_old');
     });
   });
 
@@ -366,17 +366,25 @@ void main() {
   });
 
   group('era unlocks', () {
-    test('Startup at the users threshold, then one rating gate after another', () {
-      // Four gaming GPUs can serve the users the unlock needs.
+    test('Startup at a garage full of fast GPUs, then one rating gate after another', () {
+      // Four RTX 4090s: 320 TFLOPS of the 1.05 PFLOPS the Startup needs.
       final g = gameWith(['G.G.', '....', 'G.G.', '....'], era: Era.garage, powerTier: 0);
-      expect(g.capacity, greaterThan(startupUnlockUsers));
-      expect(g.moveRequirements('closet').firstWhere((r) => r.kind == 'era').detail, contains('/ 3k users'));
-      expect(g.eraLockReason(Era.startup), contains('Unlocks in Startup: reach 3k users'));
+      expect(g.moveRequirements('closet').firstWhere((r) => r.kind == 'era').detail, '0.32 / 1.05 PFLOPS');
+      expect(g.eraLockReason(Era.startup), 'Unlocks in Startup: own 1.05 PFLOPS of GPUs (you have 320 TFLOPS).');
       expect(g.nextEraGoal!.era, Era.startup);
-      expect(g.nextEraGoal!.metric, 'users');
+      expect(g.nextEraGoal!.metric, 'compute');
+      // Users don't count (a viral spike can't skip the garage).
+      g.s.users = 1e6;
+      g.tick(0.01);
+      expect(g.s.era, Era.garage);
 
-      g.s.users = startupUnlockUsers;
-      g.s.hype = 1e6; // keep demand above users so they don't churn
+      // Nine V100s more: owned GPUs count at peak TFLOPS, heat or not.
+      g.s.ownedUpgrades.add('mixed_precision');
+      g.s.powerTier = 1;
+      for (final (x, y) in [(1, 0), (3, 0), (0, 1), (1, 1), (2, 1), (3, 1), (1, 2), (3, 2), (0, 3)]) {
+        g.s.setTile('garage', x, y, 'gpu_v_class');
+      }
+      expect(g.peakTflops, greaterThanOrEqualTo(startupUnlockTflops));
       g.tick(0.01);
       expect(g.s.era, Era.startup);
       expect(g.events.whereType<EraUnlocked>().single.era, Era.startup);
@@ -409,6 +417,7 @@ void main() {
 
     test('eras never skip: a frontier rating in the Garage unlocks one era per tick', () {
       final g = Game();
+      _fillGarage(g);
       g.s.releases.add(
         const ModelRelease(name: 'x', effectiveCompute: 1e30, rating: 0, open: false, time: 0),
       );
@@ -421,6 +430,7 @@ void main() {
 
     test('rivals wait for their era', () {
       final g = Game();
+      _fillGarage(g);
       g.s.releases.add(
         const ModelRelease(name: 'x', effectiveCompute: 1e33, rating: 0, open: false, time: 0),
       );
@@ -455,9 +465,10 @@ void main() {
         // Active play: 30 s at the shortest, 5 min at the longest.
         expect(e.runDurations.first, greaterThanOrEqualTo(30), reason: e.name);
         expect(e.runDurations.last, lessThanOrEqualTo(300), reason: e.name);
-        // The longest run is still days to weeks of compute.
+        // The longest run is still days to weeks of compute (the Frontier's
+        // gigasite does a lot of work per day: 2.4 days).
         final days = e.runDurations.last * e.computeTimeScale / 86400;
-        expect(days, inInclusiveRange(3, 60), reason: e.name);
+        expect(days, inInclusiveRange(2, 60), reason: e.name);
       }
       expect(Era.garage.runDurations.first, 30);
       expect(Era.globalLab.runDurations, [60, 180, 300]);
@@ -536,4 +547,11 @@ void main() {
       expect(g.s.hype, lessThanOrEqualTo(maxHype));
     });
   });
+}
+
+/// Ten V100s in the garage: past the Startup's compute gate.
+void _fillGarage(Game g) {
+  for (var i = 0; i < 10; i++) {
+    g.s.setTile('garage', i % 4, i ~/ 4, 'gpu_v_class');
+  }
 }

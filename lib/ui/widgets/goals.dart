@@ -39,7 +39,7 @@ class RequirementList extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 2, bottom: 6),
             child: Text(
-              'NOT NEEDED TO MOVE · UNLOCKS THE NEW PARTS',
+              'GOOD TO KNOW',
               style: labelStyle(size: 9.5, color: AppColors.cyan),
             ),
           ),
@@ -165,6 +165,7 @@ class GoalInfo {
       final progress = switch (goal.metric) {
         'users' => '${formatNumber(goal.current)} / ${formatNumber(goal.target)} users',
         'rating' => 'rating ${_int(goal.current.floorToDouble())} / ${_int(goal.target)}',
+        'compute' => Game.goalProgress(goal),
         _ => '${formatMoney(goal.current)} / ${formatMoney(goal.target)} ARR',
       };
       return GoalInfo(

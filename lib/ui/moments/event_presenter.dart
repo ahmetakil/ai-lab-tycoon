@@ -1047,7 +1047,7 @@ String eraTagline(Era era) =>
     {
       Era.garage: 'One GPU, one dream, one very warm room.',
       Era.startup:
-          '${formatNumber(startupUnlockUsers, decimals: 0)} users. Investors are suddenly returning your emails.',
+          'A petaflop in a garage. Investors are suddenly returning your emails.',
       Era.smallLab:
           'Your model writes passable poetry. Time to rent a cage in a real datacenter.',
       Era.mediumLab:

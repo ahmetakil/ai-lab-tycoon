@@ -6,6 +6,7 @@
 //       [--strategy=balanced|hardware-only|software-first|no-upgrades]
 //       [--layout=template|naive|random] [--seed=12345]
 //       [--compare] [--schedule=active|casual] [--dt=1] [--phases]
+//       [--seeds=12345,1,777]
 //
 // The default schedule is active (PlaySchedule.active: continuous play, the
 // bot looks every 4 s); the summary lists idle stretches over 90 s.
@@ -17,6 +18,12 @@
 // strategies on that schedule.
 // --phases: the bot specializes at run-phase checkpoints (lib/sim/run_phases.dart)
 // instead of taking the all-rounder defaults.
+// --seeds=a,b,c: one active run per seed; prints the milestone table and each
+// room's fill when its way out (the next room's era) unlocks.
+// Every single run ends with the same room table: GPU tiles, cells and power
+// (of the building's top tier) when the next era unlocks, and how long the
+// room had been at its wall (every cell used, or power ≥ 95% of the
+// building's cap) by then.
 import 'dart:math' as math;
 
 import 'package:ai_lab_tycoon/sim/balance.dart';
@@ -46,6 +53,11 @@ void main(List<String> args) {
   final dt = double.parse(opt('dt') ?? '1');
   final schedule = PlaySchedule.byName(opt('schedule') ?? 'active');
 
+  final seeds = opt('seeds');
+  if (seeds != null) {
+    multiSeed(minutes, [for (final s in seeds.split(',')) int.parse(s)], dt);
+    return;
+  }
   if (args.contains('--compare')) {
     compare(minutes, seed, schedule: schedule, dt: dt);
     return;
@@ -107,6 +119,60 @@ void main(List<String> args) {
     },
   );
   printSummary(r);
+  printRoomFill(r.roomFill);
+}
+
+void printRoomFill(RoomFill fill) {
+  print('\nroom fill when the next era unlocks (* the last room: at the final rival)\n'
+      '(wall: no empty cell, or no GPU fits the power the building can take now)');
+  print('room     | in at | exit era | GPU tiles | cells   | power used / cap         | at wall for (since first hit)');
+  for (final s in fill.snaps.values) {
+    print(
+      '${s.room.id.padRight(8)} | ${fmtTime(s.enteredAt)} | ${s.exit ? fmtTime(s.at) : '${fmtTime(s.at)}*'}    | '
+      '${s.gpuTiles.toString().padLeft(9)} | ${'${s.cellsUsed}/${s.room.cells}'.padLeft(7)} | '
+      '${'${fmt(s.powerKw)} / ${fmt(s.capKw)} kW (${(100 * s.powerKw / s.capKw).toStringAsFixed(0)}%)'.padRight(24)} | '
+      '${s.wallSeconds == null ? '-' : '${(s.wallSeconds! / 60).toStringAsFixed(1)} min'}'
+      '${s.firstWallSeconds == null ? '' : ' (${(s.firstWallSeconds! / 60).toStringAsFixed(1)} min)'}',
+    );
+  }
+}
+
+/// --seeds: milestones (h:mm:ss) and the room table for each seed.
+void multiSeed(double minutes, List<int> seeds, double dt) {
+  String hms(double? s) {
+    if (s == null) return '   —   ';
+    final t = s.round();
+    return '${t ~/ 3600}:${(t ~/ 60 % 60).toString().padLeft(2, '0')}:${(t % 60).toString().padLeft(2, '0')}';
+  }
+
+  final rows = <String>[];
+  final fills = <String>[];
+  for (final seed in seeds) {
+    final r = runPlaythrough(
+      maxSeconds: minutes * 60,
+      seed: seed,
+      dt: dt,
+      specializePhases: _specializePhases,
+    );
+    final fill = r.roomFill;
+    rows.add(
+      '${seed.toString().padRight(5)} | ${[for (final e in Era.values.skip(1)) hms(r.eraTimes[e]).padLeft(8)].join(' | ')} | '
+      '${hms(r.finishTime).padLeft(8)} | ${(r.longestIdle / 60).toStringAsFixed(1)}m | '
+      '${r.idleLog.length} idle>90s (${(r.idleLog.fold(0.0, (a, e) => a + e.$2) / 60).toStringAsFixed(0)} min)',
+    );
+    fills.add(
+      '${seed.toString().padRight(5)} | ${[
+        for (final s in fill.snaps.values)
+          '${s.room.id} ${s.gpuTiles}g ${s.cellsUsed}/${s.room.cells} ${(100 * s.powerKw / s.capKw).toStringAsFixed(0)}% '
+              'wall ${s.wallSeconds == null ? '-' : (s.wallSeconds! / 60).toStringAsFixed(1)}'
+              '${s.firstWallSeconds == null ? '' : '/${(s.firstWallSeconds! / 60).toStringAsFixed(1)}'}',
+      ].join(' | ')}',
+    );
+  }
+  print('seed  | ${[for (final e in Era.values.skip(1)) e.shortLabel.padLeft(8)].join(' | ')} | final    | idle max | idle');
+  rows.forEach(print);
+  print('\nroom fill at its exit era: GPU tiles, cells used, power % of the building cap, minutes at the wall');
+  fills.forEach(print);
 }
 
 BotStrategy parseStrategy(String s) => switch (s) {
