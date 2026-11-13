@@ -153,7 +153,8 @@ class _GameShellState extends State<GameShell> {
         return;
       }
       final ok = c.act((g) => g.moveTile(roomId, move.$2, move.$3, x, y));
-      Sound.play(ok ? Sfx.upgrade : Sfx.error);
+      // Rearranging is routine: a click, not the upgrade fanfare.
+      Sound.play(ok ? Sfx.click : Sfx.error);
       HapticFeedback.lightImpact();
       setState(() => _moveFrom = null);
       return;
