@@ -185,8 +185,11 @@ class _TrainingPanelState extends State<TrainingPanel> {
             ),
           ),
           gap8,
+          // Up to five segments: the picker gets the full width under its
+          // label so every one stays readable on a 360 px phone.
           _OptionRow(
-            label: 'Data mix',
+            label: 'Data emphasis',
+            stacked: true,
             child: EarlyFocusPicker(
               selected: early,
               lockReason: g.phaseLockReason,
@@ -551,18 +554,27 @@ class _TrainingPanelState extends State<TrainingPanel> {
 class _OptionRow extends StatelessWidget {
   final String label;
   final Widget child;
-  const _OptionRow({required this.label, required this.child});
+
+  /// Label above the control instead of beside it.
+  final bool stacked;
+  const _OptionRow({required this.label, required this.child, this.stacked = false});
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      SizedBox(
-        width: 76,
-        child: Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
-      ),
-      Expanded(child: child),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final text = Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 13));
+    if (stacked) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [text, const SizedBox(height: 4), child],
+      );
+    }
+    return Row(
+      children: [
+        SizedBox(width: 76, child: text),
+        Expanded(child: child),
+      ],
+    );
+  }
 }
 
 class _Callout extends StatelessWidget {

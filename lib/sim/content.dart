@@ -1434,6 +1434,24 @@ const upgrades = <UpgradeDef>[
     // Was ×1.4 before model design added INT4, GQA and SSM serving.
     effects: Effects(serveEffMult: 1.2),
   ),
+  // --- Appended (ids are save keys; order only breaks bot ties) --------------
+  UpgradeDef(
+    id: 'mixture_ablations',
+    name: 'Data mixture ablations',
+    blurb:
+        'Train hundreds of tiny proxy models on varied data mixes, fit a '
+        'mixture law to their losses, then pretrain on the blend it '
+        'predicts is best.',
+    category: UpgradeCategory.data,
+    era: Era.mediumLab,
+    cost: 3e7,
+    // Unlocks the Tuned mix early data emphasis (run_phases.dart), which
+    // also becomes the default early pick once owned. Sources: DoReMi (Xie
+    // 2023), RegMix (Liu 2024); Llama 3's published mix is ~50% general,
+    // 25% math and reasoning, 17% code, 8% multilingual (Meta 2024).
+    effects: Effects(),
+    requires: ['data_mixture'],
+  ),
 ];
 
 const launchStunts = <LaunchStunt>[

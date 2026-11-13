@@ -39,11 +39,11 @@ DesignOutcome _plain() => const DesignOutcome(
 
 void main() {
   group('content', () {
-    test('three phases, 3-4 options each, every option explained and sourced', () {
+    test('three phases, 3-5 options each, every option explained and sourced', () {
       expect(RunPhase.values, hasLength(3));
       expect(askingPhases, [RunPhase.anneal, RunPhase.post]); // at most 2 prompts per run
       for (final p in RunPhase.values) {
-        expect(p.options.length, inInclusiveRange(3, 4), reason: p.name);
+        expect(p.options.length, inInclusiveRange(3, 5), reason: p.name);
         expect(defaultPhaseOption(p, const ModelSpec()).phase, p);
         for (final o in p.options) {
           expect(o.blurb.length, inInclusiveRange(30, 110), reason: o.name);
@@ -102,7 +102,7 @@ void main() {
       expect(seen, [RunPhase.anneal, RunPhase.post]); // never more than 2 prompts
       final d0 = g.s.pendingDesign!;
       expect(d0.phases, [
-        defaultPhaseOption(RunPhase.early, d0.spec),
+        defaultPhaseOption(RunPhase.early, d0.spec, g.phaseContext), // the Tuned mix: all research owned
         defaultPhaseOption(RunPhase.anneal, d0.spec),
         defaultPhaseOption(RunPhase.post, d0.spec),
       ]);
@@ -327,7 +327,13 @@ void main() {
       // The early emphasis: a code-heavy design gets Code once it's unlocked.
       const codey = ModelSpec(dataMix: DataMix.codeHeavy);
       expect(defaultPhaseOption(RunPhase.early, codey, garage), PhaseOption.webMix);
-      expect(defaultPhaseOption(RunPhase.early, codey, rich), PhaseOption.codeMix);
+      final noTuned = DesignContext(
+        ownedResearch: {..._allResearch}..remove('mixture_ablations'),
+        eraIndex: Era.globalLab.index,
+      );
+      expect(defaultPhaseOption(RunPhase.early, codey, noTuned), PhaseOption.codeMix);
+      // With Data mixture ablations the tuned blend replaces the emphasis.
+      expect(defaultPhaseOption(RunPhase.early, codey, rich), PhaseOption.tunedMix);
     });
 
     test('the bot only picks unlocked options', () {
@@ -348,6 +354,86 @@ void main() {
           expect(o.requires.every(r.game.s.ownedUpgrades.contains), isTrue, reason: o.name);
         }
       }
+    });
+  });
+
+  group('tuned mix', () {
+    const tuned = PhaseOption.tunedMix;
+    final medium = DesignContext(ownedResearch: const {'data_mixture'}, eraIndex: Era.mediumLab.index);
+    final researched = DesignContext(
+      ownedResearch: const {'data_mixture', 'mixture_ablations'},
+      eraIndex: Era.mediumLab.index,
+    );
+
+    test('gated by Data mixture ablations, a Medium-lab data item after data mixture optimisation', () {
+      final u = researchById('mixture_ablations')!;
+      expect(upgrades.last.id, 'mixture_ablations'); // appended
+      expect(u.name, 'Data mixture ablations');
+      expect(u.era, Era.mediumLab);
+      expect(u.category, UpgradeCategory.data);
+      expect(u.requires, ['data_mixture']);
+      expect(u.cost, inInclusiveRange(2e7, 4e7)); // Medium-lab research prices
+      expect(trackOf(u.id), ResearchTrack.data);
+      expect(phaseOptionsUnlockedBy(u.id), [tuned]);
+      expect(tuned.phase, RunPhase.early);
+      expect(tuned.requires, ['mixture_ablations']);
+      expect(PhaseOption.values.last, tuned); // appended: saves store names
+      expect(medium.isUnlocked(tuned), isFalse);
+      expect(medium.lockReason(tuned), 'Research Data mixture ablations to unlock');
+      expect(researched.isUnlocked(tuned), isTrue);
+      final g = _training(owned: {'data_mixture'}, early: tuned);
+      expect(g.s.run!.phaseChoices[RunPhase.early], PhaseOption.webMix); // locked: swapped
+    });
+
+    test('once researched it is the default early pick, for every design', () {
+      for (final spec in const [
+        ModelSpec(),
+        ModelSpec(dataMix: DataMix.codeHeavy),
+        ModelSpec(postTraining: PostTraining.reasoning),
+      ]) {
+        expect(defaultPhaseOption(RunPhase.early, spec, medium), isNot(tuned));
+        expect(defaultPhaseOption(RunPhase.early, spec, researched), tuned);
+        // The checkpoints keep their all-rounders.
+        expect(defaultPhaseOption(RunPhase.anneal, spec, researched), PhaseOption.qualityAnneal);
+        expect(defaultPhaseOption(RunPhase.post, spec, researched), PhaseOption.helpfulPost);
+      }
+      expect(baseDefaultPhaseOption(RunPhase.early), PhaseOption.webMix);
+      final g = _training(owned: {'data_mixture', 'mixture_ablations'});
+      expect(g.s.run!.phaseChoices[RunPhase.early], tuned);
+      expect(g.s.run!.autoPhases, isEmpty);
+      // The --phases bot picks it too.
+      for (final (sw, dw) in [(6.0, 30.0), (4.0, 8.0), (23.0, 30.0)]) {
+        expect(bestPhaseOption(RunPhase.early, ctx: researched, serveWeight: sw, demandWeight: dw), tuned);
+      }
+    });
+
+    test('balanced profile, no weak benchmark, a small rating bonus', () {
+      for (final m in tuned.strengthMults.values) {
+        expect(m, greaterThanOrEqualTo(1));
+      }
+      expect(tuned.coding, tuned.math);
+      expect(tuned.math, tuned.chat);
+      // Every other early option gives something up.
+      for (final o in RunPhase.early.options.where((o) => o != tuned)) {
+        expect(o.strengthMults.values.any((m) => m < 1), isTrue, reason: o.name);
+      }
+      expect(tuned.rating, 2);
+      expect(tuned.demand, 1);
+      expect(tuned.serve, 1);
+      expect(tuned.score(), 2); // the edge of the ±2 envelope (research-gated)
+      expect(tuned.summary, 'Tuned mix: all benchmarks ×1.03 · rating +2');
+      expect(tuned.effectsText, 'coding, math, chat ×1.03 · rating +2');
+      expect(tuned.shortLabel, 'Tuned');
+      final web = applyPhases(_plain(), {RunPhase.early: PhaseOption.webMix});
+      final t = applyPhases(_plain(), {RunPhase.early: tuned});
+      expect(t.ratingAdd - web.ratingAdd, 2);
+      expect(t.serveCostMult, web.serveCostMult);
+      expect(t.demandMult, web.demandMult);
+      expect(t.strengths.coding, greaterThan(web.strengths.coding));
+      expect(t.strengths.math, greaterThan(web.strengths.math));
+      expect(t.strengths.chat, lessThan(web.strengths.chat)); // web still wins chat
+      // Saves round-trip by name.
+      expect(phaseChoicesFromJson(phaseChoicesToJson({RunPhase.early: tuned})), {RunPhase.early: tuned});
     });
   });
 

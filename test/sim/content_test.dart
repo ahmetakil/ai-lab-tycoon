@@ -222,14 +222,15 @@ void main() {
   });
 
   group('eras', () {
-    test('every era unlocks a room, GPU and cooling tiles, a power tier and 3-6 upgrades', () {
+    test('every era unlocks a room, GPU and cooling tiles, a power tier and 3-7 upgrades', () {
       for (final era in Era.values) {
         expect(rooms.where((r) => r.era == era), hasLength(1), reason: era.name);
         for (final kind in TileKind.values) {
           expect(tiles.where((t) => t.era == era && t.kind == kind), isNotEmpty, reason: '${era.name} ${kind.name}');
         }
         expect(powerTiers.where((p) => p.era == era), isNotEmpty, reason: era.name);
-        expect(upgrades.where((u) => u.era == era).length, inInclusiveRange(3, 6), reason: era.name);
+        // 7: the Medium lab also has Data mixture ablations (run-phase unlock).
+        expect(upgrades.where((u) => u.era == era).length, inInclusiveRange(3, 7), reason: era.name);
       }
     });
 

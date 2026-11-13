@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../sim/content.dart';
 import '../../sim/game.dart';
 import '../../sim/model_design.dart';
+import '../../sim/run_phases.dart';
 import '../format.dart';
 import '../research_impact.dart';
 import '../shell/game_modal.dart';
@@ -50,11 +51,18 @@ List<EffectChip> effectChips(Effects e) => [
     ),
 ];
 
-/// What a research item adds to run setup (model design), e.g.
-/// "Attention: Grouped-query (GQA)" or "Removes the MoE routing-collapse risk".
+/// What a research item adds to run setup (model design and run-phase
+/// options), e.g. "Attention: Grouped-query (GQA)", "Removes the MoE
+/// routing-collapse risk" or "Data emphasis: Tuned mix (the new default)".
 List<String> designUnlockLines(String id) => [
   for (final (slot, c) in optionsUnlockedBy(id)) '${slot.label}: ${c.label}',
   if (designResearchModifiers[id] case final m?) m,
+  for (final o in phaseOptionsUnlockedBy(id))
+    switch (o.phase) {
+      RunPhase.early => 'Data emphasis: ${o.label}${o == PhaseOption.tunedMix ? ' (the new default)' : ''}',
+      RunPhase.anneal => 'Anneal checkpoint: ${o.label}',
+      RunPhase.post => 'Post-training checkpoint: ${o.label}',
+    },
 ];
 
 const _trackInfo = {

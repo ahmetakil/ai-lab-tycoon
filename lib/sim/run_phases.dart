@@ -45,14 +45,14 @@ final askingPhases = RunPhase.values.where((p) => p.asks).toList();
 ///
 /// Options unlock like the model-design slots ([DesignChoice]): [requires]
 /// research ids and a [minEra], checked with [DesignContext.isUnlocked].
-/// Every default ([defaultPhaseOption]) needs nothing, so a garage lab
-/// always has one. Options are saved by name: append, never rename.
+/// Every base default ([baseDefaultPhaseOption]) needs nothing, so a
+/// garage lab always has one. Options are saved by name: append, never rename.
 enum PhaseOption implements DesignChoice {
   // --- Early pre-training: data mix emphasis ----------------------------------
   webMix(
     RunPhase.early,
     'Web',
-    'Weight diverse, filtered web text: broad knowledge and natural chat.',
+    'Keep filtered web text the bulk of the mix: broad knowledge and natural chat.',
     'The FineWeb Datasets, Penedo 2024',
     'Early web mix',
     chat: 1.06,
@@ -62,7 +62,7 @@ enum PhaseOption implements DesignChoice {
   codeMix(
     RunPhase.early,
     'Code',
-    'Upweight source code: better coding, and code data also helps reasoning.',
+    'Upweight source code in the mix: better coding, and it also helps reasoning.',
     'To Code, or Not To Code, Aryabumi 2024',
     'Early code mix',
     requires: ['code_data'],
@@ -73,7 +73,7 @@ enum PhaseOption implements DesignChoice {
   mathMix(
     RunPhase.early,
     'Math',
-    'Upweight math web pages and papers: stronger math, a little less chat.',
+    'Upweight math web pages and papers in the mix: stronger math, a little less chat.',
     'DeepSeekMath, Shao 2024',
     'Early math mix',
     requires: ['books_papers'],
@@ -192,6 +192,25 @@ enum PhaseOption implements DesignChoice {
     longContext: 1.1,
     demand: 1.05,
     serve: 1.06,
+  ),
+
+  // A tuned blend instead of one emphasis: proportions picked by mixture
+  // laws fit on small proxy runs (DoReMi, Xie 2023; RegMix, Liu 2024).
+  // Llama 3's published mix is ~50% general, 25% math and reasoning, 17%
+  // code, 8% multilingual (Meta 2024). No weak benchmark and a small
+  // rating bonus: the late-game default once researched. Score +2 sits at
+  // the edge of the neutral envelope; research-gated (Medium lab).
+  tunedMix(
+    RunPhase.early,
+    'Tuned mix',
+    'Proportions from mixture laws fit on small proxy runs: no weak benchmark.',
+    'DoReMi, Xie 2023; RegMix, Liu 2024',
+    'Tuned mix',
+    requires: ['mixture_ablations'],
+    rating: 2,
+    coding: 1.03,
+    math: 1.03,
+    chat: 1.03,
   );
 
   final RunPhase phase;
@@ -239,6 +258,13 @@ enum PhaseOption implements DesignChoice {
   @override
   String get id => name;
 
+  /// Label for tight spots (the run-setup segments, the decisions line).
+  String get shortLabel => switch (this) {
+    PhaseOption.synthMix => 'Synth',
+    PhaseOption.tunedMix => 'Tuned',
+    _ => label,
+  };
+
   /// The benchmark multipliers, in BenchmarkStrengths order.
   Map<String, double> get strengthMults => {'Coding': coding, 'Math': math, 'Chat': chat, 'Long context': longContext};
 
@@ -264,7 +290,7 @@ enum PhaseOption implements DesignChoice {
     final best = strengthMults.entries.reduce((a, b) => b.value > a.value ? b : a);
     final String what;
     if (bench.length == 1 && bench.single > 1) {
-      what = 'all benchmarks ×${_mult(bench.single)}';
+      what = 'all benchmarks ×${_mult(bench.single)}${rating > 0 ? ' · rating +${rating.round()}' : ''}';
     } else if (best.value > 1.05) {
       what = '${best.key.toLowerCase()} ×${_mult(best.value)}';
     } else {
@@ -289,12 +315,15 @@ double _log2(double x) => math.log(x) / math.ln2;
 /// The default when the player doesn't decide (idle or offline). The early
 /// emphasis follows the model design (a code-heavy mix gets the code
 /// emphasis, RL reasoning the math one); the checkpoints take the
-/// all-rounder (quality data, helpfulness). The defaults only shape the
-/// benchmark profile: no rating, demand or serving change, so a lab that
-/// never decides plays exactly as before run phases. With [ctx], an early
-/// emphasis the lab hasn't unlocked falls back to Web; the base defaults
-/// (Web, Quality data, Helpful) need no research.
+/// all-rounder (quality data, helpfulness). These defaults only shape the
+/// benchmark profile: no rating, demand or serving change. With [ctx], an
+/// early emphasis the lab hasn't unlocked falls back to Web; the base
+/// defaults (Web, Quality data, Helpful) need no research. Once [ctx] owns
+/// Data mixture ablations the early default is the Tuned mix (a small
+/// rating bonus), as at frontier labs that tune the blend instead of
+/// picking one emphasis.
 PhaseOption defaultPhaseOption(RunPhase phase, ModelSpec spec, [DesignContext? ctx]) {
+  if (phase == RunPhase.early && ctx != null && ctx.isUnlocked(PhaseOption.tunedMix)) return PhaseOption.tunedMix;
   final pick = switch (phase) {
     RunPhase.early =>
       spec.dataMix == DataMix.codeHeavy
@@ -307,6 +336,13 @@ PhaseOption defaultPhaseOption(RunPhase phase, ModelSpec spec, [DesignContext? c
   };
   return ctx == null || ctx.isUnlocked(pick) ? pick : baseDefaultPhaseOption(phase);
 }
+
+/// The run-phase options research [id] unlocks (for "Unlocks: ..." on
+/// research cards and the bot's valuation).
+List<PhaseOption> phaseOptionsUnlockedBy(String id) => [
+  for (final o in PhaseOption.values)
+    if (o.requires.contains(id)) o,
+];
 
 /// The phase's always-available option (no research, garage era).
 PhaseOption baseDefaultPhaseOption(RunPhase phase) => switch (phase) {

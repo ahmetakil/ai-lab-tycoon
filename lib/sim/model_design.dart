@@ -1458,6 +1458,7 @@ const researchTracks = <String, ResearchTrack>{
   'test_time_compute': ResearchTrack.postTraining,
   'agentic_rl': ResearchTrack.postTraining,
   'disaggregated_serving': ResearchTrack.infrastructure,
+  'mixture_ablations': ResearchTrack.data,
   // Design upgrades.
   'gqa': ResearchTrack.preTraining,
   'sliding_window': ResearchTrack.preTraining,
