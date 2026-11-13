@@ -1,6 +1,7 @@
-// Build mode's bottom drawer: the room you're in with the Power / Network /
+// Build mode's bottom drawer: the plan bar (parts planned but not bought,
+// with Done / Cancel), the room you're in with the Power / Network /
 // Cooling chips, the training-cluster summary and the parts tray (pick a
-// part, then tap glowing floor cells).
+// part, then tap or drag across glowing floor cells to plan it).
 import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
@@ -18,6 +19,15 @@ class BuildDrawer extends StatelessWidget {
   final RoomDef room;
   final TileKind kind;
   final String? placing;
+
+  /// Planned, not yet bought tiles, and the game as if they were built.
+  final List<PlannedTile> plan;
+  final Game? preview;
+  final VoidCallback onCommit;
+  final VoidCallback onCancelPlan;
+
+  /// Plans "Upgrade GPUs" swaps (the button shows only when one is possible).
+  final VoidCallback onUpgrade;
   final VoidCallback onDone;
   final ValueChanged<TileKind> onKind;
   final ValueChanged<TileDef> onPick;
@@ -31,6 +41,11 @@ class BuildDrawer extends StatelessWidget {
     required this.room,
     required this.kind,
     required this.placing,
+    this.plan = const [],
+    this.preview,
+    required this.onCommit,
+    required this.onCancelPlan,
+    required this.onUpgrade,
     required this.onDone,
     required this.onKind,
     required this.onPick,
@@ -55,6 +70,14 @@ class BuildDrawer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (plan.isNotEmpty)
+              PlanBar(
+                game: game,
+                preview: preview ?? game.withPlan(room.id, plan),
+                plan: plan,
+                onDone: onCommit,
+                onCancel: onCancelPlan,
+              ),
             TierStrip(
               game: game,
               onPower: onPower,
@@ -74,9 +97,134 @@ class BuildDrawer extends StatelessWidget {
               onCancel: onDone,
               onKind: onKind,
               onPick: onPick,
+              onUpgrade:
+                  game.upgradePlan(room.id, plan: plan, max: 1).isNotEmpty ? onUpgrade : null,
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// --- Plan bar ------------------------------------------------------------------
+
+/// "4 parts · $11.2k" over "⚡ +2.0 kW · 5.1/7.2 kW · 2 hot", with Cancel
+/// and Done. The numbers come from the game as if the plan were built.
+class PlanBar extends StatelessWidget {
+  final Game game;
+  final Game preview;
+  final List<PlannedTile> plan;
+  final VoidCallback onDone;
+  final VoidCallback onCancel;
+
+  const PlanBar({
+    super.key,
+    required this.game,
+    required this.preview,
+    required this.plan,
+    required this.onDone,
+    required this.onCancel,
+  });
+
+  /// "Upgrade 5 GPUs → Used V100" for an all-swaps plan of one part,
+  /// otherwise "4 parts" (", 2 swaps" when some are swaps).
+  static String summary(List<PlannedTile> plan) {
+    final swaps = plan.where((p) => p.replace).length;
+    final ids = plan.map((p) => p.tileId).toSet();
+    if (swaps == plan.length && ids.length == 1) {
+      final t = tileById(ids.first)!;
+      return 'Upgrade $swaps ${t.isGpu ? (swaps == 1 ? 'GPU' : 'GPUs') : 'tiles'} → ${t.name}';
+    }
+    final n = plan.length;
+    return '$n ${n == 1 ? 'part' : 'parts'}${swaps > 0 ? ' ($swaps ${swaps == 1 ? 'swap' : 'swaps'})' : ''}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final g = game;
+    final cost = g.planCost(plan);
+    final affordable = cost <= g.s.money + 1e-9;
+    final addKw = g.planPowerKw(plan);
+    final usedKw = preview.powerUsedKw, capKw = preview.powerCapKw;
+    final overPower = usedKw > capKw + 1e-9;
+    final hot = throttlingTiles(preview);
+    final hotBefore = throttlingTiles(g);
+    return Container(
+      key: const ValueKey('plan-bar'),
+      margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(AppColors.neon.withValues(alpha: 0.1), AppColors.surfaceHi),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.neon.withValues(alpha: 0.7), width: 1.5),
+      ),
+      // The summary gets the full width (phones); the preview line shares
+      // the second row with Cancel and Done.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: '${summary(plan)} · '),
+                TextSpan(
+                  text: formatMoney(cost),
+                  style: TextStyle(color: affordable ? AppColors.neon : AppColors.red),
+                ),
+              ],
+            ),
+            key: const ValueKey('plan-summary'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '⚡ ${addKw >= 0 ? '+' : '−'}${formatPower(addKw.abs())} · '
+                  '${formatNumber(usedKw)}/${formatPower(capKw)}'
+                  '${hot > 0 ? ' · $hot hot' : hotBefore > 0 ? ' · cool' : ''}',
+                  key: const ValueKey('plan-preview'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: numStyle(
+                    size: 10.5,
+                    color:
+                        overPower
+                            ? AppColors.red
+                            : hot > hotBefore
+                            ? AppColors.amber
+                            : AppColors.muted,
+                    weight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              IconButton(
+                key: const ValueKey('plan-cancel'),
+                tooltip: 'Clear the plan',
+                onPressed: onCancel,
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close_rounded, color: AppColors.muted, size: 20),
+              ),
+              FilledButton.icon(
+                key: const ValueKey('plan-done'),
+                onPressed: onDone,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.neon,
+                  foregroundColor: AppColors.bg,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                ),
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: const Text('Done'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -334,6 +482,9 @@ class PartsTray extends StatefulWidget {
   final ValueChanged<TileKind> onKind;
   final ValueChanged<TileDef> onPick;
 
+  /// "Upgrade GPUs"; null hides the button (no swap possible).
+  final VoidCallback? onUpgrade;
+
   const PartsTray({
     super.key,
     required this.game,
@@ -344,6 +495,7 @@ class PartsTray extends StatefulWidget {
     required this.onCancel,
     required this.onKind,
     required this.onPick,
+    this.onUpgrade,
   });
 
   @override
@@ -401,6 +553,38 @@ class _PartsTrayState extends State<PartsTray> {
                       onTap: () => onKind(k),
                     ),
                   ),
+                if (w.onUpgrade case final up?)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 5, 0, 1),
+                    child: GestureDetector(
+                      key: const ValueKey('upgrade-gpus'),
+                      onTap: up,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9),
+                        decoration: BoxDecoration(
+                          color: AppColors.neon.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(color: AppColors.neon.withValues(alpha: 0.6)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.arrow_circle_up_rounded, size: 14, color: AppColors.neon),
+                            const SizedBox(width: 3),
+                            Text(
+                              // Phones: keep room for the kind tabs.
+                              MediaQuery.sizeOf(context).width < 420 ? 'Upgrade' : 'Upgrade GPUs',
+                              style: const TextStyle(
+                                color: AppColors.neon,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 if (modeActive)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(4, 5, 0, 1),
@@ -420,7 +604,7 @@ class _PartsTrayState extends State<PartsTray> {
                             Icon(Icons.close, size: 14, color: AppColors.red),
                             SizedBox(width: 3),
                             Text(
-                              'Done',
+                              'Close',
                               style: TextStyle(
                                 color: AppColors.red,
                                 fontWeight: FontWeight.w700,

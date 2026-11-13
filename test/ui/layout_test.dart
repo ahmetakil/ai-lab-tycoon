@@ -233,6 +233,32 @@ void main() {
       await _settle(tester, 400);
       expect(tester.takeException(), isNull);
       await _shot(tester, key, '${tag}_blocked');
+      // Plan two fans: ghosts on the floor, the plan bar with Done. (On
+      // phones the tutorial card covers the room: skip it first.)
+      if (find.byKey(const ValueKey('tutorial-skip')).evaluate().isNotEmpty) {
+        await tester.tap(find.byKey(const ValueKey('tutorial-skip')));
+        await _settle(tester, 300);
+      }
+      await tester.tapAt(cellOnScreen(tester, 'garage', 3, 0));
+      await _settle(tester, 300);
+      await tester.tapAt(cellOnScreen(tester, 'garage', 3, 1));
+      await _settle(tester, 400);
+      expect(find.byKey(const ValueKey('plan-bar')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await _shot(tester, key, '${tag}_plan');
+      // An all-swaps plan from "Upgrade GPUs" (the 2060 and 4090s → V100s).
+      await tester.tap(find.byKey(const ValueKey('plan-cancel')));
+      await _settle(tester, 300);
+      c.game.s.money = 1e5;
+      c.game.s.ownedUpgrades.add('mixed_precision');
+      await _settle(tester, 300);
+      await tester.tap(find.byKey(const ValueKey('upgrade-gpus')));
+      await _settle(tester, 400);
+      expect(find.textContaining('Upgrade '), findsWidgets);
+      expect(tester.takeException(), isNull);
+      await _shot(tester, key, '${tag}_upgrade_plan');
+      await tester.tap(find.byKey(const ValueKey('plan-cancel')));
+      await _settle(tester, 300);
       await tester.tap(find.byKey(const ValueKey('cancel-mode')));
       await _settle(tester, 300);
       await tester.tapAt(cellOnScreen(tester, 'garage', 1, 1));

@@ -4,6 +4,7 @@
 // Rebuilt only when what it shows changes.
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../sim/content.dart';
@@ -59,7 +60,27 @@ class BuildState {
   final String? activeRoom;
   final String? placing;
   final (String, int, int)? moveFrom;
-  const BuildState({this.buildMode = false, this.activeRoom, this.placing, this.moveFrom});
+
+  /// Planned (not yet bought) tiles in the active room, drawn as ghosts.
+  final List<PlannedTile> plan;
+
+  /// The game with [plan] carried out (Game.withPlan), for the heat,
+  /// throttle and cluster preview. Null when there's no plan.
+  final Game? preview;
+
+  /// Whether a one-finger drag starting on (x, y) paints the selected part
+  /// into the plan. When false (or null) the drag pans the map instead.
+  final bool Function(String roomId, int x, int y)? canPaintFrom;
+
+  const BuildState({
+    this.buildMode = false,
+    this.activeRoom,
+    this.placing,
+    this.moveFrom,
+    this.plan = const [],
+    this.preview,
+    this.canPaintFrom,
+  });
 }
 
 /// Everything the grid's look depends on. Equal keys reuse the built subtree.
@@ -70,16 +91,33 @@ class _GridKey {
   final (int, int)? moveFrom;
   final String valid; // '1'/'0' per cell: empty and placeable right now
   final int tiers; // network × 100 + cooling: restyles cables, re-tints heat
+  final List<PlannedTile> plan; // replaced (not mutated) on every change
+  final Game? preview;
 
-  const _GridKey(this.revision, this.buildMode, this.placing, this.moveFrom, this.valid, this.tiers);
+  const _GridKey(
+    this.revision,
+    this.buildMode,
+    this.placing,
+    this.moveFrom,
+    this.valid,
+    this.tiers,
+    this.plan,
+    this.preview,
+  );
 
   factory _GridKey.of(Game g, RoomDef room, BuildState b) {
     final buf = StringBuffer();
     final placing = b.placing;
+    final preview = b.preview;
     if (placing != null) {
       for (var y = 0; y < room.height; y++) {
         for (var x = 0; x < room.width; x++) {
-          buf.write(g.canPlace(room.id, x, y, placing) ? '1' : '0');
+          final ok =
+              b.plan.isEmpty || preview == null
+                  ? g.canPlace(room.id, x, y, placing)
+                  : g.planBlockReasonIn(preview, room.id, b.plan, PlannedTile(x, y, placing)) ==
+                      null;
+          buf.write(ok ? '1' : '0');
         }
       }
     }
@@ -91,6 +129,8 @@ class _GridKey {
       mv != null && mv.$1 == room.id ? (mv.$2, mv.$3) : null,
       buf.toString(),
       g.s.networkTier * 100 + g.s.coolingTier,
+      b.plan,
+      b.plan.isEmpty ? null : preview,
     );
   }
 
@@ -102,10 +142,13 @@ class _GridKey {
       other.placing == placing &&
       other.moveFrom == moveFrom &&
       other.valid == valid &&
-      other.tiers == tiers;
+      other.tiers == tiers &&
+      identical(other.plan, plan) &&
+      identical(other.preview, preview);
 
   @override
-  int get hashCode => Object.hash(revision, buildMode, placing, moveFrom, valid, tiers);
+  int get hashCode =>
+      Object.hash(revision, buildMode, placing, moveFrom, valid, tiers, identityHashCode(plan));
 }
 
 /// Listens to the controller but only rebuilds the grid when its key changes.
@@ -167,13 +210,25 @@ class _RoomGridState extends State<RoomGrid> {
 
   /// Sprite height of the tile at a cell, for tap hit-testing.
   double _heightOf(int x, int y) {
-    final id = widget.controller.game.tileAt(widget.room.id, x, y);
+    // Ghosts count as what they'll be.
+    final g = widget.build.plan.isEmpty ? null : widget.build.preview;
+    final id = (g ?? widget.controller.game).tileAt(widget.room.id, x, y);
     return id == null ? 0 : tileSpriteHeights[id] ?? 30;
   }
 
   (int, int)? _lastPaint;
   Offset? _down;
   final _painted = <(int, int)>{};
+
+  /// A drag paints only when it starts on a cell the selected part could
+  /// be planned on; otherwise the pan recognizer stays out and the camera
+  /// (CameraView's scale recognizer) pans the map.
+  bool _paintStartsAt(RoomGeo geo, Offset local) {
+    final can = widget.build.canPaintFrom;
+    if (widget.build.placing == null || widget.onCellPaint == null || can == null) return false;
+    final cell = geo.cellAtLocalTall(local, _heightOf);
+    return cell != null && can(widget.room.id, cell.$1, cell.$2);
+  }
 
   void _paintTo(RoomGeo geo, Offset local, {bool start = false}) {
     final cell = geo.cellAtLocal(local);
@@ -207,7 +262,9 @@ class _RoomGridState extends State<RoomGrid> {
     if (k != _key || _child == null) {
       _key = k;
       _child = _GridLayers(
-        game: g,
+        // With a plan, everything (heat, throttle, cluster) shows as if it
+        // were built.
+        game: k.preview ?? g,
         room: widget.room,
         geo: geoOf(widget.room.id),
         gridKey: k,
@@ -222,26 +279,73 @@ class _RoomGridState extends State<RoomGrid> {
         RepaintBoundary(child: _child),
         // One tap target for the whole floor; screen → diamond cell maths.
         Positioned.fill(
-          child: GestureDetector(
+          child: RawGestureDetector(
             key: ValueKey('room-floor-${widget.room.id}'),
             behavior: HitTestBehavior.deferToChild,
-            onTapUp: (d) {
-              final cell = geo.cellAtLocalTall(d.localPosition, _heightOf);
-              if (cell != null) widget.onCellTap(widget.room.id, cell.$1, cell.$2);
+            gestures: {
+              TapGestureRecognizer: GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                () => TapGestureRecognizer(debugOwner: this),
+                (r) =>
+                    r.onTapUp = (d) {
+                      final cell = geo.cellAtLocalTall(d.localPosition, _heightOf);
+                      if (cell != null) widget.onCellTap(widget.room.id, cell.$1, cell.$2);
+                    },
+              ),
+              // Placing: a drag that starts on a plannable cell paints the
+              // part along its path. Any other drag (on a tile, with no part,
+              // two fingers) is left to the camera, which pans the map.
+              if (paint)
+                PaintPanRecognizer: GestureRecognizerFactoryWithHandlers<PaintPanRecognizer>(
+                  () => PaintPanRecognizer(debugOwner: this),
+                  (r) {
+                    r.canStart = (local) => _paintStartsAt(geo, local);
+                    r.onDown = (d) => _down = d.localPosition;
+                    r.onStart = (d) => _paintTo(geo, _down ?? d.localPosition, start: true);
+                    r.onUpdate = (d) => _paintTo(geo, d.localPosition);
+                    r.onEnd = (_) => _endPaint();
+                    r.onCancel = _endPaint;
+                  },
+                ),
             },
-            // Placing: a drag paints the part along its path (the map pans
-            // with two fingers or outside the floor).
-            onPanDown: paint ? (d) => _down = d.localPosition : null,
-            onPanStart:
-                paint ? (d) => _paintTo(geo, _down ?? d.localPosition, start: true) : null,
-            onPanUpdate: paint ? (d) => _paintTo(geo, d.localPosition) : null,
-            onPanEnd: paint ? (_) => _endPaint() : null,
-            onPanCancel: paint ? _endPaint : null,
             child: CustomPaint(painter: _FloorHitArea(geo, _heightOf), size: geo.size),
           ),
         ),
       ],
     );
+  }
+}
+
+/// A pan recognizer for drag-painting that only joins the gesture arena
+/// when the pointer goes down where painting may start ([canStart], in the
+/// detector's local coordinates), and backs out as soon as a second finger
+/// lands, so the camera gets pinches and pans.
+class PaintPanRecognizer extends PanGestureRecognizer {
+  PaintPanRecognizer({super.debugOwner});
+
+  bool Function(Offset local)? canStart;
+  int _pointers = 0;
+
+  @override
+  bool isPointerAllowed(PointerEvent event) {
+    if (_pointers > 0) {
+      // A second finger: this is a pinch or a two-finger pan, not a paint.
+      resolve(GestureDisposition.rejected);
+      return false;
+    }
+    if (!(canStart?.call(event.localPosition) ?? false)) return false;
+    return super.isPointerAllowed(event);
+  }
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    _pointers++;
+    super.addAllowedPointer(event);
+  }
+
+  @override
+  void didStopTrackingLastPointer(int pointer) {
+    _pointers = 0;
+    super.didStopTrackingLastPointer(pointer);
   }
 }
 
@@ -292,6 +396,7 @@ class _GridLayers extends StatelessWidget {
     final glows = <(int, int, Color)>[];
     final valid = <(int, int)>[];
     final tilesLayer = <(int, int, TileStatus)>[];
+    final planned = {for (final p in gridKey.plan) (p.x, p.y): p};
     // GPU cells per row, for the overhead cable trays.
     final rows = <int, List<int>>{};
     for (var y = 0; y < h; y++) {
@@ -343,15 +448,28 @@ class _GridLayers extends StatelessWidget {
             ),
           ),
         for (final (x, y, st) in tilesLayer)
-          Positioned.fromRect(
-            key: ValueKey('tile-$x-$y'),
-            rect: geo.tileRect(x, y),
-            child: _TileArt(
-              key: ValueKey('tile-$x-$y-${st.def.id}'),
-              status: st,
-              moving: mv == (x, y),
+          if (planned[(x, y)] case final p?)
+            Positioned.fromRect(
+              key: ValueKey('plan-$x-$y'),
+              rect: geo.tileRect(x, y),
+              child: _TileArt(
+                key: ValueKey('plan-$x-$y-${st.def.id}'),
+                status: st,
+                moving: false,
+                ghost: true,
+                swap: p.replace,
+              ),
+            )
+          else
+            Positioned.fromRect(
+              key: ValueKey('tile-$x-$y'),
+              rect: geo.tileRect(x, y),
+              child: _TileArt(
+                key: ValueKey('tile-$x-$y-${st.def.id}'),
+                status: st,
+                moving: mv == (x, y),
+              ),
             ),
-          ),
         // Overhead cable trays above the tiles (decorative; the whole room
         // is one cluster whatever the layout).
         if (rows.values.fold(0, (a, r) => a + r.length) > 1)
@@ -607,7 +725,17 @@ class _ValidPainter extends CustomPainter {
 class _TileArt extends StatefulWidget {
   final TileStatus status;
   final bool moving;
-  const _TileArt({super.key, required this.status, required this.moving});
+
+  /// Planned, not bought: drawn see-through (with an arrow for a swap).
+  final bool ghost;
+  final bool swap;
+  const _TileArt({
+    super.key,
+    required this.status,
+    required this.moving,
+    this.ghost = false,
+    this.swap = false,
+  });
 
   @override
   State<_TileArt> createState() => _TileArtState();
@@ -655,7 +783,20 @@ class _TileArtState extends State<_TileArt> with SingleTickerProviderStateMixin 
                     opacity: 0.45 + 0.55 * heat,
                     child: Image.asset(GameArt.tileHeatOverlay, fit: BoxFit.fill),
                   ),
-                art,
+                if (widget.ghost) Opacity(opacity: 0.5, child: art) else art,
+                if (widget.swap)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: s * 0.3,
+                    child: Center(
+                      child: Icon(
+                        Icons.arrow_circle_up_rounded,
+                        color: AppColors.neon,
+                        size: math.max(12.0, s * 0.16),
+                      ),
+                    ),
+                  ),
                 if (heat > 0)
                   Opacity(
                     opacity: 0.25 + 0.35 * heat,
