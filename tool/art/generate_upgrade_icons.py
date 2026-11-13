@@ -121,6 +121,36 @@ def disaggregated_serving():
     save(s, 'disaggregated_serving')
 
 
+
+def mixture_ablations():
+    s = Scene(glow=3.5)
+    plate(s)
+    # a chart panel at the back: proxy-run losses for each blend (dots) and
+    # the fitted mixture law (curve) with its predicted best blend
+    p = s.box(10, 6, 6, 80, 4, 66, color='#1A2242', top='#2E3B6B')
+    s.fline(p, 'left', [(0.08, 0.9), (0.94, 0.9)], SILVER, sw=2)
+    s.fline(p, 'left', [(0.08, 0.1), (0.08, 0.9)], SILVER, sw=2)
+    pts = []
+    for i in range(21):
+        u = 0.12 + i * 0.04
+        pts.append((u, 0.72 - 2.2 * (u - 0.58) ** 2))
+    s.fline(p, 'left', pts, CYAN, sw=4, glow=True)
+    for u, dv in [(0.18, 0.04), (0.3, -0.05), (0.42, 0.03), (0.7, -0.03), (0.84, 0.05)]:
+        s.fcircle(p, 'left', u, 0.72 - 2.2 * (u - 0.58) ** 2 + dv, 0.025, 0.025, SILVER)
+    s.fcircle(p, 'left', 0.58, 0.72, 0.05, 0.05, GREEN, glow=True)
+    s.fline(p, 'left', [(0.58, 0.77), (0.58, 0.9)], GREEN, sw=2, glow=True, opacity=0.6)
+    # four small proxy models in front, each trained on a different blend
+    # (stacked layers: web, code, math, multilingual)
+    cols = [CYAN, GREEN, AMBER, PINK]
+    blends = [(12, 3, 2, 1), (4, 10, 3, 1), (4, 3, 10, 1), (8, 4, 3, 3)]
+    for k, blend in enumerate(blends):
+        x, z = 8 + k * 22, 6
+        for c, h in zip(cols, blend):
+            s.box(x, 66, z, 16, 16, h, color=shade(c, -0.35), top=c, glow=False)
+            z += h
+    save(s, 'mixture_ablations')
+
+
 if __name__ == '__main__':
     if not shutil.which('rsvg-convert'):
         sys.exit('missing rsvg-convert')
@@ -130,4 +160,5 @@ if __name__ == '__main__':
     zero_sharding()
     paged_attention()
     disaggregated_serving()
+    mixture_ablations()
     shutil.rmtree(TMP, ignore_errors=True)

@@ -137,7 +137,7 @@ class PhaseChoicesLine extends StatelessWidget {
           text:
               run.phaseChoices[p] == null
                   ? '${_short(p)}: …'
-                  : '${_short(p)}: ${run.phaseChoices[p]!.label}${run.autoPhases.contains(p) ? ' (auto)' : ''}',
+                  : '${_short(p)}: ${run.phaseChoices[p]!.shortLabel}${run.autoPhases.contains(p) ? ' (auto)' : ''}',
           filled: run.phaseChoices.containsKey(p),
         ),
     ],
@@ -387,8 +387,11 @@ class _OptionButton extends StatelessWidget {
   }
 }
 
-/// Picker for the early-phase emphasis in the run setup. Locked emphases
-/// are disabled, with a lock and the reason in the tooltip.
+/// Picker for the early-phase data emphasis in the run setup: every mix
+/// holds web, code and math; a segment says which one is upweighted (or,
+/// once researched, a tuned blend). Locked emphases are disabled, with a
+/// lock and the reason in the tooltip. Segments use [PhaseOption.shortLabel]
+/// and tight padding so all of them fit a 360 px phone.
 class EarlyFocusPicker extends StatelessWidget {
   final PhaseOption selected;
   final ValueChanged<PhaseOption> onChanged;
@@ -401,6 +404,10 @@ class EarlyFocusPicker extends StatelessWidget {
   Widget build(BuildContext context) => SegmentedButton<PhaseOption>(
     key: const ValueKey('early-focus'),
     showSelectedIcon: false,
+    style: const ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 4)),
+    ),
     segments: [
       for (final o in RunPhase.early.options)
         if (lockReason?.call(o) case final why?)
@@ -415,20 +422,29 @@ class EarlyFocusPicker extends StatelessWidget {
                 children: [
                   Icon(Icons.lock_outline, size: 13, key: ValueKey('early-lock-${o.name}')),
                   const SizedBox(width: 3),
-                  Text(o.label),
+                  Text(o.shortLabel),
                 ],
               ),
             ),
-            tooltip: '$why. ${o.blurb} (${o.ref})',
+            tooltip: '${_tip(o)} $why.',
           )
         else
           ButtonSegment(
             value: o,
-            label: FittedBox(fit: BoxFit.scaleDown, child: Text(o.label)),
-            tooltip: '${o.blurb} (${o.ref})',
+            label: FittedBox(
+              key: ValueKey('early-option-${o.name}'),
+              fit: BoxFit.scaleDown,
+              child: Text(o.shortLabel),
+            ),
+            tooltip: _tip(o),
           ),
     ],
     selected: {selected},
     onSelectionChanged: (v) => onChanged(v.first),
   );
+
+  static String _tip(PhaseOption o) =>
+      o == PhaseOption.tunedMix
+          ? 'Tuned mix: ${o.blurb} (${o.ref})'
+          : '${o.label} emphasis (the mix still has web, code and math): ${o.blurb} (${o.ref})';
 }

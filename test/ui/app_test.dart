@@ -575,7 +575,12 @@ void main() {
     expect(chips.firstWhere((c) => c.text.contains('serving')).isCost, isTrue);
     // Reasoning's effect now lives in run setup.
     expect(effectChips(researchById('reasoning')!.effects), isEmpty);
-    expect(designUnlockLines('reasoning'), ['Post-training: RL reasoning']);
+    expect(designUnlockLines('reasoning'), [
+      'Post-training: RL reasoning',
+      'Anneal checkpoint: Reasoning',
+      'Post-training checkpoint: Reasoning RL',
+    ]);
+    expect(designUnlockLines('mixture_ablations'), ['Data emphasis: Tuned mix (the new default)']);
     expect(designUnlockLines('router_balancing'), ['Removes the MoE routing-collapse risk']);
     final cooling = upgrades.firstWhere((u) => u.id == 'liquid_cooling');
     expect(

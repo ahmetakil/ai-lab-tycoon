@@ -43,8 +43,8 @@ fill it, and the next era unlocks a few minutes after you run out of space.
 | Small lab | ~1h | 1:02 | 1:01–1:04 (1:02) |
 | Medium lab | ~1h50 | 1:50 | 1:50–1:54 (1:51) |
 | Big lab | ~3h20 | 3:22 | 3:19–3:28 (3:22) |
-| Frontier | ~4h20 | 4:23 | 4:17–4:28 (4:21) |
-| Final rival | 7–7h30 | **7:08** | 6:55–7:18 (7:07) |
+| Frontier | ~4h20 | 4:23 | 4:19–4:29 (4:23) |
+| Final rival | 7–7h30 | **7:08** | 6:53–7:26 (7:06) |
 
 `PlaySchedule.active` (bot.dart, the default everywhere) is continuous play;
 the bot looks at the screen every 4 s, so it reacts within 0–4 s. Training
@@ -279,7 +279,7 @@ v5 (a 4-minute garage, rooms bought ahead of their era) vs v6, seed 12345:
 | Longest idle | 1.7 min | 1.7 min | 1.7 min |
 
 v6 active, seed 12345: 1,162 decisions to the final rival (one every 22 s),
-92 releases, 46/48 upgrades, 51 viral spikes; at the final rival 4.2B
+93 releases, 46/49 upgrades, 51 viral spikes; at the final rival 4.2B
 users, $53B ARR, 3.8M H100e, 3.1 GW. No stretch reaches 2 min; 62 pass 90 s
 (102 min in all, mostly a 5-min run between checkpoints while saving). The
 longest wait between two rival wins is 64 min (v5: 134 min).
@@ -288,26 +288,27 @@ Seeds (time to unlock, h:mm:ss; `--seeds=...`):
 
 ```
 phases off (default bot)
-seed  |  Startup | Small lab | Medium lab |  Big lab | Frontier | final    | idle max
-12345 |  0:50:29 |  1:02:29 |  1:50:01 |  3:22:25 |  4:22:45 |  7:07:33 | 1.7m
-1     |  0:50:45 |  1:02:37 |  1:52:37 |  3:21:33 |  4:19:21 |  7:16:05 | 1.7m
-777   |  0:50:45 |  1:02:17 |  1:51:13 |  3:19:01 |  4:18:29 |  6:55:29 | 1.7m
-2026  |  0:50:33 |  1:04:09 |  1:53:57 |  3:27:45 |  4:22:09 |  7:18:29 | 1.7m
-4242  |  0:49:29 |  1:01:25 |  1:49:41 |  3:22:53 |  4:16:49 |  7:07:01 | 1.7m
-99    |  0:50:17 |  1:01:45 |  1:51:41 |  3:20:21 |  4:21:01 |  7:00:45 | 1.7m
-31337 |  0:49:49 |  1:01:53 |  1:49:41 |  3:23:25 |  4:27:57 |  7:07:57 | 1.7m
+12345 |  0:50:29 |  1:02:29 |  1:50:01 |  3:22:25 |  4:23:09 |  7:07:57 | 1.7m
+1     |  0:50:45 |  1:02:37 |  1:52:37 |  3:21:33 |  4:21:01 |  7:00:33 | 1.7m
+777   |  0:50:45 |  1:02:17 |  1:51:13 |  3:19:01 |  4:19:57 |  6:53:29 | 1.7m
+2026  |  0:50:33 |  1:04:09 |  1:53:57 |  3:27:45 |  4:23:21 |  7:07:21 | 1.7m
+4242  |  0:49:29 |  1:01:25 |  1:49:41 |  3:22:53 |  4:24:33 |  7:25:49 | 1.7m
+99    |  0:50:17 |  1:01:45 |  1:51:41 |  3:20:21 |  4:19:05 |  7:01:37 | 1.7m
+31337 |  0:49:49 |  1:01:53 |  1:49:41 |  3:23:25 |  4:29:01 |  7:06:17 | 1.7m
 phases on (Bot(specializePhases: true))
-12345 |  0:50:21 |  1:03:37 |  1:57:29 |  3:35:17 |  4:36:13 |  7:23:05 | 1.7m
-1     |  0:51:41 |  1:02:45 |  1:53:25 |  3:32:45 |  4:38:25 |  7:38:41 | 1.7m
-777   |  0:51:45 |  1:05:05 |  1:55:17 |  3:33:09 |  4:33:21 |  7:25:13 | 1.7m
-2026  |  0:51:33 |  1:05:13 |  1:54:49 |  3:33:57 |  4:30:49 |  7:20:21 | 1.7m
-4242  |  0:49:41 |  1:03:05 |  1:52:37 |  3:31:21 |  4:29:33 |  7:09:49 | 1.7m
-99    |  0:49:57 |  1:03:37 |  1:53:57 |  3:27:41 |  4:30:37 |  7:24:33 | 1.7m
-31337 |  0:49:45 |  1:02:21 |  1:52:21 |  3:31:09 |  4:32:05 |  7:19:05 | 1.7m
+12345 |  0:50:29 |  1:02:29 |  1:50:01 |  3:22:25 |  4:23:09 |  7:25:57 | 1.7m
+1     |  0:50:45 |  1:02:37 |  1:52:37 |  3:21:33 |  4:21:01 |  7:04:53 | 1.7m
+777   |  0:50:45 |  1:02:17 |  1:51:13 |  3:19:01 |  4:19:57 |  7:02:57 | 1.7m
+2026  |  0:50:33 |  1:04:09 |  1:53:57 |  3:27:45 |  4:23:21 |  7:16:01 | 1.7m
+4242  |  0:49:29 |  1:01:25 |  1:49:41 |  3:22:53 |  4:24:33 |  7:22:29 | 1.7m
+99    |  0:50:17 |  1:01:45 |  1:51:41 |  3:20:21 |  4:19:05 |  6:59:57 | 1.7m
+31337 |  0:49:49 |  1:01:53 |  1:49:41 |  3:23:25 |  4:29:01 |  7:10:13 | 1.7m
 ```
 
-- Every seed finishes in 6h55–7h18 (phases on: 7h09–7h38) and none has a
-  2-minute idle stretch. The Startup no longer depends on a lucky viral
+- Every seed finishes in 6h53–7h26 (phases on: 7h00–7h26) and none has a
+  2-minute idle stretch. (Before the Tuned mix, Data mixture ablations: 6h55–7h18, phases on
+  7h09–7h38; the eras through the Big lab are unchanged to the second, see
+  docs/MODEL_DESIGN.md "Run phases".) The Startup no longer depends on a lucky viral
   spike (v5: 2:28–4:06), since its gate is hardware.
 
 ### Room fill when the way out opens

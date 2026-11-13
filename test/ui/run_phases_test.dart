@@ -1,10 +1,17 @@
+import 'dart:io';
+
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/sim/run_phases.dart';
 import 'package:ai_lab_tycoon/ui/app.dart';
 import 'package:ai_lab_tycoon/ui/game_controller.dart';
+import 'package:ai_lab_tycoon/sim/model_design.dart';
+import 'package:ai_lab_tycoon/ui/model_design/benchmark_strip.dart';
 import 'package:ai_lab_tycoon/ui/model_design/run_phases_ui.dart';
+import 'package:ai_lab_tycoon/ui/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -16,10 +23,11 @@ Future<void> _withApp(
   WidgetTester tester,
   Future<void> Function(GameController c) body, {
   Set<String>? owned,
+  Size size = const Size(430, 932),
 }) async {
   SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
-  await tester.binding.setSurfaceSize(const Size(430, 932));
-  tester.view.physicalSize = const Size(430, 932);
+  await tester.binding.setSurfaceSize(size);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   final c = await GameController.load();
   c.game = Game(GameState(money: 1e5, ownedUpgrades: {...(owned ?? _research)}));
@@ -41,6 +49,28 @@ Future<void> _toCheckpoint(WidgetTester tester, GameController c) async {
   c.act((g) => g.startTraining(fraction: 0.5, durationSeconds: 90, early: PhaseOption.mathMix));
   c.act((g) => g.advance(31));
   await tester.pump(const Duration(milliseconds: 300));
+}
+
+/// The app's real fonts (widget tests default to Ahem, whose square glyphs
+/// overstate text width), so the fit check below measures what ships.
+Future<void> _loadAppFonts() async {
+  Future<void> font(String family, List<String> paths) async {
+    final loader = FontLoader(family);
+    for (final p in paths) {
+      loader.addFont(Future.value(ByteData.sublistView(File(p).readAsBytesSync())));
+    }
+    await loader.load();
+  }
+
+  await font(headingFont, [
+    'assets/fonts/SpaceGrotesk/SpaceGrotesk-Regular.ttf',
+    'assets/fonts/SpaceGrotesk/SpaceGrotesk-Medium.ttf',
+    'assets/fonts/SpaceGrotesk/SpaceGrotesk-Bold.ttf',
+  ]);
+  await font(monoFont, [
+    'assets/fonts/JetBrainsMono/JetBrainsMono-Regular.ttf',
+    'assets/fonts/JetBrainsMono/JetBrainsMono-Bold.ttf',
+  ]);
 }
 
 void main() {
@@ -141,5 +171,86 @@ void main() {
       expect(c.game.s.run!.phaseChoices[RunPhase.early], PhaseOption.codeMix);
       expect(tester.takeException(), isNull);
     });
+  });
+
+  testWidgets('the Tuned mix segment is locked until Data mixture ablations, then the default (360 px)', (
+    tester,
+  ) async {
+    Future<void> openSetup() async {
+      await tester.tap(find.byKey(const ValueKey('project-bar')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    await _loadAppFonts();
+    // Every early option researched but the ablations: Tuned shows, locked.
+    final most = {..._research, 'synthetic_data', 'data_mixture'};
+    await _withApp(tester, owned: most, size: const Size(360, 740), (c) async {
+      await openSetup();
+      expect(find.text('Data emphasis'), findsOneWidget);
+      final picker = find.byKey(const ValueKey('early-focus'));
+      expect(picker, findsOneWidget);
+      expect(find.descendant(of: picker, matching: find.text('Tuned')), findsOneWidget);
+      expect(find.byKey(const ValueKey('early-lock-tunedMix')), findsOneWidget);
+      expect(find.byKey(const ValueKey('early-lock-codeMix')), findsNothing);
+      final tip = find.byWidgetPredicate(
+        (w) => w is Tooltip && (w.message ?? '').contains('Research Data mixture ablations to unlock'),
+      );
+      expect(tip, findsOneWidget);
+      // Fits the phone: every segment inside the screen, labels readable.
+      for (final o in RunPhase.early.options) {
+        final label = find.descendant(of: picker, matching: find.text(o.shortLabel));
+        expect(label, findsOneWidget, reason: o.name);
+        final box = find.ancestor(of: label, matching: find.byType(FittedBox)).first;
+        expect(tester.getRect(box).right, lessThanOrEqualTo(360), reason: o.name);
+        // FittedBox scales its child down to fit: keep it at 75%+ of full size.
+        final fitted = tester.renderObject<RenderFittedBox>(box);
+        final scale = fitted.size.width / fitted.child!.size.width;
+        expect(scale, greaterThanOrEqualTo(0.75), reason: '${o.name} scaled down too far');
+      }
+      // Tapping the locked segment does nothing.
+      await tester.tap(find.byKey(const ValueKey('early-lock-tunedMix')), warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.text('Start training'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(c.game.s.run!.phaseChoices[RunPhase.early], PhaseOption.webMix);
+      expect(tester.takeException(), isNull);
+    });
+
+    // Researched: unlocked and picked by default.
+    await _withApp(tester, owned: {...most, 'mixture_ablations'}, size: const Size(360, 740), (c) async {
+      await openSetup();
+      expect(find.byKey(const ValueKey('early-lock-tunedMix')), findsNothing);
+      expect(find.byKey(const ValueKey('early-option-tunedMix')), findsOneWidget);
+      await tester.tap(find.text('Start training'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(c.game.s.run!.phaseChoices[RunPhase.early], PhaseOption.tunedMix);
+      expect(find.text('Mix: Tuned'), findsOneWidget); // the decisions line uses the short label
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('the release card names the Tuned mix in full at phone width', (tester) async {
+    await _loadAppFonts();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 296, // a 360 px phone minus the card's padding
+              child: BenchmarkStrip(
+                strengths: const BenchmarkStrengths(coding: 1.03, math: 1.03, chat: 1.03),
+                phases: const [PhaseOption.tunedMix, PhaseOption.qualityAnneal, PhaseOption.helpfulPost],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final line = find.text('Tuned mix: all benchmarks ×1.03 · rating +2');
+    expect(line, findsOneWidget);
+    expect(tester.renderObject<RenderParagraph>(line).didExceedMaxLines, isFalse); // not cut off
+    expect(tester.takeException(), isNull);
   });
 }

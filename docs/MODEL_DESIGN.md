@@ -161,7 +161,11 @@ Game Dev Tycoon's development stages, for training runs. Code: `lib/sim/run_phas
 `PhaseChoicesLine`, `EarlyFocusPicker`). Tests: `test/sim/run_phases_test.dart`,
 `test/ui/run_phases_test.dart`.
 
-A run has three phases. The early data emphasis is picked in the run setup ("Data mix" row).
+A run has three phases. The early data emphasis is picked in the run setup ("Data emphasis" row,
+on its own line under the label so up to five segments fit a 360 px phone; the segments use
+`PhaseOption.shortLabel`, e.g. "Synth", "Tuned"). It is an **emphasis**, not a single source:
+every mix still holds web, code and math, and the choice says which one is upweighted (the
+segment tooltips say so).
 The other two are **checkpoints** at fixed fractions of the run (1/3 and 2/3, so they
 survive pacing changes). At a checkpoint the run holds (no compute is added) and the
 checkpoint card asks once, so there are at most 2 prompts per run. Online the run waits for
@@ -184,6 +188,7 @@ needs nothing.
 | | Code | `code_data` (Startup) | coding ×1.2, math ×1.05, chat ×0.95 | | | | To Code, or Not To Code, Aryabumi 2024 |
 | | Math | `books_papers` (Small lab) | math ×1.25, coding ×1.03, chat ×0.95 | | | | DeepSeekMath, Shao 2024 |
 | | Synthetic | `synthetic_data` (Big lab) | coding, math ×1.12, chat ×0.95 | | ×0.98 | | Textbooks Are All You Need, Gunasekar 2023 |
+| | Tuned mix | `mixture_ablations` (Medium lab) | coding, math, chat ×1.03 | +2 | | | DoReMi, Xie 2023; RegMix, Liu 2024 |
 | Annealing (1/3) | **Quality data** | always | coding, math, chat ×1.04 | | | | MiniCPM (WSD), Hu 2024 |
 | | Long context | `long_context` (Big lab) | long context ×1.3 | −1 | ×1.04 | ×1.03 | Effective Long-Context Scaling, Xiong 2023 |
 | | Reasoning | `reasoning` (Big lab) | math ×1.2, coding ×1.1, chat ×0.96 | +1 | ×0.97 | | Llama 3 Herd of Models, Dubey 2024 |
@@ -200,6 +205,23 @@ needs the long-context research, and the reasoning anneal and Reasoning RL need 
 of thought research (R1-style training, 2025). The later options arrive with their technique:
 synthetic textbook data (Phi-1, 2023), natively multimodal pre-training (2023–25, no separate
 research, so it unlocks with the Big lab era) and agentic RL in tool environments (2025).
+
+**Tuned mix** (playtest: "even in lab stage does this data mix still make sense? do frontier labs
+still choose between web, code and math?"). They don't pick one: they tune the proportions of
+the whole blend with small proxy-model ablations and mixture laws. DoReMi (Xie et al. 2023)
+learns domain weights with a small proxy model and group DRO; RegMix (Liu et al. 2024) trains
+hundreds of tiny models on random mixtures and fits a regression that predicts the best one.
+Llama 3's published final mix is ~50% general knowledge, 25% math and reasoning, 17% code and
+8% multilingual tokens (Meta, The Llama 3 Herd of Models, 2024). So the early eras keep the three
+emphases (a small lab really does lean its mix one way), and the Medium-lab research **Data
+mixture ablations** (`mixture_ablations`, content.dart `upgrades`, appended: Data track, $30M,
+needs `data_mixture`, identity effects) adds a fifth early option, **Tuned mix**: a balanced
+profile with no weak benchmark (×1.03 on coding, math and chat) and +2 rating. Once researched it
+is the **default** early pick for every design (`defaultPhaseOption(early, spec, ctx)`), so a lab
+that never touches the picker gets it. Its bot score is +2, the edge of the ±2 envelope: a
+deliberately small, research-gated bonus (pacing below). The research card lists it as "Run setup ·
+Data emphasis: Tuned mix (the new default)" (`phaseOptionsUnlockedBy`), and the release card's
+phase line reads "Tuned mix: all benchmarks ×1.03 · rating +2".
 The checkpoint card lists unlocked options first; with 4 options it lays them out 2×2
 (stacked on a phone, where a locked option shows only its name and the reason).
 
@@ -207,10 +229,11 @@ All numbers are **Design**, set to the direction of the cited result.
 
 - **Defaults** (bold) only shape the benchmark profile. The early default follows the design:
   a code-heavy mix gets Code and RL reasoning gets Math, falling back to Web while that emphasis
-  is still locked (`defaultPhaseOption(phase, spec, ctx)`). A lab that never decides plays
-  exactly as it did before run phases.
+  is still locked (`defaultPhaseOption(phase, spec, ctx)`). Until Data mixture ablations a lab
+  that never decides plays exactly as it did before run phases; after it, the early default is
+  the Tuned mix (+2 rating).
 - **Balance**: on the bot's design score (`rating + 30·log2 demand − 6·log2 serve`) every
-  option sits within about ±2 rating of zero. Over 10 casual-schedule seeds the bot finishes
+  option sits within about ±2 rating of zero (the Tuned mix at +2, research-gated). Over 10 casual-schedule seeds the bot finishes
   at a mean of ~61 h on the defaults and ~63 h when it specializes by what blocks it
   (`dart run tool/balance_sim.dart --phases`).
 - **Effects** apply when the run ends (`applyPhases` on the `DesignOutcome`): strengths
@@ -226,6 +249,12 @@ All numbers are **Design**, set to the direction of the cited result.
   among the unlocked options (`ctx: Game.phaseContext`), using the design weights; serving
   counts fully while it's capacity-limited. With the locks, `balance_sim.dart 480` puts the
   final rival at 7h07 on the defaults (unchanged) and 7h13 with `--phases` (7h23 before).
+  The bot's progress score counts the early default's rating, so it values Data mixture
+  ablations by the +2 it adds (and as a run-setup unlock while rating blocks). It buys it at
+  ~3h45 (just into the Big lab; seeds 12345, 1, 777) and ships about 27% of its releases on
+  the Tuned mix. Final rival with it: 7h08 on the defaults (7 seeds 6h53–7h26, was 6h55–7h18)
+  and 7h26 with `--phases` (7 seeds 7h00–7h26, was 7h09–7h38); era unlocks through the
+  Big lab are unchanged to the second.
 
 ## Research
 New entries in `designUpgrades` (identity `Effects`; their value is the option they unlock):
@@ -249,6 +278,9 @@ New entries in `designUpgrades` (identity `Effects`; their value is the option t
 
 Existing ids reused as unlocks: `moe`, `chinchilla_scaling`, `flash_attention`, `long_context`,
 `code_data`, `books_papers`, `synthetic_data`, `rlhf`, `reasoning`, `quantization`.
+`mixture_ablations` (Data mixture ablations, Medium lab, $30M, Data, needs `data_mixture`) is
+appended to content.dart `upgrades` instead: it unlocks a run-phase option (the Tuned mix), not a
+design slot, and `phaseOptionsUnlockedBy(id)` lists those for the research card.
 
 `ResearchTrack` (preTraining, postTraining, data, infrastructure) and `researchTracks` map
 every id in `upgrades` and `designUpgrades` to a track (`trackOf(id)`).

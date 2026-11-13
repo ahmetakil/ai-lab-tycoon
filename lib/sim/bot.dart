@@ -860,7 +860,9 @@ class Bot {
     final sp = design ?? _lookSpec ?? spec;
     final e = g.designEffects(sp, flops);
     final effC = g.designedEffectiveCompute(flops, sp, e);
-    var r = g.ratingOf(effC) + e.ratingAdd;
+    // The early data emphasis is fixed at the start, so its default (the
+    // Tuned mix once researched) counts toward the run's rating.
+    var r = g.ratingOf(effC) + e.ratingAdd + defaultPhaseOption(RunPhase.early, sp, g.phaseContext).rating;
     // Risks at their expected rating cost.
     for (final risk in e.risks) {
       r += risk.chance * ratingPerDoubling * math.log(risk.cemMultOnHit) / math.ln2;
@@ -942,7 +944,9 @@ class Bot {
       // blocks, value it by the rating it adds (a pricier-to-serve but
       // smarter model, e.g. RL reasoning, is then worth it).
       final designUnlock = _ratingBlocks &&
-          (optionsUnlockedBy(u.id).isNotEmpty || designResearchModifiers.containsKey(u.id));
+          (optionsUnlockedBy(u.id).isNotEmpty ||
+              designResearchModifiers.containsKey(u.id) ||
+              phaseOptionsUnlockedBy(u.id).isNotEmpty);
       final r0 = designUnlock ? _value(ratingOnly: true) : 0.0;
       s.ownedUpgrades.add(u.id);
       // With the research, the design may change too: take the better of
