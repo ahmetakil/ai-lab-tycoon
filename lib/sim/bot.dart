@@ -914,6 +914,15 @@ class Bot {
     return _value(extraTrain: add, extraTotal: add) - v0;
   }
 
+  static bool _noEffects(Effects e) =>
+      e.utilizationAdd == 0 &&
+      e.trainEffMult == 1 &&
+      e.serveEffMult == 1 &&
+      e.dataMult == 1 &&
+      e.ratingAdd == 0 &&
+      e.arpuMult == 1 &&
+      e.powerMult == 1;
+
   /// Returns true if it bought something.
   bool _spend() {
     final s = g.s;
@@ -933,6 +942,7 @@ class Bot {
       for (final n in networkTiers) ...n.requires,
       for (final c in coolingTiers) ...c.requires,
     };
+    final gpuNow = _bestGpu(g.currentRoom.id);
     for (final u in _availableUpgrades) {
       if (strategy == BotStrategy.noUpgrades) break;
       if (strategy == BotStrategy.hardwareOnly &&
@@ -956,7 +966,15 @@ class Bot {
       if (designUnlock) {
         dv = math.max(dv, math.max(_value(ratingOnly: true), _value(ratingOnly: true, design: respec)) - r0);
       }
+      // Research whose only job is to make a speculative GPU (the sci-fi
+      // tiers past Rubin) the room's best buy: worth at least what an equal
+      // spend on that GPU adds, like a power tier. (Earlier eras are tuned
+      // around the flat bonus below.)
+      final unlocked = _noEffects(u.effects) ? _bestGpu(g.currentRoom.id) : null;
       s.ownedUpgrades.remove(u.id);
+      if (unlocked != null && unlocked != gpuNow && unlocked.speculative) {
+        dv = math.max(dv, _virtualDv(unlocked, math.max(1.0, (u.cost / g.tilePrice(unlocked)).floorToDouble()), v0));
+      }
       // Power savings = more GPUs under the same cap.
       if (u.effects.powerMult < 1) {
         dv += 2 * math.log(1 / u.effects.powerMult) * (powerTight ? 1 : 0.3);
@@ -1066,10 +1084,20 @@ class Bot {
         c.label.contains('rack_') ||
         c.label.contains('pod_') ||
         c.label.contains('bldg_'));
+    // A tier a better speculative GPU needs (the fusion PPA for the
+    // cryo-logic vaults), valued with that GPU even before power is tight.
+    TileDef? powerGpu;
+    if (next != null && !powerNeedsMove && g.isUnlocked(next.era)) {
+      s.powerTier++;
+      final t = _bestGpu(room.id);
+      s.powerTier--;
+      if (t != null && t != bestGpu && t.speculative) powerGpu = t;
+    }
     final wantPower = bestGpu != null &&
         next != null &&
         g.isUnlocked(next.era) &&
         (powerTight ||
+            powerGpu != null ||
             roomsFull ||
             roomNeedsPower ||
             // Moved ahead of the power: the room's own tier, or the best GPU
@@ -1131,7 +1159,7 @@ class Bot {
       cands.add(
         _Cand(
           next.cost,
-          _virtualDv(bestGpu, powerK(next.capacityKw, bestGpu, next.cost), v0),
+          _virtualDv(powerGpu ?? bestGpu, powerK(next.capacityKw, powerGpu ?? bestGpu, next.cost), v0),
           g.buyNextPowerTier,
           label: 'power:${next.id}',
           essential: powerEssential,

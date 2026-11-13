@@ -47,7 +47,7 @@ fresh; the game is unreleased.
 | `colo` Colocation cage | smallLab | 10×10 | 8-GPU server | 5.0 (500) | $800k | 3 Leased colo circuits (500 kW) |
 | `hall` Datacenter hall | mediumLab | 14×14 | rack (32–72 GPUs) | 18.0 (3528) | $1.5M | 5 On-site substation (3.6 MW) |
 | `campus` Datacenter campus | bigLab | 18×18 | pod (~1k GPUs) | 40.0 (12960) | $7.5M | 7 Gigawatt grid interconnect (1 GW) |
-| `gigasite` Gigawatt site | globalLab | 22×22 | building (~8k GPUs) | 70.0 (33880) | $20M | 9 Multi-site cluster (4 GW) |
+| `gigasite` Gigawatt site | globalLab | 22×22 | building (~8k GPUs) | 70.0 (33880) | $20M | 10 Compact fusion PPA (10 GW) |
 
 The power limit (`RoomDef.maxPowerTier`) is the building's electrical
 service: the highest power tier you can buy while you're there. A tier past
@@ -90,6 +90,19 @@ and **cooling** (network switch tiles are gone since v4).
 | `rack_r_class` | hall, campus | 72 | 252k | 244.8 | 340 | $1.17M (+12%) | liquid_cooling, tier 6 (plant) |
 | `pod_r_class` | campus, gigasite | 1024 | 3.6M | 3430 | 750 | $16.4M (+12%) | liquid_cooling, tier 6 (plant) |
 | `bldg_r_class` | gigasite | 8.2k | 28.7M | 27.0k | 700 | $36M (+3%) | liquid_cooling, tier 7 (gw_campus) |
+| `bldg_p_class` ✦ | gigasite | 8.2k | 65.5M | 22.9k | 600 | $70M (+5%) | photonic_compute, tier 8 (nuclear_restart) |
+| `bldg_s_class` ✦ | gigasite | 8.2k | 98.3M | 13.1k | 1400 | $95M (+5%) | superconducting_logic, tier 10 (fusion_ppa) |
+
+✦ **Speculative (sci-fi) tiers past Rubin** (`TileDef.speculative`, appended
+after the coolers in `tiles`): made-up, near-future hardware, labelled
+"Speculative:" in the blurb. The *Opal photonic stack* multiplies matrices
+with light in 3D-stacked chips (8k TFLOPS, 2.8 kW per chip: ~2.7× Rubin per
+watt). The *Boreal cryo-logic vault* runs superconducting logic at 4 K
+(12k TFLOPS, 1.6 kW per chip with its cryocoolers) and runs hot in game
+terms (heat 1400: pumping heat out at 4 K costs hundreds of watts per watt),
+so it wants the cryogenic helium plant. Both still beat the tier before
+them per $ and per kW at list price; the gates are Frontier research
+($3.6B, then $15B), a power tier and a 5% supply crunch.
 
 **GPU supply crunch**: a GPU tile costs `cost × min(4, (1 + priceGrowth)^owned)`
 (`Game.tilePrice`). Garage GPUs have a steep one (the used market dries up),
@@ -162,6 +175,7 @@ cooler shares)`.
 | `tower` Evaporative cooling towers | bigLab | 250 | $6M |  |
 | `liquid` Facility liquid loop | bigLab | 450 | $10.5M | liquid_cooling |
 | `dry` Dry-cooler farm | globalLab | 550 | $12.5M |  |
+| `cryo` Cryogenic helium plant ✦ | globalLab | 1500 | $30M | superconducting_logic |
 
 - If netHeat > 0 the tile throttles: `speed = max(0.2, 1 − netHeat / heat)`
   (red tint and a % badge). No destruction.
@@ -180,6 +194,7 @@ cooler shares)`.
 | `gw_campus` Gigawatt grid interconnect | globalLab | 1.0 GW | $74M |
 | `nuclear_restart` Restarted nuclear plant | globalLab | 2.0 GW | $147M |
 | `multi_site` Multi-site cluster | globalLab | 4.0 GW | $290M |
+| `fusion_ppa` Compact fusion PPA ✦ | globalLab | 10 GW | $700M |
 
 
 GPU tiles draw `powerKw × powerMult` (liquid cooling −15%), coolers their

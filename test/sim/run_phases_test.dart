@@ -367,7 +367,7 @@ void main() {
 
     test('gated by Data mixture ablations, a Medium-lab data item after data mixture optimisation', () {
       final u = researchById('mixture_ablations')!;
-      expect(upgrades.last.id, 'mixture_ablations'); // appended
+      expect(upgrades.map((u) => u.id), contains('mixture_ablations')); // appended
       expect(u.name, 'Data mixture ablations');
       expect(u.era, Era.mediumLab);
       expect(u.category, UpgradeCategory.data);

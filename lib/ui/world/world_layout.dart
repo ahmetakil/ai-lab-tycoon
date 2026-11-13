@@ -194,7 +194,9 @@ Offset cellCenterLocal(String roomId, int x, int y) => geoOf(roomId).cellCenterL
 /// 100 wide), measured from the PNGs' top opaque row. Used to hit-test taps
 /// on what you see (RoomGeo.cellAtLocalTall). Unknown ids count as 30.
 const tileSpriteHeights = <String, double>{
+  'bldg_p_class': 36,
   'bldg_r_class': 41,
+  'bldg_s_class': 35,
   'cool_chiller': 32,
   'cool_crac': 71,
   'cool_dry': 18,
