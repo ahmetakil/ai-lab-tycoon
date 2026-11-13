@@ -144,7 +144,10 @@ void main() {
         era: Era.garage,
         ownedUpgrades: mp,
       );
-      expect(short.upgradePlan('garage'), hasLength(1));
+      // One V100 short: two cheaper 4090 swaps add more TFLOPS than one V100.
+      final cheap = short.upgradePlan('garage');
+      expect(cheap.map((s) => s.tileId).toSet(), {'gpu_gamer'});
+      expect(cheap, hasLength(2));
       final enough = gameWith(
         rows,
         money: two + 0.01,
@@ -169,8 +172,8 @@ void main() {
         ownedUpgrades: mp,
       );
       final swaps = g.upgradePlan('garage');
-      expect(swaps.map((s) => s.tileId).toSet(), {'gpu_v_class'});
-      expect(swaps, hasLength(2));
+      expect(swaps.map((s) => s.tileId).toSet(), hasLength(1));
+      expect(swaps, isNotEmpty);
       final after = g.withPlan('garage', swaps);
       expect(after.powerUsedKw, lessThanOrEqualTo(after.powerCapKw));
     });
@@ -209,6 +212,30 @@ void main() {
         expect(broke.upgradePlan('garage'), isEmpty);
       },
     );
+
+    test('oldest model first, then tier by tier while the money lasts', () {
+      // A 2060 behind two 4090s, plenty of money: all three become V100s,
+      // the 2060 first.
+      final rich = gameWith(
+        ['GoG.', '....', '....', '....'],
+        money: 1e9,
+        era: Era.garage,
+        ownedUpgrades: mp,
+      );
+      final all = rich.upgradePlan('garage');
+      expect(all.first, const PlannedTile(1, 0, 'gpu_v_class', replace: true));
+      expect(all, hasLength(3));
+      expect(all.map((s) => s.tileId).toSet(), {'gpu_v_class'});
+      // Money for one V100 swap only: it goes to the 2060, not a 4090.
+      final one = gameWith(
+        ['GoG.', '....', '....', '....'],
+        money: v100Price(0) - old.cost / 2 + 1,
+        era: Era.garage,
+        ownedUpgrades: mp,
+      );
+      final swaps = one.upgradePlan('garage');
+      expect(swaps.map((s) => (s.x, s.y)), [(1, 0)]);
+    });
 
     test('skips cells already in the plan and counts the plan\'s spending', () {
       final g = gameWith(

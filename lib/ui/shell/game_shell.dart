@@ -246,9 +246,13 @@ class _GameShellState extends State<GameShell> {
     Sound.play(Sfx.click);
     HapticFeedback.selectionClick();
     _setPlan([..._plan, ...swaps]);
-    final t = tileById(swaps.first.tileId)!;
+    final ids = {for (final s in swaps) s.tileId};
+    final what =
+        ids.length == 1
+            ? '${swaps.length} × ${tileById(ids.first)!.name}'
+            : '${swaps.length} GPU swaps, oldest first';
     _toast(
-      'Planned ${swaps.length} × ${t.name}. Tap a ghost to drop it, Done to buy.',
+      'Planned $what. Tap a ghost to drop it, Done to buy.',
       color: AppColors.neon,
     );
   }

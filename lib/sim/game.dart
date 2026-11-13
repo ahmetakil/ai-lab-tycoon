@@ -1001,56 +1001,88 @@ class Game {
         p,
   ];
 
-  /// "Upgrade GPUs": swaps that put the best GPU you can buy in place of
-  /// your weakest ones, appended after [plan]. The target is the unlocked
-  /// GPU with the most TFLOPS whose grown price the money left after [plan]
-  /// covers (falling back to the next best if not even one swap to it
-  /// passes the power cap). Weakest GPUs (fewest TFLOPS) go first, only
-  /// ones strictly weaker than the target, as many as the money covers
-  /// (grown price minus sell refund per swap) and [replaceBlockReason]
-  /// allows given the earlier swaps. Cells already in [plan] are left
-  /// alone. Stops after [max] swaps. Empty when nothing is better.
+  /// "Upgrade GPUs": swaps appended after [plan], oldest tier first and then
+  /// tier by tier as the money lasts. Your GPUs are grouped by model,
+  /// weakest (fewest TFLOPS) first. For each group the target is the
+  /// unlocked GPU that adds the most TFLOPS across that group given the
+  /// money left (as many swaps as it covers: grown price minus the sell
+  /// refund each), ties going to the faster card; only GPUs strictly weaker
+  /// than the target are swapped. When the money runs out part-way through
+  /// a group it stops there; otherwise it moves on to the next group.
+  /// Swaps [replaceBlockReason] blocks (the power cap) are skipped. Cells
+  /// already in [plan] are left alone. Stops after [max] swaps. Empty when
+  /// nothing is better or affordable.
   List<PlannedTile> upgradePlan(String roomId, {List<PlannedTile> plan = const [], int? max}) {
     final room = roomById(roomId);
     if (room == null || !s.ownsRoom(roomId)) return const [];
     final base = withPlan(roomId, plan);
-    final left = s.money - planCost(plan);
     final planned = {for (final p in plan) (p.x, p.y)};
-    final gpus = <(int, int, TileDef)>[
-      for (var y = 0; y < room.height; y++)
-        for (var x = 0; x < room.width; x++)
-          if (!planned.contains((x, y)))
-            if (tileById(base.tileAt(roomId, x, y) ?? '') case final d? when d.isGpu) (x, y, d),
-    ];
-    if (gpus.isEmpty) return const [];
-    // Weakest first; List.sort isn't stable, so break ties row-major.
-    final order = List.of(gpus)
-      ..sort((a, b) {
-        final c = a.$3.tflops.compareTo(b.$3.tflops);
-        return c != 0 ? c : (a.$2 * room.width + a.$1).compareTo(b.$2 * room.width + b.$1);
-      });
-    final weakest = order.first.$3.tflops;
-    final targets = [
-      for (final t in tiles)
-        if (t.isGpu && t.tflops > weakest && isTileUnlocked(t) && base.tilePrice(t) <= left + 1e-9) t,
-    ]..sort((a, b) => b.tflops.compareTo(a.tflops));
-    for (final target in targets) {
-      final out = <PlannedTile>[];
-      final sim = withPlan(roomId, plan);
-      final full = [...plan];
-      for (final (x, y, d) in order) {
-        if (max != null && out.length >= max) break;
-        if (d.tflops >= target.tflops) break; // sorted: the rest are as good
-        if (sim.replaceBlockReason(roomId, x, y, target.id, ignoreMoney: true) != null) continue;
-        final swap = PlannedTile(x, y, target.id, replace: true);
-        if (planCost([...full, swap]) > s.money + 1e-9) break; // weakest first: no skipping ahead
-        out.add(swap);
-        full.add(swap);
-        sim.s.setTile(roomId, x, y, target.id);
+    // Your GPUs by model, weakest model first, row-major within a model.
+    final groups = <String, List<(int, int)>>{};
+    for (var y = 0; y < room.height; y++) {
+      for (var x = 0; x < room.width; x++) {
+        if (planned.contains((x, y))) continue;
+        if (tileById(base.tileAt(roomId, x, y) ?? '') case final d? when d.isGpu) {
+          (groups[d.id] ??= []).add((x, y));
+        }
       }
-      if (out.isNotEmpty) return out;
     }
-    return const [];
+    final order = groups.keys.map((id) => tileById(id)!).toList()
+      ..sort((a, b) {
+        final c = a.tflops.compareTo(b.tflops);
+        return c != 0 ? c : a.id.compareTo(b.id);
+      });
+    final candidates = [for (final t in tiles) if (t.isGpu && isTileUnlocked(t)) t];
+    final out = <PlannedTile>[];
+    for (final from in order) {
+      if (max != null && out.length >= max) break;
+      final full = [...plan, ...out];
+      // Swaps of this group to [target] after [full], and whether money ran out.
+      (List<PlannedTile>, bool) trySwaps(TileDef target) {
+        final sim = withPlan(roomId, full);
+        final swaps = <PlannedTile>[];
+        var broke = false;
+        for (final (x, y) in groups[from.id]!) {
+          if (max != null && out.length + swaps.length >= max) break;
+          if (sim.replaceBlockReason(roomId, x, y, target.id, ignoreMoney: true) != null) continue;
+          final swap = PlannedTile(x, y, target.id, replace: true);
+          if (planCost([...full, ...swaps, swap]) > s.money + 1e-9) {
+            broke = true;
+            break;
+          }
+          swaps.add(swap);
+          sim.s.setTile(roomId, x, y, target.id);
+        }
+        return (swaps, broke);
+      }
+
+      List<PlannedTile>? best;
+      var bestBroke = false;
+      var bestGain = 0.0;
+      TileDef? bestTarget;
+      for (final target in candidates) {
+        if (target.tflops <= from.tflops) continue;
+        final (swaps, broke) = trySwaps(target);
+        if (swaps.isEmpty) continue;
+        final gain = swaps.length * (target.tflops - from.tflops);
+        if (gain > bestGain + 1e-9 ||
+            (gain > bestGain - 1e-9 && target.tflops > (bestTarget?.tflops ?? 0))) {
+          best = swaps;
+          bestBroke = broke;
+          bestGain = gain;
+          bestTarget = target;
+        }
+      }
+      if (best == null) {
+        // Nothing better or affordable for this model; a newer group may
+        // still be upgradeable only if money isn't the reason, so stop.
+        if (candidates.any((t) => t.tflops > from.tflops)) break;
+        continue;
+      }
+      out.addAll(best);
+      if (bestBroke) break; // the money ran out part-way: stop here
+    }
+    return out;
   }
 
   /// Like [placeBlockReason] for swapping the tile at (x, y) for [tileId]:
