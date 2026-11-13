@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:ai_lab_tycoon/sim/bot.dart';
+import 'package:ai_lab_tycoon/sim/content.dart';
 import 'package:ai_lab_tycoon/sim/game.dart';
 import 'package:ai_lab_tycoon/sim/game_state.dart';
 import 'package:ai_lab_tycoon/sim/model_design.dart';
@@ -8,9 +9,22 @@ import 'package:ai_lab_tycoon/sim/run_phases.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'phase_helpers.dart';
 
-Game _training({double duration = 90, PhaseOption? early}) {
-  final g = Game(GameState(money: 1e6));
+/// Every research id: most tests pick specialized options, which unlock
+/// with research (see the 'locks' group for a bare garage).
+final Set<String> _allResearch = {for (final u in allUpgrades) u.id};
+
+Game _training({double duration = 90, PhaseOption? early, Set<String>? owned, Era era = Era.garage}) {
+  final g = Game(GameState(money: 1e6, ownedUpgrades: {...(owned ?? _allResearch)}, era: era));
   expect(g.startTraining(fraction: 0.5, durationSeconds: duration, early: early), isTrue);
+  return g;
+}
+
+/// [g] advanced to its next checkpoint.
+Game _toCheckpoint(Game g) {
+  final run = g.s.run!;
+  final next = askingPhases.firstWhere((p) => !run.phaseChoices.containsKey(p));
+  g.advance(run.durationSeconds * next.checkpoint - run.elapsedSeconds + 1);
+  expect(g.awaitingPhase, next);
   return g;
 }
 
@@ -25,11 +39,11 @@ DesignOutcome _plain() => const DesignOutcome(
 
 void main() {
   group('content', () {
-    test('three phases, three options each, every option explained and sourced', () {
+    test('three phases, 3-4 options each, every option explained and sourced', () {
       expect(RunPhase.values, hasLength(3));
       expect(askingPhases, [RunPhase.anneal, RunPhase.post]); // at most 2 prompts per run
       for (final p in RunPhase.values) {
-        expect(p.options, hasLength(3), reason: p.name);
+        expect(p.options.length, inInclusiveRange(3, 4), reason: p.name);
         expect(defaultPhaseOption(p, const ModelSpec()).phase, p);
         for (final o in p.options) {
           expect(o.blurb.length, inInclusiveRange(30, 110), reason: o.name);
@@ -245,6 +259,95 @@ void main() {
       expect(loaded.awaitingPhase, RunPhase.anneal);
       expect(DesignOutcome.fromJson({'spec': const ModelSpec().toJson()})!.phases, isEmpty);
       expect(phaseChoicesFromJson({'anneal': 'webMix', 'post': 'nope', 'x': 'helpfulPost'}), isEmpty);
+    });
+  });
+
+  group('locks', () {
+    const garage = DesignContext();
+    final rich = DesignContext(ownedResearch: _allResearch, eraIndex: Era.globalLab.index);
+
+    test('a garage lab has exactly the defaults; every gate is real research', () {
+      for (final p in RunPhase.values) {
+        expect(p.options.where(garage.isUnlocked), [baseDefaultPhaseOption(p)], reason: p.name);
+        expect(defaultPhaseOption(p, const ModelSpec(), garage), baseDefaultPhaseOption(p));
+        expect(baseDefaultPhaseOption(p).requires, isEmpty);
+        expect(baseDefaultPhaseOption(p).minEra, Era.garage);
+      }
+      for (final o in PhaseOption.values) {
+        expect(rich.isUnlocked(o), isTrue, reason: o.name);
+        for (final id in o.requires) {
+          expect(researchById(id), isNotNull, reason: '${o.name} needs $id');
+        }
+      }
+      // Gates that follow the history of the technique.
+      expect(PhaseOption.reasoningAnneal.requires, ['reasoning']);
+      expect(PhaseOption.reasoningPost.requires, ['reasoning']);
+      expect(PhaseOption.longContextAnneal.requires, ['long_context']);
+      expect(PhaseOption.safetyPost.requires, ['rlhf']);
+      expect(PhaseOption.agenticPost.requires, ['agentic_rl']);
+      expect(garage.lockReason(PhaseOption.reasoningPost), 'Research Reasoning (RL on chain of thought) to unlock');
+      expect(
+        DesignContext(ownedResearch: _allResearch).lockReason(PhaseOption.multimodalAnneal),
+        'Reach Big lab to unlock',
+      );
+    });
+
+    test('the sim rejects a locked option at a checkpoint and in the run setup', () {
+      final g = _toCheckpoint(_training(owned: {}, early: PhaseOption.mathMix));
+      expect(g.s.run!.phaseChoices[RunPhase.early], PhaseOption.webMix); // locked emphasis: default
+      for (final o in RunPhase.anneal.options) {
+        expect(g.choosePhase(o), o == PhaseOption.qualityAnneal, reason: o.name);
+        if (o == PhaseOption.qualityAnneal) break;
+      }
+      expect(g.s.run!.phaseChoices[RunPhase.anneal], PhaseOption.qualityAnneal);
+      _toCheckpoint(g);
+      expect(g.choosePhase(PhaseOption.reasoningPost), isFalse);
+      expect(g.choosePhase(PhaseOption.safetyPost), isFalse);
+      expect(g.awaitingPhase, RunPhase.post); // still waiting
+      expect(g.phaseLockReason(PhaseOption.safetyPost), 'Research RLHF to unlock');
+      expect(g.choosePhase(PhaseOption.helpfulPost), isTrue);
+    });
+
+    test('research bought mid-run unlocks the option at the next checkpoint', () {
+      final g = _toCheckpoint(_training(owned: {'instruction_tuning'}));
+      g.choosePhase(PhaseOption.qualityAnneal);
+      _toCheckpoint(g);
+      expect(g.choosePhase(PhaseOption.safetyPost), isFalse);
+      g.s.ownedUpgrades.add('rlhf');
+      expect(g.isPhaseOptionUnlocked(PhaseOption.safetyPost), isTrue);
+      expect(g.choosePhase(PhaseOption.safetyPost), isTrue);
+      expect(g.s.run!.phaseChoices[RunPhase.post], PhaseOption.safetyPost);
+    });
+
+    test('later-era options need their era as well as their research', () {
+      final big = _toCheckpoint(_training(era: Era.bigLab));
+      final early = _toCheckpoint(_training());
+      expect(early.choosePhase(PhaseOption.multimodalAnneal), isFalse);
+      expect(big.choosePhase(PhaseOption.multimodalAnneal), isTrue);
+      // The early emphasis: a code-heavy design gets Code once it's unlocked.
+      const codey = ModelSpec(dataMix: DataMix.codeHeavy);
+      expect(defaultPhaseOption(RunPhase.early, codey, garage), PhaseOption.webMix);
+      expect(defaultPhaseOption(RunPhase.early, codey, rich), PhaseOption.codeMix);
+    });
+
+    test('the bot only picks unlocked options', () {
+      for (final p in RunPhase.values) {
+        for (final (sw, dw) in [(6.0, 30.0), (4.0, 8.0), (23.0, 30.0)]) {
+          final pick = bestPhaseOption(p, ctx: garage, serveWeight: sw, demandWeight: dw);
+          expect(pick, baseDefaultPhaseOption(p), reason: '${p.name} $sw/$dw');
+        }
+      }
+      // With everything unlocked it does specialize somewhere.
+      expect(
+        RunPhase.values.any((p) => bestPhaseOption(p, ctx: rich) != baseDefaultPhaseOption(p)),
+        isTrue,
+      );
+      final r = runPlaythrough(maxSeconds: 30 * 60, stopWhenDone: false, specializePhases: true);
+      for (final m in r.game.s.releases.where((m) => m.design != null)) {
+        for (final o in m.design!.phases) {
+          expect(o.requires.every(r.game.s.ownedUpgrades.contains), isTrue, reason: o.name);
+        }
+      }
     });
   });
 

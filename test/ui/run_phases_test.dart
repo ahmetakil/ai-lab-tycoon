@@ -8,13 +8,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<void> _withApp(WidgetTester tester, Future<void> Function(GameController c) body) async {
+/// The research the specialized garage-era options need (owning every item
+/// would fire research moments over the card).
+const _research = {'code_data', 'books_papers', 'long_context', 'reasoning', 'instruction_tuning', 'rlhf'};
+
+Future<void> _withApp(
+  WidgetTester tester,
+  Future<void> Function(GameController c) body, {
+  Set<String>? owned,
+}) async {
   SharedPreferences.setMockInitialValues({'intro_seen_v1': true, 'tutorial_done_v1': true});
   await tester.binding.setSurfaceSize(const Size(430, 932));
   tester.view.physicalSize = const Size(430, 932);
   tester.view.devicePixelRatio = 1;
   final c = await GameController.load();
-  c.game = Game(GameState(money: 1e5));
+  c.game = Game(GameState(money: 1e5, ownedUpgrades: {...(owned ?? _research)}));
   await tester.pumpWidget(AiLabTycoonApp(controller: c));
   await tester.pump(const Duration(milliseconds: 500));
   try {
@@ -36,7 +44,7 @@ Future<void> _toCheckpoint(WidgetTester tester, GameController c) async {
 }
 
 void main() {
-  testWidgets('the checkpoint card appears with three options and no countdown', (tester) async {
+  testWidgets('the checkpoint card appears with its options and no countdown', (tester) async {
     await _withApp(tester, (c) async {
       expect(find.byType(PhaseDecisionCard), findsOneWidget); // empty until a checkpoint
       expect(find.byKey(const ValueKey('phase-decision-anneal')), findsNothing);
@@ -90,6 +98,32 @@ void main() {
       expect(find.byKey(const ValueKey('phase-decision-anneal')), findsOneWidget); // still waiting
       expect(run.elapsedSeconds, e);
       expect(run.phaseChoices.containsKey(RunPhase.anneal), isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('a garage lab sees the research-gated options locked, with the reason', (tester) async {
+    await _withApp(tester, owned: {}, (c) async {
+      await _toCheckpoint(tester, c);
+      expect(c.game.s.run!.phaseChoices[RunPhase.early], PhaseOption.webMix); // Math is locked too
+      expect(find.byKey(const ValueKey('phase-decision-anneal')), findsOneWidget);
+      for (final o in RunPhase.anneal.options) {
+        expect(find.byKey(ValueKey('phase-option-${o.name}')), findsOneWidget, reason: o.name);
+        final locked = o != PhaseOption.qualityAnneal;
+        expect(find.byKey(ValueKey('phase-lock-${o.name}')), locked ? findsOneWidget : findsNothing, reason: o.name);
+      }
+      expect(find.text('Research Reasoning (RL on chain of thought) to unlock'), findsOneWidget);
+      expect(find.text('Research Long context (ring attention) to unlock'), findsOneWidget);
+      expect(find.text('Reach Big lab to unlock'), findsOneWidget);
+      // Tapping a locked option does nothing; the run keeps waiting.
+      await tester.tap(find.byKey(const ValueKey('phase-option-reasoningAnneal')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(c.game.awaitingPhase, RunPhase.anneal);
+      expect(c.game.s.run!.phaseChoices.containsKey(RunPhase.anneal), isFalse);
+      // The default still works.
+      await tester.tap(find.byKey(const ValueKey('phase-option-qualityAnneal')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(c.game.s.run!.phaseChoices[RunPhase.anneal], PhaseOption.qualityAnneal);
       expect(tester.takeException(), isNull);
     });
   });

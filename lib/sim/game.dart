@@ -1040,7 +1040,8 @@ class Game {
   /// Start a run with [spec] (default: [nextSpec], the remembered setup).
   /// Locked choices are swapped for the safe default; the spec is
   /// remembered for the next run. [early] is the early-phase data emphasis
-  /// (default: defaultPhaseOption for the spec).
+  /// (default: defaultPhaseOption for the spec); a locked one is swapped for
+  /// the default too.
   bool startTraining({
     required double fraction,
     required double durationSeconds,
@@ -1056,7 +1057,9 @@ class Game {
       spec: used,
       timeScale: s.era.computeTimeScale,
       phaseChoices: {
-        RunPhase.early: early?.phase == RunPhase.early ? early! : defaultPhaseOption(RunPhase.early, used),
+        RunPhase.early: early != null && early.phase == RunPhase.early && isPhaseOptionUnlocked(early)
+            ? early
+            : defaultPhaseOption(RunPhase.early, used, phaseContext),
       },
     );
     return true;
@@ -1065,11 +1068,21 @@ class Game {
   /// The run's checkpoint waiting for a decision, or null.
   RunPhase? get awaitingPhase => s.run?.awaitingPhase;
 
+  /// What the run-phase locks look at: owned research and the era (the
+  /// same rules as the model-design slots).
+  DesignContext get phaseContext => DesignContext(ownedResearch: s.ownedUpgrades, eraIndex: s.era.index);
+
+  bool isPhaseOptionUnlocked(PhaseOption option) => phaseContext.isUnlocked(option);
+
+  /// "Research X to unlock" / "Reach Big lab to unlock", or null.
+  String? phaseLockReason(PhaseOption option) => phaseContext.lockReason(option);
+
   /// Answer the waiting checkpoint with [option]; false if it isn't for the
-  /// phase the run is waiting at.
+  /// phase the run is waiting at or the lab hasn't unlocked it.
   bool choosePhase(PhaseOption option) {
     final run = s.run;
     if (run == null || run.awaitingPhase != option.phase) return false;
+    if (!isPhaseOptionUnlocked(option)) return false;
     run.choosePhase(option);
     return true;
   }

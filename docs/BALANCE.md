@@ -26,7 +26,8 @@ cells and power (of the most its building takes in that era) when the next
 room's era unlocks, and how long it had been at its wall (every cell used,
 or no GPU fits the power left) by then (`RoomFill` in bot.dart, also in
 `PlaythroughResult.roomFill`). `--phases` makes the bot specialize at
-run-phase checkpoints instead of taking the all-rounder.
+run-phase checkpoints instead of taking the all-rounder, among the options
+its research and era have unlocked.
 
 ## Target: an active 6–8 h game (v6: a real garage, full rooms)
 
@@ -81,7 +82,7 @@ about $2.3k (garage revenue is ×0.1).
   only uses choices the UI offers: 50% or 75% of the training cluster, and
   the era's three run lengths (`EraInfo.runDurations`). It answers a run-phase
   checkpoint at once (the default all-rounder pick, or specialized with
-  `specializePhases`).
+  `specializePhases`, only from the unlocked options).
 - **What counts as a decision** (idle stretches, `PlaythroughResult.decisions`):
   a purchase, a release, a new run, a checkpoint call, renting cloud GPUs,
   and pausing or resuming training for a viral spike.

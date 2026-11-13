@@ -171,9 +171,10 @@ class _Chip extends StatelessWidget {
   );
 }
 
-/// The checkpoint card: one question, 3 options, a countdown to the
-/// default. Shown while the run waits (Game.awaitingPhase); renders nothing
-/// otherwise.
+/// The checkpoint card: one question and the phase's options. Options the
+/// lab hasn't researched yet show greyed with a lock and the reason, and
+/// ignore taps. Shown while the run waits (Game.awaitingPhase); renders
+/// nothing otherwise.
 class PhaseDecisionCard extends StatelessWidget {
   final GameController controller;
   const PhaseDecisionCard({super.key, required this.controller});
@@ -183,8 +184,15 @@ class PhaseDecisionCard extends StatelessWidget {
     final run = controller.game.s.run;
     final phase = run?.awaitingPhase;
     if (run == null || phase == null) return const SizedBox.shrink();
+    final g = controller.game;
     final color = phaseColor(phase);
-    final def = defaultPhaseOption(phase, run.spec);
+    final def = defaultPhaseOption(phase, run.spec, g.phaseContext);
+    // Unlocked options first, locked ones after (each in content order).
+    final locks = {for (final o in phase.options) o: g.phaseLockReason(o)};
+    final ordered = [
+      ...phase.options.where((o) => locks[o] == null),
+      ...phase.options.where((o) => locks[o] != null),
+    ];
     return Container(
       key: ValueKey('phase-decision-${phase.name}'),
       constraints: const BoxConstraints(maxWidth: 560),
@@ -225,12 +233,13 @@ class PhaseDecisionCard extends StatelessWidget {
             builder: (context, box) {
               final narrow = box.maxWidth < 420;
               final buttons = [
-                for (final o in phase.options)
+                for (final o in ordered)
                   _OptionButton(
                     option: o,
                     color: color,
                     isDefault: o == def,
                     narrow: narrow,
+                    lockReason: locks[o],
                     onTap: () {
                       Sound.play(Sfx.click);
                       controller.act((g) => g.choosePhase(o));
@@ -243,16 +252,27 @@ class PhaseDecisionCard extends StatelessWidget {
                   children: [for (final b in buttons) Padding(padding: const EdgeInsets.only(bottom: 6), child: b)],
                 );
               }
-              return IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (var i = 0; i < buttons.length; i++) ...[
-                      if (i > 0) const SizedBox(width: 8),
-                      Expanded(child: buttons[i]),
-                    ],
-                  ],
-                ),
+              // Up to 3 side by side; 4 or more in rows of 2.
+              final perRow = buttons.length <= 3 ? buttons.length : 2;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var r = 0; r < buttons.length; r += perRow)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: r + perRow < buttons.length ? 8 : 0),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (var i = r; i < r + perRow; i++) ...[
+                              if (i > r) const SizedBox(width: 8),
+                              Expanded(child: i < buttons.length ? buttons[i] : const SizedBox.shrink()),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               );
             },
           ),
@@ -275,6 +295,9 @@ class _OptionButton extends StatelessWidget {
   final Color color;
   final bool isDefault;
   final bool narrow;
+
+  /// Why it can't be picked yet ("Research RLHF to unlock"), or null.
+  final String? lockReason;
   final VoidCallback onTap;
   const _OptionButton({
     required this.option,
@@ -282,57 +305,97 @@ class _OptionButton extends StatelessWidget {
     required this.isDefault,
     required this.narrow,
     required this.onTap,
+    this.lockReason,
   });
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: color.withValues(alpha: isDefault ? 0.16 : 0.07),
-    borderRadius: BorderRadius.circular(10),
-    child: InkWell(
-      key: ValueKey('phase-option-${option.name}'),
+  Widget build(BuildContext context) {
+    final locked = lockReason != null;
+    final c = locked ? AppColors.faint : color;
+    return Material(
+      color: locked ? AppColors.surface : color.withValues(alpha: isDefault ? 0.16 : 0.07),
       borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: Container(
-        padding: narrow ? const EdgeInsets.fromLTRB(9, 5, 9, 5) : const EdgeInsets.fromLTRB(9, 7, 9, 7),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withValues(alpha: isDefault ? 0.8 : 0.35)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(option.label, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: color)),
-            const SizedBox(height: 2),
-            Text(option.effectsText, style: numStyle(size: 10.5, color: AppColors.text, weight: FontWeight.w600)),
-            const SizedBox(height: 3),
-            Text(
-              option.blurb,
-              maxLines: narrow ? 1 : 4,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: AppColors.muted, height: 1.25),
-            ),
-            if (!narrow) ...[
-              const SizedBox(height: 3),
-              Text(
-                option.ref,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 9.5, color: AppColors.faint, fontStyle: FontStyle.italic),
+      child: InkWell(
+        key: ValueKey('phase-option-${option.name}'),
+        borderRadius: BorderRadius.circular(10),
+        onTap: locked ? null : onTap,
+        child: Container(
+          padding: narrow ? const EdgeInsets.fromLTRB(9, 5, 9, 5) : const EdgeInsets.fromLTRB(9, 7, 9, 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: locked ? AppColors.border : color.withValues(alpha: isDefault ? 0.8 : 0.35)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  if (locked) ...[
+                    Icon(Icons.lock_outline, key: ValueKey('phase-lock-${option.name}'), size: 13, color: c),
+                    const SizedBox(width: 4),
+                  ],
+                  Flexible(
+                    child: Text(
+                      option.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: c),
+                    ),
+                  ),
+                ],
               ),
+              // On a phone a locked option keeps just its name and why, so
+              // the card stays short.
+              if (!(locked && narrow)) ...[
+                const SizedBox(height: 2),
+                Text(
+                  option.effectsText,
+                  style: numStyle(size: 10.5, color: locked ? AppColors.faint : AppColors.text, weight: FontWeight.w600),
+                ),
+              ],
+              SizedBox(height: locked && narrow ? 1 : 3),
+              if (locked)
+                Text(
+                  lockReason!,
+                  key: ValueKey('phase-lock-reason-${option.name}'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: AppColors.muted, fontWeight: FontWeight.w600, height: 1.25),
+                )
+              else
+                Text(
+                  option.blurb,
+                  maxLines: narrow ? 1 : 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: AppColors.muted, height: 1.25),
+                ),
+              if (!narrow) ...[
+                const SizedBox(height: 3),
+                Text(
+                  option.ref,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 9.5, color: AppColors.faint, fontStyle: FontStyle.italic),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
-/// Picker for the early-phase emphasis in the run setup.
+/// Picker for the early-phase emphasis in the run setup. Locked emphases
+/// are disabled, with a lock and the reason in the tooltip.
 class EarlyFocusPicker extends StatelessWidget {
   final PhaseOption selected;
   final ValueChanged<PhaseOption> onChanged;
-  const EarlyFocusPicker({super.key, required this.selected, required this.onChanged});
+
+  /// Why an option can't be picked yet, or null (default: all unlocked).
+  final String? Function(PhaseOption)? lockReason;
+  const EarlyFocusPicker({super.key, required this.selected, required this.onChanged, this.lockReason});
 
   @override
   Widget build(BuildContext context) => SegmentedButton<PhaseOption>(
@@ -340,11 +403,30 @@ class EarlyFocusPicker extends StatelessWidget {
     showSelectedIcon: false,
     segments: [
       for (final o in RunPhase.early.options)
-        ButtonSegment(
-          value: o,
-          label: FittedBox(fit: BoxFit.scaleDown, child: Text(o.label)),
-          tooltip: '${o.blurb} (${o.ref})',
-        ),
+        if (lockReason?.call(o) case final why?)
+          ButtonSegment(
+            value: o,
+            enabled: false,
+            // The lock sits in the scaled label so 4 segments fit a phone.
+            label: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lock_outline, size: 13, key: ValueKey('early-lock-${o.name}')),
+                  const SizedBox(width: 3),
+                  Text(o.label),
+                ],
+              ),
+            ),
+            tooltip: '$why. ${o.blurb} (${o.ref})',
+          )
+        else
+          ButtonSegment(
+            value: o,
+            label: FittedBox(fit: BoxFit.scaleDown, child: Text(o.label)),
+            tooltip: '${o.blurb} (${o.ref})',
+          ),
     ],
     selected: {selected},
     onSelectionChanged: (v) => onChanged(v.first),

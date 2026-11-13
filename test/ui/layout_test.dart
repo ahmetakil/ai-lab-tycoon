@@ -300,13 +300,22 @@ void main() {
         expect(find.byKey(const ValueKey('phase-decision-anneal')), findsOneWidget);
         expect(find.byKey(const ValueKey('hud-phase-track')), findsOneWidget);
         expect(tester.takeException(), isNull, reason: 'checkpoint card');
+        // Options the save hasn't unlocked show a lock; the rest don't.
+        for (final o in RunPhase.anneal.options) {
+          expect(
+            find.byKey(ValueKey('phase-lock-${o.name}')),
+            g.isPhaseOptionUnlocked(o) ? findsNothing : findsWidgets,
+            reason: o.name,
+          );
+        }
+        if (stage == 'start') expect(find.byKey(const ValueKey('phase-lock-reasoningAnneal')), findsWidgets);
         await _shot(tester, key, '${tag}_checkpoint');
         // The training panel shows it too, with the track and decisions so far.
         await _tapTool(tester, 'train');
         await _settle(tester, 500);
         final inPanel = find.descendant(
           of: find.byType(GameModalCard),
-          matching: find.byKey(const ValueKey('phase-option-reasoningAnneal')),
+          matching: find.byKey(const ValueKey('phase-option-qualityAnneal')),
         );
         await tester.scrollUntilVisible(
           inPanel,
@@ -319,7 +328,7 @@ void main() {
         await _shot(tester, key, '${tag}_checkpoint_panel');
         await tester.tap(inPanel);
         await _settle(tester, 300);
-        expect(g.s.run!.phaseChoices[RunPhase.anneal], PhaseOption.reasoningAnneal);
+        expect(g.s.run!.phaseChoices[RunPhase.anneal], PhaseOption.qualityAnneal);
         await tester.tap(find.byKey(const ValueKey('modal-close')).last);
         await _settle(tester, 400);
         // Checkpoint 2 (post-training), then its default.

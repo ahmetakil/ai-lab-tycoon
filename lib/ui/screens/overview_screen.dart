@@ -143,7 +143,10 @@ class _TrainingPanelState extends State<TrainingPanel> {
     final dataLimited = g.isDataLimited(rawCompute, spec);
     final delta = predicted - current;
     final canStart = g.effectiveTflops > 0;
-    final early = _early ?? defaultPhaseOption(RunPhase.early, spec);
+    final picked = _early;
+    final early = picked != null && g.isPhaseOptionUnlocked(picked)
+        ? picked
+        : defaultPhaseOption(RunPhase.early, spec, g.phaseContext);
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -186,6 +189,7 @@ class _TrainingPanelState extends State<TrainingPanel> {
             label: 'Data mix',
             child: EarlyFocusPicker(
               selected: early,
+              lockReason: g.phaseLockReason,
               onChanged: (o) {
                 Sound.play(Sfx.click);
                 setState(() => _early = o);
