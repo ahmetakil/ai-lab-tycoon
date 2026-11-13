@@ -80,11 +80,15 @@ class TileSheet extends StatelessWidget {
     final String clusterText;
     final Color clusterColor;
     if (t.isCooling) {
+      final spare = st.adjacentGpus > 0 && g.spareCoolers().contains(y * g.currentRoom.width + x);
       clusterText =
           st.adjacentGpus == 0
               ? 'Touching no GPU, so this cooling is wasted. Move it next to a GPU.'
+              : spare
+              ? 'Not needed right now: its ${st.adjacentGpus} GPU tile${st.adjacentGpus == 1 ? '' : 's'} stay cool without it. '
+                  'Sell it or replace it with a GPU.'
               : 'Splits ${formatNumber(t.cooling)} cooling between ${st.adjacentGpus} adjacent GPU tile${st.adjacentGpus == 1 ? '' : 's'}.';
-      clusterColor = st.adjacentGpus == 0 ? AppColors.red : AppColors.cyan;
+      clusterColor = st.adjacentGpus == 0 || spare ? AppColors.amber : AppColors.cyan;
     } else if (cluster == null) {
       clusterText = 'Not part of the cluster.';
       clusterColor = AppColors.muted;

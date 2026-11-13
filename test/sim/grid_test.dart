@@ -292,7 +292,7 @@ void main() {
       expect(reqs.map((r) => r.kind), ['era', 'cash', 'power']);
       expect(reqs.map((r) => r.required), [true, true, false]);
       expect(reqs.take(2).every((r) => !r.done), isTrue);
-      expect(reqs[0].line, 'Startup era: 0.03 / 1.05 PFLOPS (fill the room with faster GPUs; swap out the old ones)');
+      expect(reqs[0].line, 'Startup era: 0.03 / 1.05 PFLOPS (fill the room with faster GPUs; swap old cards and unneeded coolers for V100s)');
       expect(reqs[0].action, RequirementAction.none);
       expect(reqs[1].detail, '\$100 / \$15.0k');
       // Power is information: the bigger building lifts the limit.

@@ -305,6 +305,37 @@ class Game {
   double get _trainingClusterEffective =>
       (grid.training?.rawTflops ?? 0) * utilization;
 
+  GridStats? _spareFor;
+  Set<int> _spare = const {};
+
+  /// Cooler cells in the current room that do nothing right now: clearing
+  /// one alone slows no GPU (it touches none, or its GPUs stay cool from
+  /// the room's air and other coolers). Each is a cell a GPU could use.
+  /// Cached per grid.
+  Set<int> spareCoolers() {
+    final base = grid;
+    if (identical(_spareFor, base)) return _spare;
+    final room = currentRoom;
+    final cells = s.grids[room.id];
+    final rs = base.rooms[room.id];
+    final out = <int>{};
+    if (cells != null && rs != null) {
+      for (var i = 0; i < cells.length; i++) {
+        if (rs.defs[i]?.isCooling != true) continue;
+        final without = List<String?>.of(cells)..[i] = null;
+        final alt = computeGridStats(GameState(grids: {room.id: without}), networkCap, cooling.perGpuTile);
+        final ars = alt.rooms[room.id]!;
+        var slower = false;
+        for (var j = 0; j < cells.length && !slower; j++) {
+          if (rs.defs[j]?.isGpu == true && ars.speed[j] < rs.speed[j] - 1e-9) slower = true;
+        }
+        if (!slower) out.add(i);
+      }
+    }
+    _spareFor = base;
+    return _spare = out;
+  }
+
   TileStatus? tileStatus(String roomId, int x, int y) {
     final rs = grid.rooms[roomId];
     if (rs == null) return null;
@@ -594,7 +625,7 @@ class Game {
   /// How to make progress on a gate, for hints.
   static String goalHint(String metric) => switch (metric) {
     'users' => 'release better models and add serving GPUs',
-    'compute' => 'fill the room with faster GPUs; swap out the old ones',
+    'compute' => 'fill the room with faster GPUs; swap old cards and unneeded coolers for V100s',
     'rating' => 'train & release a better model',
     _ => 'grow revenue: more users, better pricing',
   };

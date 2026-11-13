@@ -165,6 +165,12 @@ class _RoomGridState extends State<RoomGrid> {
     if (k != _key) setState(() {});
   }
 
+  /// Sprite height of the tile at a cell, for tap hit-testing.
+  double _heightOf(int x, int y) {
+    final id = widget.controller.game.tileAt(widget.room.id, x, y);
+    return id == null ? 0 : tileSpriteHeights[id] ?? 30;
+  }
+
   (int, int)? _lastPaint;
   Offset? _down;
   final _painted = <(int, int)>{};
@@ -220,7 +226,7 @@ class _RoomGridState extends State<RoomGrid> {
             key: ValueKey('room-floor-${widget.room.id}'),
             behavior: HitTestBehavior.deferToChild,
             onTapUp: (d) {
-              final cell = geo.cellAtLocal(d.localPosition);
+              final cell = geo.cellAtLocalTall(d.localPosition, _heightOf);
               if (cell != null) widget.onCellTap(widget.room.id, cell.$1, cell.$2);
             },
             // Placing: a drag paints the part along its path (the map pans
@@ -231,7 +237,7 @@ class _RoomGridState extends State<RoomGrid> {
             onPanUpdate: paint ? (d) => _paintTo(geo, d.localPosition) : null,
             onPanEnd: paint ? (_) => _endPaint() : null,
             onPanCancel: paint ? _endPaint : null,
-            child: CustomPaint(painter: _FloorHitArea(geo), size: geo.size),
+            child: CustomPaint(painter: _FloorHitArea(geo, _heightOf), size: geo.size),
           ),
         ),
       ],
@@ -239,17 +245,19 @@ class _RoomGridState extends State<RoomGrid> {
   }
 }
 
-/// Invisible; makes only the floor diamond hit-testable so taps elsewhere
+/// Invisible; makes only the floor diamond and the tiles standing on it
+/// hit-testable so taps elsewhere
 /// (empty void, other rooms' signs) fall through.
 class _FloorHitArea extends CustomPainter {
   final RoomGeo geo;
-  _FloorHitArea(this.geo);
+  final double Function(int x, int y) heightOf;
+  _FloorHitArea(this.geo, this.heightOf);
 
   @override
   void paint(Canvas canvas, Size size) {}
 
   @override
-  bool hitTest(Offset position) => geo.cellAtLocal(position) != null;
+  bool hitTest(Offset position) => geo.cellAtLocalTall(position, heightOf) != null;
 
   @override
   bool shouldRepaint(_FloorHitArea old) => old.geo != geo;

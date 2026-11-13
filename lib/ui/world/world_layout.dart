@@ -99,6 +99,52 @@ class RoomGeo {
     return (gx.floor(), gy.floor());
   }
 
+  /// The tile a tap lands on. Sprites stand up from the floor, so a tap on
+  /// a low GPU's top face sits over the floor of the cell behind it, and a
+  /// tall cooler's side covers cells behind it. Cells are tested front to
+  /// back, each occupied one as a box [heightOf] SVG units tall (its
+  /// silhouette: floor diamond plus raised diamond); the first box that
+  /// contains the point wins, else the floor cell.
+  (int, int)? cellAtLocalTall(Offset l, double Function(int x, int y) heightOf) {
+    final p = localToSvg(l);
+    for (var sum = w + h - 2; sum >= 0; sum--) {
+      for (var x = 0; x < w; x++) {
+        final y = sum - x;
+        if (y < 0 || y >= h) continue;
+        final z = heightOf(x, y);
+        if (z > 0 && _inBox(p, x, y, z)) return (x, y);
+      }
+    }
+    return cellAtLocal(l);
+  }
+
+  bool _inBox(Offset p, int x, int y, double z) {
+    final gx = x.toDouble(), gy = y.toDouble();
+    // Convex silhouette, clockwise on screen: raised back, raised right,
+    // floor right, floor front, floor left, raised left.
+    final poly = [
+      gridSvg(gx, gy, z),
+      gridSvg(gx + 1, gy, z),
+      gridSvg(gx + 1, gy),
+      gridSvg(gx + 1, gy + 1),
+      gridSvg(gx, gy + 1),
+      gridSvg(gx, gy + 1, z),
+    ];
+    bool? sign;
+    for (var i = 0; i < poly.length; i++) {
+      final a = poly[i], b = poly[(i + 1) % poly.length];
+      final cross = (b.dx - a.dx) * (p.dy - a.dy) - (b.dy - a.dy) * (p.dx - a.dx);
+      if (cross.abs() < 1e-9) continue;
+      final s = cross > 0;
+      if (sign == null) {
+        sign = s;
+      } else if (s != sign) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// Tile sprite rect (tile_*.png: viewBox -100,-84,200,200 with the cell
   /// footprint at [0,100]²) in local pixels.
   Rect tileRect(int x, int y) {
@@ -143,3 +189,35 @@ final Rect worldRect = () {
 
 /// Public for tests: room-local centre of a cell.
 Offset cellCenterLocal(String roomId, int x, int y) => geoOf(roomId).cellCenterLocal(x, y);
+
+/// How far each tile sprite stands above the floor (SVG units; a cell is
+/// 100 wide), measured from the PNGs' top opaque row. Used to hit-test taps
+/// on what you see (RoomGeo.cellAtLocalTall). Unknown ids count as 30.
+const tileSpriteHeights = <String, double>{
+  'bldg_r_class': 41,
+  'cool_chiller': 32,
+  'cool_crac': 71,
+  'cool_dry': 18,
+  'cool_fan': 44,
+  'cool_liquid': 39,
+  'cool_rear_door': 77,
+  'cool_tower': 51,
+  'cool_window_ac': 35,
+  'gpu_gamer': 26,
+  'gpu_old': 17,
+  'gpu_v_class': 24,
+  'net_100g': 15,
+  'net_10g': 7,
+  'net_home': 50,
+  'net_ib': 19,
+  'net_ib_spine': 84,
+  'net_nvlink': 77,
+  'net_optical': 43,
+  'pod_b_class': 56,
+  'pod_r_class': 56,
+  'rack_b_class': 83,
+  'rack_h_class': 77,
+  'rack_r_class': 84,
+  'srv_a_class': 20,
+  'srv_h_class': 39,
+};

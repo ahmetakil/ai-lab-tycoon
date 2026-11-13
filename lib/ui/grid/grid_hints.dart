@@ -84,6 +84,16 @@ String? heatHint(Game g, {String? roomId}) {
   return '$what throttling: put a cooler next to ${n == 1 ? 'it' : 'them'}$central.';
 }
 
+/// "2 coolers aren't needed…": coolers that slow no GPU when removed, so
+/// the cell could hold another GPU. Null when every cooler pulls its weight.
+String? spareCoolerHint(Game g) {
+  final n = g.spareCoolers().length;
+  if (n == 0) return null;
+  return n == 1
+      ? '1 cooler isn\'t needed right now: no GPU would throttle without it. A GPU there adds more compute.'
+      : '$n coolers aren\'t needed right now (no GPU would throttle without any one of them). A GPU in one of those cells adds more compute.';
+}
+
 /// Compact card with the cluster line and the hints; used on the Lab tab and
 /// above the grid.
 class ClusterSummaryCard extends StatelessWidget {
@@ -96,6 +106,7 @@ class ClusterSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final sum = trainingSummary(game);
     final heat = heatHint(game, roomId: roomId);
+    final spare = heat == null ? spareCoolerHint(game) : null;
     final color = sum.bottlenecked ? AppColors.amber : AppColors.neon;
     final size = dense ? 12.0 : 13.0;
     return Container(
@@ -148,6 +159,15 @@ class ClusterSummaryCard extends StatelessWidget {
               size: size,
               dense: dense,
             ),
+          if (spare != null)
+            _HintLine(
+              key: const ValueKey('spare-cooler-hint'),
+              icon: Icons.ac_unit_rounded,
+              color: AppColors.cyan,
+              text: spare,
+              size: size,
+              dense: dense,
+            ),
         ],
       ),
     );
@@ -161,6 +181,7 @@ class _HintLine extends StatelessWidget {
   final double size;
   final bool dense;
   const _HintLine({
+    super.key,
     required this.icon,
     required this.color,
     required this.text,
