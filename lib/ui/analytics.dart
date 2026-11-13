@@ -39,6 +39,7 @@ class Analytics {
   static Timer? _flushTimer;
   static int _errors = 0;
   static GameController? _controller;
+  static AppLifecycleListener? _lifecycle;
 
   static String _randomId() {
     final r = math.Random.secure();
@@ -86,7 +87,11 @@ class Analytics {
       'returning': controller.game.s.time > 0,
       'offline_minutes': controller.offlineReport == null ? null : (controller.offlineReport!.seconds / 60).round(),
     });
+    flush(); // count the visit even if the tab closes within 30 s
     controller.events.listen(_onGameEvent);
+    // Send what's queued when the app goes to the background or the tab is
+    // hidden (closing a tab hides it first).
+    _lifecycle ??= AppLifecycleListener(onHide: flush, onPause: flush);
     // Active play time: one heartbeat a minute while the app is open.
     Timer.periodic(const Duration(minutes: 1), (_) {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
