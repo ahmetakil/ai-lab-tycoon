@@ -48,6 +48,17 @@ fresh; the game is unreleased.
 | `hall` Datacenter hall | mediumLab | 14×14 | rack (32–72 GPUs) | 18.0 (3528) | $1.5M | 5 On-site substation (3.6 MW) |
 | `campus` Datacenter campus | bigLab | 18×18 | pod (~1k GPUs) | 40.0 (12960) | $7.5M | 7 Gigawatt grid interconnect (1 GW) |
 | `gigasite` Gigawatt site | globalLab | 22×22 | building (~8k GPUs) | 70.0 (33880) | $20M | 10 Compact fusion PPA (10 GW) |
+| `orbital` Orbital station ✦ | globalLab | 24×24 | module (~8k GPUs) | 50.0 (28800) | $20B | 11 Orbital solar array (20 GW) |
+
+✦ The **Orbital station** is the post-game room: same era as the gigasite,
+so it has no era gate of its own. It opens on `RoomDef.requires` (research:
+Reusable heavy-lift launch) and `RoomDef.fromFill` (75% of the gigasite's
+cells hold GPU tiles), then its price (`Game.roomBlockReason`,
+`Game.moveRequirements` rows "Research" and "Gigawatt site built out").
+A truss in dawn-dusk sun-synchronous orbit: solar wings where other rooms
+have back walls, radiators only (lower free cooling per cell: no air or
+water), and its own power tier. The move is a rocket on a launch arc, not a
+truck on a road.
 
 The power limit (`RoomDef.maxPowerTier`) is the building's electrical
 service: the highest power tier you can buy while you're there. A tier past
@@ -90,19 +101,28 @@ and **cooling** (network switch tiles are gone since v4).
 | `rack_r_class` | hall, campus | 72 | 252k | 244.8 | 340 | $1.17M (+12%) | liquid_cooling, tier 6 (plant) |
 | `pod_r_class` | campus, gigasite | 1024 | 3.6M | 3430 | 750 | $16.4M (+12%) | liquid_cooling, tier 6 (plant) |
 | `bldg_r_class` | gigasite | 8.2k | 28.7M | 27.0k | 700 | $36M (+3%) | liquid_cooling, tier 7 (gw_campus) |
-| `bldg_p_class` ✦ | gigasite | 8.2k | 65.5M | 22.9k | 600 | $70M (+5%) | photonic_compute, tier 8 (nuclear_restart) |
-| `bldg_s_class` ✦ | gigasite | 8.2k | 98.3M | 13.1k | 1400 | $95M (+5%) | superconducting_logic, tier 10 (fusion_ppa) |
+| `bldg_p_class` ✦ | gigasite, orbital | 8.2k | 287M (10× Rubin) | 191k | 120 | $350M (+4%) | photonic_compute, tier 8 (nuclear_restart) |
+| `bldg_s_class` ✦ | gigasite, orbital | 8.2k | 1.72B (60×) | 80k | 4800 | $2B (+4%) | superconducting_logic, tier 10 (fusion_ppa) |
+| `mod_z_class` ✦ | orbital only | 8.2k | 11.5B (400×) | 1k | 40 | $12B (+5%) | orbital_launch; placeable only on the station (`TileDef.nativeOnly`) |
 
 ✦ **Speculative (sci-fi) tiers past Rubin** (`TileDef.speculative`, appended
-after the coolers in `tiles`): made-up, near-future hardware, labelled
-"Speculative:" in the blurb. The *Opal photonic stack* multiplies matrices
-with light in 3D-stacked chips (8k TFLOPS, 2.8 kW per chip: ~2.7× Rubin per
-watt). The *Boreal cryo-logic vault* runs superconducting logic at 4 K
-(12k TFLOPS, 1.6 kW per chip with its cryocoolers) and runs hot in game
-terms (heat 1400: pumping heat out at 4 K costs hundreds of watts per watt),
-so it wants the cryogenic helium plant. Both still beat the tier before
-them per $ and per kW at list price; the gates are Frontier research
-($3.6B, then $15B), a power tier and a 5% supply crunch.
+after the coolers in `tiles`): made-up, near-future hardware. Each is a
+dramatic leap in both price and power over the one before (10×, 60×, 400×
+a Rubin building), still a little better per $ and per kW at list price,
+and each plays differently with the existing systems:
+
+- *Opal photonic stack*: matrix maths with light, so almost no heat (120,
+  next to Rubin's 700: coolers barely matter), but its lasers draw ~191 MW
+  per tile. Power is its wall: 10 GW holds ~50 of them. Needs Photonic
+  computing ($6B) and the nuclear tier.
+- *Boreal cryo-logic vault*: superconducting logic at 4 K, 80 MW (3× a
+  Rubin building, under half an Opal stack) for 6× Opal's maths, but a 4800 heat load. Without the
+  cryogenic helium plant (−5000/tile, $100M) it throttles to the 20% floor.
+  Needs Superconducting logic ($30B) and the fusion tier.
+- *Zenith orbital cryo-module*: brings its own solar wings (1 MW of
+  housekeeping draw) and space chills its radiators (heat 40: free). It can
+  only be placed on the orbital station (`TileDef.nativeOnly`). Needs
+  Reusable heavy-lift launch ($30B).
 
 **GPU supply crunch**: a GPU tile costs `cost × min(4, (1 + priceGrowth)^owned)`
 (`Game.tilePrice`). Garage GPUs have a steep one (the used market dries up),
@@ -124,6 +144,7 @@ crunch. Selling refunds half the list price.
 | `cool_liquid` | hall, campus | 450 | 10 | $13k | liquid_cooling |
 | `cool_tower` | campus, gigasite | 1800 | 200 | $50k |  |
 | `cool_dry` | gigasite | 3000 | 450 | $80k |  |
+| `cool_radiator` | orbital only | 4000 | 60 | $100k | orbital_launch; station only (`nativeOnly`) |
 
 ## Training cluster and network tier
 

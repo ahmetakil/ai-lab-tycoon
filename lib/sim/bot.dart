@@ -1076,14 +1076,15 @@ class Bot {
     // The next room is unlocked and its GPUs will want the power this
     // building can still take.
     final roomNeedsPower = nextRoom != null &&
-        g.isUnlocked(nextRoom.era) &&
+        g.canMoveSoon(nextRoom.id) &&
         s.powerTier < room.maxPowerTier;
     // Out of power: no GPU bundle fits in the headroom any more.
     final blocked = !cands.any((c) => c.label.contains('gpu_') ||
         c.label.contains('srv_') ||
         c.label.contains('rack_') ||
         c.label.contains('pod_') ||
-        c.label.contains('bldg_'));
+        c.label.contains('bldg_') ||
+        c.label.contains('mod_'));
     // A tier a better speculative GPU needs (the fusion PPA for the
     // cryo-logic vaults), valued with that GPU even before power is tight.
     TileDef? powerGpu;
@@ -1147,7 +1148,7 @@ class Bot {
                 return true;
               },
               label: 'move:${nextRoom.id}',
-              essential: (roomsFull && g.isUnlocked(nextRoom.era)) ||
+              essential: roomsFull ||
                   (powerNeedsMove && powerEssential),
             ),
           );
@@ -1236,7 +1237,7 @@ class Bot {
 /// The power tier the bot buys as soon as it can after moving into each
 /// room (the room's own tier; the campus starts on the substation it was
 /// planned with in the hall).
-const _roomPowerFloor = {'closet': 2, 'colo': 3, 'hall': 4, 'campus': 5, 'gigasite': 7};
+const _roomPowerFloor = {'closet': 2, 'colo': 3, 'hall': 4, 'campus': 5, 'gigasite': 7, 'orbital': 11};
 
 class _Cand {
   final double cost;
@@ -1318,8 +1319,9 @@ class PlaythroughResult {
   }
 }
 
-/// Each room's fill when the next room's era unlocks (the way out opens),
-/// and how long it had sat at its wall by then.
+/// Each room's fill when the next room's era unlocks (the way out opens;
+/// for the orbital station, when its research and fill gates are met), and
+/// how long it had sat at its wall by then.
 class RoomFill {
   final Map<String, RoomSnap> snaps = {};
   String? _room;
@@ -1358,6 +1360,15 @@ class RoomFill {
       _firstWall = null;
       _enteredAt = g.s.time;
     }
+    // A next room in the same era (the orbital station) opens on its own
+    // gates (research, fill) rather than an era: snap when they're met.
+    final next = g.nextRoom;
+    if (next != null &&
+        next.era == g.currentRoom.era &&
+        snaps[id]?.exit != true &&
+        g.canMoveSoon(next.id)) {
+      _snap(g, exit: true, sameEra: true);
+    }
     if (atWall(g)) {
       _wallSince ??= g.s.time;
       _firstWall ??= g.s.time;
@@ -1373,7 +1384,7 @@ class RoomFill {
     }
   }
 
-  void _snap(Game g, {required bool exit}) {
+  void _snap(Game g, {required bool exit, bool sameEra = false}) {
     final room = g.currentRoom;
     final cells = g.s.grids[room.id]!;
     final wall = atWall(g) ? (_wallSince ?? g.s.time) : null;
@@ -1386,7 +1397,7 @@ class RoomFill {
       cellsUsed: cells.where((c) => c != null).length,
       powerKw: g.powerUsedKw,
       // At an exit the era just moved on: the cap of the era it was.
-      capKw: capKw(g, exit ? Era.values[g.s.era.index - 1] : null),
+      capKw: capKw(g, exit && !sameEra ? Era.values[g.s.era.index - 1] : null),
       wallSeconds: wall == null ? null : g.s.time - wall,
       firstWallSeconds: _room == room.id && _firstWall != null ? g.s.time - _firstWall! : null,
     );

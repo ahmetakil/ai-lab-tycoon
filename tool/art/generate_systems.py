@@ -922,7 +922,29 @@ def power_icon_fusion_ppa(s):
     s.bolt(*iso(86, 86, 40), 30, AMBER)
 
 
-POWER_ICONS = {'fusion_ppa': power_icon_fusion_ppa}
+def power_icon_orbital_solar(s):
+    plate(s, AMBER)
+    # an orbital solar wing on a mast: blue cells in a gold frame, a
+    # sunlit sheen, and the Sun sparkling off one corner
+    s.box(46, 46, 6, 8, 8, 18, color=SILVER)
+    s.line3([(50, 50, 24), (50, 50, 70)], OUT, sw=6)
+    s.line3([(50, 50, 24), (50, 50, 70)], SILVER, sw=3.5)
+    for (y0, y1) in ((6, 44), (56, 94)):
+        pts = [iso(50, y0, 40), iso(50, y1, 40), iso(50, y1, 92), iso(50, y0, 92)]
+        s.poly2(pts, '#162A5C', stroke='#D8A93E', sw=2.4)
+        for k in range(1, 5):
+            y = y0 + k * (y1 - y0) / 5
+            s.line2([iso(50, y, 40), iso(50, y, 92)], '#3E6CC4', sw=1.4)
+        for k in range(1, 4):
+            z = 40 + k * 13
+            s.line2([iso(50, y0, z), iso(50, y1, z)], '#3E6CC4', sw=1.4)
+        s.poly2([iso(50, y0 + 4, 92), iso(50, y0 + 14, 92), iso(50, y0 + 4, 52)], '#9CC4FF', stroke=None, opacity=0.25)
+    s.line3([(50, 44, 66), (50, 56, 66)], SILVER, sw=4)
+    s.sparkle(*iso(50, 2, 104), 26, '#FFF4D6')
+    s.bolt(*iso(86, 86, 34), 28, AMBER)
+
+
+POWER_ICONS = {'fusion_ppa': power_icon_fusion_ppa, 'orbital_solar': power_icon_orbital_solar}
 
 
 # ============================================================ 4. moving sequence

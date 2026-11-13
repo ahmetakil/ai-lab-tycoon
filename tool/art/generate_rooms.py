@@ -721,6 +721,198 @@ def gigasite():
     return r
 
 
+def orbital():
+    """The post-game orbital station: a truss deck in sun-synchronous orbit,
+    two solar wings standing where other rooms have back walls, radiator
+    panels off the front edges, a docking node, stars and the Earth's limb."""
+    r = Room('orbital', 24, 24, 1.2, wall=760, ground=220)
+    L, g0, s = r.L, r.grid0, r.s
+    W = r.w * U
+    # ---- backdrop (screen space): stars, nebulae, the Earth's limb and the
+    # Sun, inside a soft elliptical fade so it melts into the dark world map
+    x0 = -(L + 520) * C30
+    top, bot = -900.0, L + 760.0
+    vb = (x0, top, -2 * x0, bot - top)
+    r.viewbox = lambda: vb
+    cx, cy = 0.0, (top + bot) / 2
+    rx, ry = -x0, (bot - top) / 2
+    fade = r.grad('sf_fade', [(0, '#FFF', 1), (0.5, '#FFF', 0.92), (0.8, '#FFF', 0.55), (1, '#FFF', 0)], 'radial',
+                  gradientUnits='userSpaceOnUse', cx=cx, cy=cy, r=ry,
+                  gradientTransform=f'translate({cx} {cy}) scale({rx / ry:.4f} 1) translate({-cx} {-cy})')
+    r.defs.append(f'<mask id="sf_m" maskUnits="userSpaceOnUse" x="{vb[0]}" y="{vb[1]}" width="{vb[2]}" height="{vb[3]}">'
+                  f'<rect x="{vb[0]}" y="{vb[1]}" width="{vb[2]}" height="{vb[3]}" fill="{fade}"/></mask>')
+    rnd = random.Random(42)
+    bg = rect(vb[0], vb[1], vb[2], vb[3], '#03050C')
+    neb = r.grad('neb', [(0, '#5B3FA8', 0.32), (1, '#5B3FA8', 0)], 'radial')
+    neb2 = r.grad('neb2', [(0, '#1E6FA8', 0.28), (1, '#1E6FA8', 0)], 'radial')
+    bg += f'<ellipse cx="-1300" cy="-350" rx="900" ry="420" fill="{neb}"/>'
+    bg += f'<ellipse cx="1500" cy="300" rx="800" ry="520" fill="{neb2}"/>'
+    for _ in range(520):
+        x, y = rnd.uniform(vb[0], vb[0] + vb[2]), rnd.uniform(vb[1], vb[1] + vb[3])
+        bg += circ(x, y, rnd.choice((1.6, 2.2, 2.2, 3.0, 4.2)), rnd.choice(('#FFFFFF', '#CFE0FF', '#FFE9C4')),
+                   rnd.uniform(0.35, 1))
+    for _ in range(14):  # a few bright ones with a cross glint
+        x, y = rnd.uniform(vb[0], vb[0] + vb[2]), rnd.uniform(vb[1], vb[1] + vb[3])
+        bg += circ(x, y, 5, '#FFFFFF', 0.95, extra='filter="url(#g)"')
+        bg += path(f'M{x - 16},{y} L{x + 16},{y} M{x},{y - 16} L{x},{y + 16}', '#FFFFFF', sw=1.4, op=0.6)
+    # Earth: a huge sphere low on the right, its limb and blue atmosphere
+    ex, ey, er = 1500.0, L + 3820, 4300.0
+    ocean = r.grad('ocean', [(0, '#3E86D8', 1), (0.55, '#1A4E9E', 1), (1, '#0A1E4A', 1)], 'radial',
+                   gradientUnits='userSpaceOnUse', cx=ex - 900, cy=ey - er + 300, r=er * 0.9)
+    atm = r.grad('atm', [(0, '#7FD8FF', 0), (0.955, '#7FD8FF', 0), (0.975, '#9BE3FF', 0.75), (1, '#4AA8FF', 0)],
+                 'radial', gradientUnits='userSpaceOnUse', cx=ex, cy=ey, r=er + 160)
+    r.defs.append(f'<clipPath id="earth_c"><circle cx="{ex}" cy="{ey}" r="{er}"/></clipPath>')
+    land = ''
+    for _ in range(9):  # continents: clusters of overlapping blobs
+        a = rnd.uniform(math.radians(212), math.radians(300))
+        d = rnd.uniform(er * 0.82, er * 0.97)
+        px, py = ex + d * math.cos(a), ey + d * math.sin(a)
+        for _ in range(7):
+            qx, qy = px + rnd.uniform(-180, 180), py + rnd.uniform(-60, 60)
+            land += f'<ellipse cx="{qx:.0f}" cy="{qy:.0f}" rx="{rnd.uniform(60, 160):.0f}" ry="{rnd.uniform(25, 60):.0f}" fill="#3E7A48" opacity="0.42"/>'
+    clouds = ''
+    for _ in range(320):  # thin streaks following the curve
+        a = rnd.uniform(math.radians(200), math.radians(320))
+        d = rnd.uniform(er * 0.84, er * 0.998)
+        px, py = ex + d * math.cos(a), ey + d * math.sin(a)
+        clouds += (f'<ellipse cx="{px:.0f}" cy="{py:.0f}" rx="{rnd.uniform(30, 140):.0f}" ry="{rnd.uniform(3, 9):.0f}" '
+                   f'fill="#F2F7FF" opacity="{rnd.uniform(0.18, 0.5):.2f}" '
+                   f'transform="rotate({math.degrees(a) + 90:.1f} {px:.0f} {py:.0f})"/>')
+    night = r.grad('night', [(0, '#000', 0), (0.5, '#000', 0), (1, '#000', 0.75)], x1=0, y1=0, x2=1, y2=0.4)
+    earth = (circ(ex, ey, er + 160, atm) + '<g clip-path="url(#earth_c)">' + circ(ex, ey, er, ocean) + land + clouds
+             + rect(ex - er, ey - er, 2 * er, 2 * er, night) + '</g>')
+    sun = r.grad('sun', [(0, '#FFFFFF', 1), (0.08, '#FFF4D6', 0.95), (0.3, '#FFD58A', 0.25), (1, '#FFB547', 0)], 'radial')
+    sunel = f'<circle cx="-1500" cy="-560" r="520" fill="{sun}"/>'
+    r.add(f'<g mask="url(#sf_m)">{bg}{earth}{sunel}</g>')
+
+    # ---- deck underside: a truss box under the two front edges
+    D = 90
+    s.poly2([iso(0, L, 0), iso(L, L, 0), iso(L, L, -D), iso(0, L, -D)], '#1A2034', sw=2)
+    s.poly2([iso(L, 0, 0), iso(L, L, 0), iso(L, L, -D), iso(L, 0, -D)], '#121729', sw=2)
+    for k in range(0, int(L), 140):
+        s.line3([(k, L, 0), (k + 140, L, -D)], '#8E9CC4', sw=2.2, opacity=0.8)
+        s.line3([(k + 140, L, 0), (k, L, -D)], '#8E9CC4', sw=2.2, opacity=0.8)
+        s.line3([(L, k, 0), (L, k + 140, -D)], '#6E7AA0', sw=2.2, opacity=0.8)
+        s.line3([(L, k + 140, 0), (L, k, -D)], '#6E7AA0', sw=2.2, opacity=0.8)
+        s.line3([(k, L, 0), (k, L, -D)], '#B8C2D6', sw=2.6)
+        s.line3([(L, k, 0), (L, k, -D)], '#8E9CC4', sw=2.6)
+    s.line3([(0, L, -D), (L, L, -D), (L, 0, -D)], '#B8C2D6', sw=3)
+
+    # ---- radiators: white ribbed panels on booms off the two front edges
+    def radiator(along_x, a0, a1, out0, out1, z):
+        def P(a, o):
+            return (a, L + o, z) if along_x else (L + o, a, z)
+        s.poly2([iso(*P(a0, out0)), iso(*P(a1, out0)), iso(*P(a1, out1)), iso(*P(a0, out1))], '#DCE4EF', sw=2.4)
+        n = int((out1 - out0) / 34)
+        for k in range(1, n):
+            o = out0 + k * (out1 - out0) / n
+            s.line2([iso(*P(a0 + 8, o)), iso(*P(a1 - 8, o))], '#9DA9BD', sw=2)
+        # coolant manifold along the inner edge, glowing faintly warm
+        s.line2([iso(*P(a0, out0 + 8)), iso(*P(a1, out0 + 8))], '#FF9F6B', sw=5, glow=True, opacity=0.8)
+        s.line2([iso(*P(a0, out0)), iso(*P(a1, out0))], INK, sw=1.2)
+
+    for a0 in (240, 980, 1720):
+        mid = a0 + 260
+        s.line3([(mid, L, -D / 2), (mid, L + 120, -40)], '#B8C2D6', sw=6)
+        radiator(True, a0, a0 + 520, 120, 560, -40)
+        s.line3([(L, mid, -D / 2), (L + 120, mid, -40)], '#B8C2D6', sw=6)
+        radiator(False, a0, a0 + 520, 120, 560, -40)
+
+    # ---- docking node at the front corner, with a capsule docked
+    pipe(r, [(L - 40, L - 40, -45), (L + 160, L + 160, -45)], '#B8C2D6', sw=34)
+    ncx, ncy = iso(L + 230, L + 230, -45)
+    s.ellipse2(ncx, ncy, 78, 78, '#8E9CC4', sw=2.6)
+    s.ellipse2(ncx, ncy, 58, 58, '#3A4466', sw=2)
+    s.ellipse2(ncx, ncy, 40, 40, '#1A2034', sw=2)
+    for k in range(8):
+        a = math.pi / 4 * k
+        s.ellipse2(ncx + 68 * math.cos(a), ncy + 68 * math.sin(a), 5, 5, '#FFB547', stroke=None, glow=True)
+    r.light('led', (ncx, ncy - 78), '#39FF9F')
+    r.light('led', (ncx - 78, ncy), '#FF4D6A')
+    c0 = iso(L + 300, L + 300, -45)
+    c1 = iso(L + 470, L + 470, -45)
+    c2 = iso(L + 700, L + 700, -45)
+    s.poly2([(c0[0] - 50, c0[1]), (c0[0] + 50, c0[1]), (c1[0] + 80, c1[1]), (c1[0] - 80, c1[1])], '#E4E8EE', sw=2.4)
+    s.poly2([(c1[0] - 80, c1[1]), (c1[0] + 80, c1[1]), (c2[0] + 80, c2[1]), (c2[0] - 80, c2[1])], '#2A3048', sw=2.4)
+    for f in (0.3, 0.6):
+        y = c1[1] + (c2[1] - c1[1]) * f
+        xm = c1[0] + (c2[0] - c1[0]) * f
+        s.line2([(xm - 80, y), (xm + 80, y)], '#8E9CC4', sw=2)
+    for sg in (1, -1):
+        s.poly2([(c1[0] + sg * 80, c1[1] + 40), (c1[0] + sg * 300, c1[1] + 10), (c1[0] + sg * 300, c1[1] + 80),
+                 (c1[0] + sg * 80, c1[1] + 110)], '#1C3A7A', sw=2)
+        for xx in (140, 200, 260):
+            s.line2([(c1[0] + sg * xx, c1[1] + 20), (c1[0] + sg * xx, c1[1] + 95)], '#4F7FD8', sw=1.4)
+    s.ellipse2((c0[0] + c1[0]) / 2, (c0[1] + c1[1]) / 2 - 4, 14, 10, '#3DD6FF', stroke=INK, glow=True)
+
+    # ---- the deck: dark composite panels on a truss grid
+    fl = rect(0, 0, L, L, '#20283E')
+    for i in range(int(L / 100) + 1):
+        fl += rect(i * 100 - 1, 0, 3, L, '#141A2C') + rect(0, i * 100 - 1, L, 3, '#141A2C')
+    for j in range(r.h + 1):
+        for i in range(r.w + 1):
+            fl += circ(g0 + i * 100, g0 + j * 100, 6, '#56627F')
+    for j in range(r.h):
+        for i in range(r.w):
+            fl += rect(g0 + i * 100 + 14, g0 + j * 100 + 14, 72, 72, 'none', op=0.16, stroke='#3DD6FF', sw=2, rx=10)
+    fl += rect(0, 0, L, g0 - 14, '#2C3550') + rect(0, 0, g0 - 14, L, '#2C3550')
+    fl += rect(0, L - 40, L, 40, '#2C3550') + rect(L - 40, 0, 40, L, '#2C3550')
+    for k in range(int(L / 80)):
+        fl += rect(k * 80 + 10, g0 - 30, 40, 8, '#FFB547', 0.75) + rect(g0 - 30, k * 80 + 10, 8, 40, '#FFB547', 0.75)
+    fl += (f'<rect x="{g0 - 8}" y="{g0 - 8}" width="{W + 16}" height="{W + 16}" fill="none" stroke="#3DD6FF" '
+           f'stroke-width="4" opacity="0.55" filter="url(#g)"/>')
+    r.floor(fl)
+    s.line3([(0, L, 0), (L, L, 0), (L, 0, 0)], '#B8C2D6', sw=3.4)
+
+    # ---- solar wings where other rooms have back walls: two blankets per
+    # side between masts, blue cells in gold frames, struts to the deck
+    OFF = -70
+
+    def P(left, a, z):
+        return (OFF, a, z) if left else (a, OFF, z)
+
+    def wing(left, a0, a1, z0, z1):
+        s.poly2([iso(*P(left, a0, z0)), iso(*P(left, a1, z0)), iso(*P(left, a1, z1)), iso(*P(left, a0, z1))],
+                '#162A5C', stroke='#C9A24A', sw=4)
+        cols, rows = int((a1 - a0) / 44), int((z1 - z0) / 44)
+        for c in range(1, cols):
+            a = a0 + c * (a1 - a0) / cols
+            s.line2([iso(*P(left, a, z0)), iso(*P(left, a, z1))], '#3E6CC4', sw=1.4, opacity=0.9)
+        for k in range(1, rows):
+            z = z0 + k * (z1 - z0) / rows
+            s.line2([iso(*P(left, a0, z)), iso(*P(left, a1, z))], '#3E6CC4', sw=1.4, opacity=0.9)
+        mid = (z0 + z1) / 2
+        s.line2([iso(*P(left, a0, mid)), iso(*P(left, a1, mid))], '#C9A24A', sw=5)
+        sheen = [iso(*P(left, a0 + (a1 - a0) * 0.12, z1)), iso(*P(left, a0 + (a1 - a0) * 0.42, z1)),
+                 iso(*P(left, a0 + (a1 - a0) * 0.3, z0)), iso(*P(left, a0, z0))]
+        s.poly2(sheen, '#9CC4FF', stroke=None, opacity=0.12)
+
+    for left in (True, False):
+        for a in (100, 1260, 2420):
+            q = (0, a + 120, 0) if left else (a + 120, 0, 0)
+            s.line3([P(left, a, 230), q], '#8E9CC4', sw=3)
+        for a0, a1 in ((140, 1180), (1340, 2380)):
+            wing(left, a0, a1, 230, 720)
+        for a in (100, 1260, 2420):
+            s.line3([P(left, a, 0), P(left, a, 740)], INK, sw=12)
+            s.line3([P(left, a, 0), P(left, a, 740)], '#B8C2D6', sw=8)
+            r.light('led', iso(*P(left, a, 750)), '#FF4D6A' if left else '#39FF9F')
+    s.line3([(OFF, OFF, 40), (OFF, L, 40)], '#B8C2D6', sw=10)
+    s.line3([(OFF, OFF, 40), (L, OFF, 40)], '#B8C2D6', sw=10)
+    s.cyl(OFF, OFF, 0, 60, 120, color='#8E9CC4')
+    r.light('led', iso(OFF, OFF, 130), '#FFB547')
+
+    # ---- equipment on the back walkway: control-moment gyros and batteries
+    for k in range(6):
+        b = box(r, 160 + k * 380, 20, 0, 120, 70, 50, '#3A4466', sw=1.4)
+        s.frect(b, 'left', 0.1, 0.35, 0.9, 0.6, '#3DD6FF', glow=True, opacity=0.6)
+        r.light('led', Scene.fpt(b, 'left', 0.85, 0.2), '#39FF9F')
+    for k in range(6):
+        b = box(r, 20, 160 + k * 380, 0, 70, 120, 50, '#3A4466', sw=1.4)
+        s.frect(b, 'right', 0.1, 0.35, 0.9, 0.6, '#FFB547', glow=True, opacity=0.5)
+    return r
+
+
 def house():
     """The parents' house, standing beside the garage (decor only)."""
     r = Room('house', 4, 4, 0, wall=0, ground=60)
@@ -800,7 +992,7 @@ def dart_meta(rs):
 
 def main():
     only = set(os.environ.get('ONLY', '').split(',')) - {''}
-    rs = [garage(), closet(), colo(), hall(), campus(), gigasite(), house()]
+    rs = [garage(), closet(), colo(), hall(), campus(), gigasite(), orbital(), house()]
     for r in rs:
         if not only or r.id in only:
             print(render(r, density=1.6 if r.id in ('garage', 'house') else 1.25))

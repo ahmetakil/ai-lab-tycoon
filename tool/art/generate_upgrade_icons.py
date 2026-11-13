@@ -196,13 +196,46 @@ def superconducting_logic():
     save(s, 'superconducting_logic')
 
 
+def orbital_launch():
+    # a reusable heavy-lift booster lifting off its pad, plume and all
+    s = Scene(glow=3.5)
+    pad = s.box(10, 10, 0, 80, 80, 8, color='#3A4466', top='#55658F')
+    for k in range(4):
+        s.fline(pad, 'top', [(0.1 + k * 0.27, 0.1), (0.1 + k * 0.27, 0.9)], AMBER, sw=1.6, opacity=0.7)
+    # launch tower beside the rocket
+    tw = s.box(16, 60, 8, 10, 10, 96, color='#55658F', top='#8E9CC4')
+    for k in range(6):
+        s.fline(tw, 'left', [(0, k / 6), (1, (k + 1) / 6)], '#2E3B6B', sw=1.4)
+    # plume: a glowing teardrop under the rocket, billowing smoke
+    px, py = iso(56, 50, 14)
+    s.ellipse2(px, py + 10, 40, 16, '#DDE6F2', stroke=None, opacity=0.6)
+    s.ellipse2(px - 26, py + 6, 22, 12, '#C9D3E2', stroke=None, opacity=0.6)
+    s.ellipse2(px + 28, py + 4, 24, 12, '#C9D3E2', stroke=None, opacity=0.6)
+    s.path2(f'M{px - 10},{py - 30} Q{px},{py + 30} {px + 10},{py - 30} Z', '#FFD58A',
+            [(px - 10, py - 30), (px + 10, py + 30)], stroke=None, glow=True)
+    s.path2(f'M{px - 5},{py - 30} Q{px},{py + 6} {px + 5},{py - 30} Z', WHITE,
+            [(px - 5, py - 30), (px + 5, py + 6)], stroke=None, glow=True)
+    # the booster: a tall steel cylinder with grid fins and a nose
+    c = s.cyl(56, 50, 34, 11, 120, color='#B8C2D6', top='#EAF2FF')
+    nx, ny = c[0], c[4]
+    s.path2(f'M{nx - c[2]},{ny} Q{nx - c[2]},{ny - 26} {nx},{ny - 40} Q{nx + c[2]},{ny - 26} {nx + c[2]},{ny} Z',
+            '#EAF2FF', [(nx - c[2], ny - 40), (nx + c[2], ny)])
+    s.path2(f'M{nx - c[2]},{ny + 40} L{nx + c[2]},{ny + 40} L{nx + c[2]},{ny + 48} L{nx - c[2]},{ny + 48} Z',
+            DARK, [(nx - c[2], ny + 40), (nx + c[2], ny + 48)], sw=1)
+    for sx in (-1, 1):
+        s.path2(f'M{nx + sx * c[2]},{ny + 70} l{sx * 12},6 l0,12 l{-sx * 12},-6 Z', '#55658F',
+                [(nx - c[2] - 12, ny + 70), (nx + c[2] + 12, ny + 88)], sw=1.2)
+    s.ellipse2(nx, ny + 20, 4, 4, CYAN, stroke=OUT, sw=1, glow=True)
+    save(s, 'orbital_launch')
+
+
 if __name__ == '__main__':
     if not shutil.which('rsvg-convert'):
         sys.exit('missing rsvg-convert')
     os.makedirs(OUT, exist_ok=True)
     only = set(os.environ.get('ONLY', '').split(',')) - {''}
     for fn in (books_papers, chinchilla_scaling, zero_sharding, paged_attention, disaggregated_serving,
-               mixture_ablations, photonic_compute, superconducting_logic):
+               mixture_ablations, photonic_compute, superconducting_logic, orbital_launch):
         if not only or fn.__name__ in only:
             fn()
     shutil.rmtree(TMP, ignore_errors=True)

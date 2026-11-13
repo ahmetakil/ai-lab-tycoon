@@ -100,11 +100,11 @@ class EraGoal {
 }
 
 /// What a requirement row's button should open.
-enum RequirementAction { none, power, train }
+enum RequirementAction { none, power, train, research }
 
 /// One line of a "what do I still need" checklist (moving to the next room).
 class Requirement {
-  /// 'era' | 'power' | 'cash'.
+  /// 'era' | 'research' | 'fill' | 'power' | 'cash'.
   final String kind;
 
   /// E.g. "Startup era", "Power limit", "Cash".
@@ -426,8 +426,9 @@ class Game {
     if (next == null) return 'You have the biggest power supply.';
     if (!isUnlocked(next.era)) return eraLockReason(next.era);
     if (powerNeedsMove) {
-      return 'Needs a bigger building: move to the '
-          '${roomForPowerTier(s.powerTier + 1).name} first.';
+      final to = roomForPowerTier(s.powerTier + 1);
+      if (to.speculative) return 'Only in orbit: move to the ${to.name} first.';
+      return 'Needs a bigger building: move to the ${to.name} first.';
     }
     if (s.money < next.cost) {
       return 'Costs ${_money(next.cost)}. You have ${_money(s.money)}.';
@@ -730,6 +731,36 @@ class Game {
         progress: 0,
       ));
     }
+    // Research the room needs (the orbital station: heavy-lift launch).
+    if (room.requires.isNotEmpty) {
+      final missing = [
+        for (final id in room.requires)
+          if (!s.ownedUpgrades.contains(id)) id,
+      ];
+      out.add(Requirement(
+        kind: 'research',
+        title: 'Research',
+        detail: missing.isEmpty
+            ? room.requires.map(researchName).join(' + ')
+            : missing.map(researchName).join(' + '),
+        hint: missing.isEmpty ? null : 'buy it in Research',
+        done: missing.isEmpty,
+        progress: 1 - missing.length / room.requires.length,
+        action: RequirementAction.research,
+      ));
+    }
+    // Fill the room you're in first.
+    if (room.fromFill > 0) {
+      final (have, need) = moveFill(room);
+      out.add(Requirement(
+        kind: 'fill',
+        title: '${currentRoom.name} built out',
+        detail: '$have / $need GPU tiles',
+        hint: have >= need ? null : 'fill the ${currentRoom.name} with GPUs',
+        done: have >= need,
+        progress: need <= 0 ? 1 : (have / need).clamp(0.0, 1.0),
+      ));
+    }
     final cashOk = s.money >= room.cost;
     out.add(Requirement(
       kind: 'cash',
@@ -757,9 +788,12 @@ class Game {
   }
 
   /// Peak GPU compute: "450 TFLOPS", "1.20 PFLOPS".
-  static String tflopsText(double tflops) => tflops >= 1000
-      ? '${(tflops / 1000).toStringAsFixed(2)} PFLOPS'
-      : '${tflops.round()} TFLOPS';
+  static String tflopsText(double tflops) {
+    for (final (scale, unit) in const [(1e12, 'YFLOPS'), (1e9, 'ZFLOPS'), (1e6, 'EFLOPS'), (1e3, 'PFLOPS')]) {
+      if (tflops >= scale) return '${(tflops / scale).toStringAsFixed(2)} $unit';
+    }
+    return '${tflops.round()} TFLOPS';
+  }
 
   /// "1.2k / 3k users", "rating 998 / 1,000", "0.45 / 1.20 PFLOPS".
   static String goalProgress(EraGoal goal) => switch (goal.metric) {
@@ -790,18 +824,49 @@ class Game {
       return 'Opens in the ${room.era.label} era '
           '(after ${Era.values[room.era.index - 1].label}).';
     }
+    final gate = _roomGateReason(room);
+    if (gate != null) return gate;
     if (s.money < room.cost) {
       return 'Costs ${_money(room.cost)}. You have ${_money(s.money)}.';
     }
     return null;
   }
 
+  /// The room's own gates past its era: research, then how built-out the
+  /// room you're in is. Null when they're met (or it has none).
+  String? _roomGateReason(RoomDef room) {
+    final missing = [
+      for (final id in room.requires)
+        if (!s.ownedUpgrades.contains(id)) researchName(id),
+    ];
+    if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
+    if (room.fromFill > 0) {
+      final (have, need) = moveFill(room);
+      if (have < need) {
+        return 'Fill the ${currentRoom.name} first: $have / $need GPU tiles.';
+      }
+    }
+    return null;
+  }
+
+  /// GPU tiles in the room you're in and how many [room]'s fill gate
+  /// ([RoomDef.fromFill]) asks for.
+  (int, int) moveFill(RoomDef room) {
+    final need = (room.fromFill * currentRoom.cells).ceil();
+    return (grid.rooms[currentRoom.id]?.gpuTiles ?? 0, need);
+  }
+
   bool canBuyRoom(String roomId) => roomBlockReason(roomId) == null;
 
-  /// [roomId] is the next room and its era is reached: only its price
-  /// stands in the way.
-  bool canMoveSoon(String roomId) =>
-      roomId == nextRoom?.id && isUnlocked(roomById(roomId)!.era);
+  /// [roomId] is the next room and its gates (era, research, fill) are met:
+  /// only its price stands in the way.
+  bool canMoveSoon(String roomId) {
+    final room = roomById(roomId);
+    return room != null &&
+        roomId == nextRoom?.id &&
+        isUnlocked(room.era) &&
+        _roomGateReason(room) == null;
+  }
 
   /// Move to [roomId] (the next room, once its era is reached and you can
   /// pay for it): pay, carry every tile over with the same relative layout
@@ -845,6 +910,9 @@ class Game {
           researchName(id),
     ];
     if (missing.isNotEmpty) return 'Research ${missing.join(' + ')} first.';
+    if (t.nativeOnly && !t.nativeTo(currentRoom.id)) {
+      return 'Only on the ${t.rooms.map((id) => roomById(id)!.name).join(' or ')}.';
+    }
     if (s.powerTier < t.minPowerTier) {
       final need = powerTiers[t.minPowerTier].name;
       if (t.minPowerTier > currentRoom.maxPowerTier) {
@@ -1169,10 +1237,11 @@ class Game {
     return true;
   }
 
-  static String _kw(double kw) =>
-      kw >= 1000
-          ? '${(kw / 1000).toStringAsFixed(kw >= 1e5 ? 0 : 1)} MW'
-          : '${kw.toStringAsFixed(kw >= 10 ? 0 : 2)} kW';
+  static String _kw(double kw) => kw >= 1e6
+      ? '${(kw / 1e6).toStringAsFixed(1)} GW'
+      : kw >= 1000
+      ? '${(kw / 1000).toStringAsFixed(kw >= 1e5 ? 0 : 1)} MW'
+      : '${kw.toStringAsFixed(kw >= 10 ? 0 : 2)} kW';
 
   static String _num(double v) {
     final a = v.abs();

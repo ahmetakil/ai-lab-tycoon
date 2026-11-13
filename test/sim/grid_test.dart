@@ -372,6 +372,20 @@ void main() {
       final g = Game(GameState(money: 1e15, era: Era.globalLab, powerTier: powerTiers.length - 1));
       var (x, y) = startGpuCell;
       for (final (i, r) in rooms.indexed.skip(1)) {
+        if (r.fromFill > 0) {
+          // The orbital station: research, then a built-out gigasite.
+          expect(g.canBuyRoom(r.id), isFalse, reason: r.id);
+          expect(g.roomBlockReason(r.id), startsWith('Research '));
+          g.s.ownedUpgrades.addAll(r.requires);
+          expect(g.roomBlockReason(r.id), startsWith('Fill the Gigawatt site first'));
+          final from = rooms[i - 1];
+          for (var c = 0, n = 0; n < (r.fromFill * from.cells).ceil(); c++) {
+            if (g.tileAt(from.id, c % from.width, c ~/ from.width) != null) continue;
+            g.s.setTile(from.id, c % from.width, c ~/ from.width, 'bldg_r_class');
+            n++;
+          }
+          expect(g.moveRequirements(r.id).where((q) => q.required).every((q) => q.done), isTrue);
+        }
         expect(g.moveTo(r.id), isTrue, reason: r.id);
         final (ox, oy) = Game.moveOffset(rooms[i - 1], r);
         x += ox;
@@ -379,7 +393,23 @@ void main() {
         expect(g.tileAt(r.id, x, y), 'gpu_old', reason: r.id);
       }
       expect(g.nextRoom, isNull);
-      expect(g.currentRoom.id, 'gigasite');
+      expect(g.currentRoom.id, 'orbital');
+    });
+
+    test('orbit-only parts are placeable only on the station', () {
+      final g = Game(GameState(
+        money: 1e15,
+        era: Era.globalLab,
+        powerTier: powerTiers.length - 1,
+        ownedUpgrades: upgrades.map((u) => u.id).toSet(),
+      ));
+      final z = tileById('mod_z_class')!;
+      expect(g.tileLockReason(z), 'Only on the Orbital station.');
+      g.s.grids
+        ..clear()
+        ..['orbital'] = GameState.emptyGrid(roomById('orbital')!);
+      expect(g.tileLockReason(z), isNull);
+      expect(g.placeTile('orbital', 3, 3, z.id), isTrue);
     });
 
     test('every room is at least as large as the one before', () {

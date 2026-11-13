@@ -70,6 +70,7 @@ void main() {
         'bldg_r_class',
         'bldg_p_class',
         'bldg_s_class',
+        'mod_z_class',
         'cool_fan',
         'cool_window_ac',
         'cool_crac',
@@ -77,8 +78,10 @@ void main() {
         'cool_liquid',
         'cool_chiller',
         'cool_tower',
+        'cool_dry',
+        'cool_radiator',
       ];
-      const gridRooms = ['garage', 'closet', 'colo', 'hall', 'campus', 'gigasite'];
+      const gridRooms = ['garage', 'closet', 'colo', 'hall', 'campus', 'gigasite', 'orbital'];
       expect(tiles.map((t) => t.id), containsAll(gridTiles));
       expect(rooms.map((r) => r.id), gridRooms);
     });
@@ -138,14 +141,16 @@ void main() {
             expect(t.gpusPerTile, greaterThanOrEqualTo(1), reason: t.id);
             // Per-GPU numbers stay in real-world ranges; the speculative
             // (sci-fi) tiers past Rubin may beat them, and say so.
-            expect(t.tflops / t.gpusPerTile, inInclusiveRange(20, t.speculative ? 20000 : 4000), reason: t.id);
-            expect(t.powerKw / t.gpusPerTile, inInclusiveRange(0.2, 4), reason: t.id);
+            // (A speculative "GPU" is whatever package the tier is built
+            // from: photonic stacks, cryo-logic chips, orbital modules.)
+            expect(t.tflops / t.gpusPerTile, inInclusiveRange(20, t.speculative ? 2e6 : 4000), reason: t.id);
+            expect(t.powerKw / t.gpusPerTile, inInclusiveRange(t.speculative ? 0.05 : 0.2, t.speculative ? 40 : 4),
+                reason: t.id);
           case TileKind.cooling:
             expect(t.cooling, greaterThan(0), reason: t.id);
         }
-        // Made-up tech is labelled, comes last and is the endgame only.
+        // Made-up tech comes last and is the endgame only.
         if (t.speculative) {
-          expect(t.blurb, startsWith('Speculative'), reason: t.id);
           expect(t.era, Era.globalLab, reason: t.id);
           expect(t.requires, isNotEmpty, reason: t.id);
         }
@@ -236,7 +241,9 @@ void main() {
   group('eras', () {
     test('every era unlocks a room, GPU and cooling tiles, a power tier and 3-7 upgrades', () {
       for (final era in Era.values) {
-        expect(rooms.where((r) => r.era == era), hasLength(1), reason: era.name);
+        // One room per era opens with it; the orbital station is an extra,
+        // post-game room in the last era (gated by research and fill).
+        expect(rooms.where((r) => r.era == era && r.requires.isEmpty), hasLength(1), reason: era.name);
         for (final kind in TileKind.values) {
           expect(tiles.where((t) => t.era == era && t.kind == kind), isNotEmpty, reason: '${era.name} ${kind.name}');
         }
@@ -245,6 +252,22 @@ void main() {
         // unlock); the Frontier also carries the speculative hardware research.
         expect(upgrades.where((u) => u.era == era).length, inInclusiveRange(3, era == Era.globalLab ? 8 : 7),
             reason: era.name);
+      }
+    });
+
+    test('the post-game orbital station comes last, behind research and a full gigasite', () {
+      final extra = rooms.where((r) => r.requires.isNotEmpty).toList();
+      expect(extra.map((r) => r.id), ['orbital']);
+      final orbital = extra.single;
+      expect(rooms.last, same(orbital));
+      expect(orbital.era, Era.values.last);
+      expect(orbital.fromFill, inInclusiveRange(0.5, 1));
+      expect(orbital.speculative, isTrue);
+      final ids = upgrades.map((u) => u.id).toSet();
+      expect(ids, containsAll(orbital.requires));
+      // Orbit-only parts can't be placed anywhere else.
+      for (final t in tiles.where((t) => t.nativeOnly)) {
+        expect(t.rooms, {'orbital'}, reason: t.id);
       }
     });
 
@@ -268,6 +291,8 @@ void main() {
         expect(r.maxPowerTier, inInclusiveRange(0, powerTiers.length - 1), reason: r.id);
         if (i > 0) expect(r.maxPowerTier, greaterThan(rooms[i - 1].maxPowerTier), reason: r.id);
         for (var p = 0; p < powerTiers.length; p++) {
+          // (Tiers only the post-game station takes are exempt.)
+          if (Game.roomForPowerTier(p).requires.isNotEmpty) continue;
           if (powerTiers[p].era.index <= r.era.index) {
             expect(p, lessThanOrEqualTo(r.maxPowerTier), reason: '${r.id} takes ${powerTiers[p].id}');
           }

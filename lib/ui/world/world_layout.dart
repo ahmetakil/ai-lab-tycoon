@@ -25,6 +25,8 @@ const _placements = <String, (Offset, double)>{
   'hall': (Offset(3520, 1880), 0.45),
   'campus': (Offset(2200, 2350), 0.42),
   'gigasite': (Offset(640, 3250), 0.42),
+  // In orbit: off past the gigasite's corner, over its own starfield.
+  'orbital': (Offset(2500, 4400), 0.4),
 };
 
 /// Geometry of one room (or decor piece) on the world map.
@@ -202,12 +204,14 @@ const tileSpriteHeights = <String, double>{
   'cool_dry': 18,
   'cool_fan': 44,
   'cool_liquid': 39,
+  'cool_radiator': 66,
   'cool_rear_door': 77,
   'cool_tower': 51,
   'cool_window_ac': 35,
   'gpu_gamer': 26,
   'gpu_old': 17,
   'gpu_v_class': 24,
+  'mod_z_class': 35,
   'net_100g': 15,
   'net_10g': 7,
   'net_home': 50,

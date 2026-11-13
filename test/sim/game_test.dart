@@ -342,8 +342,15 @@ void main() {
       final g = Game(GameState(money: 1e15, era: Era.globalLab));
       while (g.nextPowerTier != null) {
         if (g.powerNeedsMove) {
-          expect(g.powerBlockReason(), contains(g.nextRoom!.name));
-          expect(g.moveTo(g.nextRoom!.id), isTrue);
+          final next = g.nextRoom!;
+          expect(g.powerBlockReason(), contains(next.name));
+          // The orbital station: its research and a built-out gigasite.
+          g.s.ownedUpgrades.addAll(next.requires);
+          final from = g.currentRoom;
+          for (var i = 0; i < (next.fromFill * from.cells).ceil(); i++) {
+            g.s.setTile(from.id, i % from.width, i ~/ from.width, 'bldg_r_class');
+          }
+          expect(g.moveTo(next.id), isTrue);
         }
         final id = g.nextPowerTier!.id;
         expect(g.buyNextPowerTier(), isTrue, reason: id);

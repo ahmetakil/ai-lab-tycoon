@@ -392,6 +392,43 @@ def bldg_s_class(s):
         s.sparkle(px, py, 8, WHITE)
 
 
+@tile('mod_z_class', 'gpu')
+def mod_z_class(s):
+    # Zenith orbital cryo-module: a gold-foiled pressure hull lying on the
+    # truss, a white sunshield on top, a frosted cryo core glowing through,
+    # its own solar wings out to the sides and radiator fins underneath.
+    cx, cy = iso(50, 50, 30)
+    s.aura(cx, cy, 100, ICE, 0.34)
+    # radiator fins (edge-on, white) under the hull
+    for k in range(5):
+        y = 18 + k * 15
+        s.box(4, y, 0, 92, 4, 14, color='#C9D3E2', top='#F2F6FB', right='#9DA9BD', sw=0.8)
+    # solar wings on short booms, sticking out left and right
+    for (y0, y1) in ((-30, 6), (94, 130)):
+        s.line3([(50, max(y0, 6) if y0 < 0 else 94, 30), (50, (y0 + y1) / 2, 30)], SILVER, sw=2.4)
+        pts = [iso(22, y0, 30), iso(78, y0, 30), iso(78, y1, 30), iso(22, y1, 30)]
+        s.poly2(pts, '#1C3A7A', stroke='#D8A93E', sw=1.6)
+        for k in range(1, 4):
+            u = 22 + k * 14
+            s.line2([iso(u, y0, 30), iso(u, y1, 30)], '#4F7FD8', sw=1, opacity=0.9)
+        s.line2([iso(22, (y0 + y1) / 2, 30), iso(78, (y0 + y1) / 2, 30)], '#4F7FD8', sw=1, opacity=0.9)
+    # pressure hull with gold foil and a cyan cryo band
+    b = s.box(12, 16, 12, 76, 68, 32, color='#B88A2E', top='#E7C46A', right='#8E6A22')
+    for i in range(6):
+        u = 0.05 + i * 0.16
+        s.frect(b, 'left', u, 0.15, u + 0.12, 0.85, '#D8A93E', stroke=OUT, sw=0.5, opacity=0.85)
+    s.frect(b, 'left', 0.0, 0.45, 1.0, 0.6, CYAN, glow=True)
+    s.frect(b, 'right', 0.0, 0.45, 1.0, 0.6, shade(CYAN, -0.1), glow=True)
+    # sunshield: layered white sheets on top
+    for k in range(3):
+        s.box(16 + k * 4, 20 + k * 4, 44 + k * 4, 68 - k * 8, 60 - k * 8, 2, color='#DCE4EF', top='#FFFFFF', sw=0.9)
+    # frosted core window and a docking ring
+    tx, ty = iso(50, 50, 56)
+    s.ellipse2(tx, ty, 14, 8, ICE, stroke=OUT, glow=True)
+    s.sparkle(tx, ty - 4, 12, WHITE)
+    s.cyl(84, 30, 44, 7, 8, color=SILVER)
+
+
 # ============================================================ Cooling (cyan)
 COOL = '#3E6E95'   # steel-blue chassis for cooling gear
 COOLD = '#2A4D70'
@@ -542,6 +579,29 @@ def cool_dry(s):
     # sealed loop: two pipes in, no steam
     pipe3(s, [(30, 92, 6), (30, 100, 6)], '#3D8BFF', sw=7)
     pipe3(s, [(50, 92, 6), (50, 100, 6)], CYAN, sw=7)
+
+
+@tile('cool_radiator', 'cool')
+def cool_radiator(s):
+    # Deployable radiator wing: stacked white ribbed panels on a short
+    # mast, a warm ammonia manifold along their root, no fans at all.
+    b = s.box(30, 30, 0, 40, 40, 12, color='#4F6E92')
+    s.frect(b, 'left', 0.1, 0.3, 0.9, 0.7, CYAN, glow=True, opacity=0.8)
+    s.frect(b, 'right', 0.1, 0.3, 0.9, 0.7, shade(CYAN, -0.2), glow=True, opacity=0.7)
+    z0 = 12
+    for k, z in enumerate((26, 50, 74)):
+        # mast segment up to this panel, then the panel (with thickness)
+        s.line3([(50, 50, z0), (50, 50, z)], OUT, sw=7)
+        s.line3([(50, 50, z0), (50, 50, z)], SILVER, sw=4.5)
+        z0 = z
+        d = 4
+        s.poly2([iso(8, 92, z), iso(92, 92, z + 6), iso(92, 92, z + 6 - d), iso(8, 92, z - d)], '#8E9CB2', sw=1.2)
+        s.poly2([iso(92, 8, z + 6), iso(92, 92, z + 6), iso(92, 92, z + 6 - d), iso(92, 8, z + 6 - d)], '#6E7A90', sw=1.2)
+        s.poly2([iso(8, 8, z), iso(92, 8, z + 6), iso(92, 92, z + 6), iso(8, 92, z)], '#E8EEF6', sw=1.4)
+        for j in range(1, 7):
+            v = 8 + j * 84 / 7
+            s.line2([iso(12, v, z + 0.3), iso(88, v, z + 5.7)], '#A9B4C6', sw=1.1)
+        s.line2([iso(8, 50, z), iso(92, 50, z + 6)], '#FF9F6B', sw=2.6, glow=True, opacity=0.9)
 
 
 # ============================================================ Network (amber)
@@ -855,6 +915,21 @@ def floors():
     for (x, y) in ((8, 8), (120, 8), (8, 120), (120, 120)):
         body += f'<circle cx="{x}" cy="{y}" r="2.6" fill="#2A3049" stroke="#07090F" stroke-width="0.8"/>'
     floor_png('gigasite', body + seam(op=0.7), noise=0.05)
+    floor_orbital()
+
+
+def floor_orbital():
+    # orbital station: composite deck panels on a truss grid, node bolts
+    # and a faint cyan module-socket ring
+    body = '<rect width="128" height="128" fill="#1A2136"/>'
+    body += '<rect x="6" y="6" width="116" height="116" rx="4" fill="#20283E" stroke="#121829" stroke-width="2"/>'
+    body += '<rect x="22" y="22" width="84" height="84" rx="12" fill="none" stroke="#3DD6FF" stroke-width="1.6" opacity="0.28"/>'
+    for i in range(1, 4):
+        body += f'<line x1="{i * 32}" y1="10" x2="{i * 32}" y2="118" stroke="#161C30" stroke-width="1"/>'
+    for (x, y) in ((6, 6), (122, 6), (6, 122), (122, 122)):
+        body += f'<circle cx="{x}" cy="{y}" r="4.2" fill="#56627F" stroke="#07090F" stroke-width="0.8"/>'
+    body += '<rect x="7" y="7" width="114" height="1.5" fill="#FFFFFF" opacity="0.07"/>'
+    floor_png('orbital', body + seam(op=0.7), noise=0.04)
 
 
 # ============================================================ room banners (900x300)
@@ -1015,6 +1090,56 @@ def gigasite_banner(out):
     banner_svg(s, c[0] + 40, c[1] - 260, 2000, out)
 
 
+def orbital_banner(out):
+    s = Scene()
+    rnd = random.Random(7)
+    c = iso(300, 300, 60)
+    cx, cy = c[0] + 60, c[1] - 30
+    w = 1900
+    h = w / 3
+    for _ in range(160):
+        s.ellipse2(cx + rnd.uniform(-w / 2, w / 2), cy + rnd.uniform(-h / 2, h / 2), 1.3, 1.3, WHITE,
+                   stroke=None, opacity=rnd.uniform(0.3, 0.95))
+    # Earth's limb along the bottom, with its blue atmosphere
+    er = 2600
+    ex, ey = cx + 300, cy + h / 2 + er - 150
+    s.ellipse2(ex, ey, er + 26, er + 26, '#4AA8FF', stroke=None, opacity=0.35, glow=True)
+    s.ellipse2(ex, ey, er, er, '#1A4E9E', stroke=None)
+    for _ in range(70):
+        a = rnd.uniform(math.radians(235), math.radians(305))
+        d = rnd.uniform(er * 0.97, er * 0.998)
+        s.ellipse2(ex + d * math.cos(a), ey + d * math.sin(a), rnd.uniform(14, 40), 2.4, '#F2F7FF',
+                   stroke=None, opacity=rnd.uniform(0.2, 0.55))
+    s.aura(cx - 700, cy - 200, 160, '#FFF4D6', 0.8)
+    # the station: a deck with modules, solar wings, radiators
+    poly3(s, [(0, 0, 0), (600, 0, 0), (600, 600, 0), (0, 600, 0)], '#20283E', stroke=OUT)
+    poly3(s, [(0, 600, 0), (600, 600, 0), (600, 600, -24), (0, 600, -24)], '#1A2034', stroke=OUT)
+    poly3(s, [(600, 0, 0), (600, 600, 0), (600, 600, -24), (600, 0, -24)], '#121729', stroke=OUT)
+    for y in (-20, ):
+        for x0, x1 in ((20, 280), (320, 580)):
+            poly3(s, [(x0, y, 60), (x1, y, 60), (x1, y, 230), (x0, y, 230)], '#162A5C', stroke='#C9A24A')
+            for k in range(1, 9):
+                xx = x0 + k * (x1 - x0) / 9
+                s.line3([(xx, y, 60), (xx, y, 230)], '#3E6CC4', sw=1)
+    for x in (-20, ):
+        for y0, y1 in ((20, 280), (320, 580)):
+            poly3(s, [(x, y0, 60), (x, y1, 60), (x, y1, 230), (x, y0, 230)], '#162A5C', stroke='#C9A24A')
+            for k in range(1, 9):
+                yy = y0 + k * (y1 - y0) / 9
+                s.line3([(x, yy, 60), (x, yy, 230)], '#3E6CC4', sw=1)
+    for k in range(3):
+        a0 = 40 + k * 190
+        poly3(s, [(a0, 640, -16), (a0 + 150, 640, -16), (a0 + 150, 780, -16), (a0, 780, -16)], '#DCE4EF')
+        poly3(s, [(640, a0, -16), (780, a0, -16), (780, a0 + 150, -16), (640, a0 + 150, -16)], '#DCE4EF')
+    for i in range(4):
+        for j in range(4):
+            b = s.box(60 + i * 130, 60 + j * 130, 0, 90, 90, 40, color='#B88A2E', top='#E7C46A', right='#8E6A22')
+            s.frect(b, 'left', 0.0, 0.45, 1.0, 0.62, CYAN, glow=True)
+            s.frect(b, 'right', 0.0, 0.45, 1.0, 0.62, shade(CYAN, -0.1), glow=True)
+            s.box(66 + i * 130, 66 + j * 130, 40, 78, 78, 3, color='#DCE4EF', top='#FFFFFF', sw=0.8)
+    banner_svg(s, cx, cy, w, out)
+
+
 def banners():
     banner_crop('bg_garage.png', os.path.join(OUT, 'room_garage.png'), 0, 230, 1536)
     banner_crop('bg_startup.png', os.path.join(OUT, 'room_closet.png'), 60, 40, 1200)
@@ -1022,6 +1147,7 @@ def banners():
     banner_crop('bg_lab.png', os.path.join(OUT, 'room_hall.png'), 0, 180, 1536)
     campus_banner(os.path.join(OUT, 'room_campus.png'))
     gigasite_banner(os.path.join(OUT, 'room_gigasite.png'))
+    orbital_banner(os.path.join(OUT, 'room_orbital.png'))
 
 
 # ============================================================ main
@@ -1050,6 +1176,12 @@ def main():
         out = os.path.join(OUT, f'tile_{name}.png')
         render(svg_wrap(s), out, 256)
         made.append(out)
+    # ONLY=floor_<room> / room_<room> regenerates one floor or banner.
+    if 'floor_orbital' in only:
+        made.append(floor_orbital() or os.path.join(OUT, 'floor_orbital.png'))
+    if 'room_orbital' in only:
+        orbital_banner(os.path.join(OUT, 'room_orbital.png'))
+        made.append(os.path.join(OUT, 'room_orbital.png'))
     if not only:
         overlay_heat(os.path.join(OUT, 'tile_overlay_heat.png'))
         overlay_link(os.path.join(OUT, 'tile_overlay_link.png'))

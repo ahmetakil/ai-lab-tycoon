@@ -18,7 +18,9 @@
 // strategies on that schedule.
 // --phases: the bot specializes at run-phase checkpoints (lib/sim/run_phases.dart)
 // instead of taking the all-rounder defaults.
-// --seeds=a,b,c: one active run per seed; prints the milestone table and each
+// --seeds=a,b,c: one active run per seed (played on to [minutes], past the
+// final rival, to catch the post-game move to the orbital station); prints
+// the milestone table, the orbital move and each
 // room's fill when its way out (the next room's era) unlocks.
 // Every single run ends with the same room table: GPU tiles, cells and power
 // (of the building's top tier) when the next era unlocks, and how long the
@@ -147,13 +149,37 @@ void multiSeed(double minutes, List<int> seeds, double dt) {
 
   final rows = <String>[];
   final fills = <String>[];
+  final orbit = <String>[];
   for (final seed in seeds) {
+    // Plays on past the final rival (to [minutes]) to catch the post-game
+    // move to the orbital station; the last room's fill before it moved.
+    var lastGpuTiles = 0, lastCells = 0;
+    double? movedAt;
+    int? leftGpuTiles, leftCells;
     final r = runPlaythrough(
       maxSeconds: minutes * 60,
       seed: seed,
       dt: dt,
+      stopWhenDone: false,
       specializePhases: _specializePhases,
+      onTick: (g) {
+        lastGpuTiles = g.grid.rooms[g.currentRoom.id]?.gpuTiles ?? 0;
+        lastCells = g.s.grids[g.currentRoom.id]!.where((c) => c != null).length;
+      },
+      onEvent: (g, e) {
+        if (e case RoomMoved(:final from, :final to) when to.fromFill > 0) {
+          movedAt = g.s.time;
+          leftGpuTiles = lastGpuTiles;
+          leftCells = lastCells;
+          orbit.add(
+            '${seed.toString().padRight(5)} | moved to the ${to.name} at ${hms(movedAt)}: '
+            '${from.id} ${leftGpuTiles}g (${(100 * leftGpuTiles! / from.cells).toStringAsFixed(0)}% of cells), '
+            '$leftCells/${from.cells} cells used',
+          );
+        }
+      },
     );
+    if (movedAt == null) orbit.add('${seed.toString().padRight(5)} | no orbital move by ${hms(minutes * 60)}');
     final fill = r.roomFill;
     rows.add(
       '${seed.toString().padRight(5)} | ${[for (final e in Era.values.skip(1)) hms(r.eraTimes[e]).padLeft(8)].join(' | ')} | '
@@ -173,6 +199,8 @@ void multiSeed(double minutes, List<int> seeds, double dt) {
   rows.forEach(print);
   print('\nroom fill at its exit era: GPU tiles, cells used, power % of the building cap, minutes at the wall');
   fills.forEach(print);
+  print('\npost-game: the move to the orbital station (gigasite fill on the tick before)');
+  orbit.forEach(print);
 }
 
 BotStrategy parseStrategy(String s) => switch (s) {

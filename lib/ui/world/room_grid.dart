@@ -36,7 +36,7 @@ Color kindColor(TileKind k) => switch (k) {
 /// Key stats of a part, short enough for a tray card.
 String tileStatsLine(Game g, TileDef t) => switch (t.kind) {
   TileKind.gpu =>
-    '${formatNumber(t.tflops)} TFLOPS · ${formatPower(g.tilePowerKw(t))} · heat ${formatNumber(t.heat)}\n'
+    '${formatTflops(t.tflops)} · ${formatPower(g.tilePowerKw(t))} · heat ${formatNumber(t.heat)}\n'
         '${formatNumber(t.tflops / g.tilePowerKw(t))} TF/kW · ${formatNumber(t.tflops / g.tilePrice(t) * 1000)} TF/\$k',
   TileKind.cooling => 'cools ${formatNumber(t.cooling)} · ${formatPower(t.powerKw)}',
 };
