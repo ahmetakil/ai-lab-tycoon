@@ -24,6 +24,17 @@ class EffectChip {
   const EffectChip(this.text, {this.isCost = false});
 }
 
+/// Hardware a research id gates (GPU and cooler tiles, network and central
+/// cooling tiers), e.g. "Opal photonic stack" for photonic computing.
+List<String> hardwareUnlockedBy(String id) => [
+  for (final t in tiles)
+    if (t.requires.contains(id)) t.name,
+  for (final n in networkTiers)
+    if (n.requires.contains(id)) n.name,
+  for (final c in coolingTiers)
+    if (c.requires.contains(id)) c.name,
+];
+
 /// Human-readable effect chips for an upgrade. Costs (e.g. reasoning's
 /// serving penalty) are flagged so they render in amber.
 List<EffectChip> effectChips(Effects e) => [
@@ -447,6 +458,12 @@ class UpgradeCard extends StatelessWidget {
                 ),
               for (final line in designUnlockLines(u.id))
                 Tag('Run setup · $line', color: AppColors.cyan, icon: Icons.tune),
+              if (hardwareUnlockedBy(u.id) case final hw when hw.isNotEmpty)
+                Tag(
+                  'Unlocks · ${hw.take(2).join(', ')}${hw.length > 2 ? ' +${hw.length - 2} more' : ''}',
+                  color: AppColors.cyan,
+                  icon: Icons.memory,
+                ),
             ],
           ),
           const SizedBox(height: 12),

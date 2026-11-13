@@ -92,6 +92,11 @@ const flavourNews = <FlavourNews>[
       'Anthropomorphic\'s revenue run-rate passed ClosedAI\'s, depending on who you ask.'),
   FlavourNews(Era.globalLab, 'yAI',
       'yAI told its chatbot to be edgier. It was. The apology was also edgy.'),
+  // Hints at the speculative hardware past Rubin (photonic stacks, cryo-logic).
+  FlavourNews(Era.globalLab, 'Gogol DeepThought',
+      'Gogol DeepThought demoed a chip that multiplies matrices with light. The demo room was very dark.'),
+  FlavourNews(Era.globalLab, 'ClosedAI',
+      'ClosedAI bought a helium supplier "for the next-next generation". Party balloon prices hit a record.'),
 ];
 
 enum NewsKind { rival, flavour }

@@ -17,7 +17,8 @@ beat rival labs.
 - Power cap (kW/MW): limits how many GPUs you can run. Power tiers are named
   after the electrical supply (Garage outlet → 3-phase service → leased colo
   circuits → medium-voltage feed → on-site substation → PPA → gigawatt grid
-  interconnect → restarted nuclear → multi-site), never after a place. Each
+  interconnect → restarted nuclear → multi-site → speculative compact fusion),
+  never after a place. Each
   place has a power limit (its electrical service): a bigger supply needs a
   bigger building, so you move first. Moving keeps your tier and buys nothing.
 - Network tier: how many GPUs your one training cluster keeps fed (all GPUs in
@@ -91,8 +92,12 @@ beat rival labs.
 
 ## Rules
 - Parody names only. Never real company or product names, logos or people.
-- Upgrade blurbs must be technically accurate. Made-up tech is v2 and gets labelled.
+- Upgrade blurbs must be technically accurate. Made-up tech is labelled: only the
+  speculative endgame past Rubin (photonic stacks, superconducting cryo-logic, a
+  compact fusion PPA, a cryogenic plant), each blurb starting "Speculative:" and
+  saying what physics would make it better.
 - No real-money monetization in v1.
 
 ## Out of scope for v1
-Prestige, hiring, dashboards, made-up tech, cloud save, monetization.
+Prestige, hiring, dashboards, made-up tech beyond the labelled speculative
+endgame, cloud save, monetization.

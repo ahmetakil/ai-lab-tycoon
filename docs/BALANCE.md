@@ -44,7 +44,7 @@ fill it, and the next era unlocks a few minutes after you run out of space.
 | Medium lab | ~1h50 | 1:50 | 1:50–1:54 (1:51) |
 | Big lab | ~3h20 | 3:22 | 3:19–3:28 (3:22) |
 | Frontier | ~4h20 | 4:23 | 4:17–4:28 (4:21) |
-| Final rival | 7–7h30 | **7:08** | 6:55–7:18 (7:07) |
+| Final rival | 7–7h30 | **7:07** | 7:02–7:17 (7:12) |
 
 `PlaySchedule.active` (bot.dart, the default everywhere) is continuous play;
 the bot looks at the screen every 4 s, so it reacts within 0–4 s. Training
@@ -247,12 +247,12 @@ the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 - rivals: GPT-ish-4 (1339), Claudette 3.5 Sonata (1373), DeepSleep-R1 (1378), Claudette 3.7 Sonata (1455), o-three (1463), Grokk 3 (1503), GPT-ish-4.5 (1506)
 ### Frontier lab (`globalLab`, 2025–26)
 - room: Gigawatt site 22×22 ($20M)
-- power: Gigawatt grid interconnect 1.0 GW ($74M), Restarted nuclear plant 2.0 GW ($147M), Multi-site cluster 4.0 GW ($290M)
-- gpu: Rubin building ($36M, +3%/tile, needs liquid_cooling)
+- power: Gigawatt grid interconnect 1.0 GW ($74M), Restarted nuclear plant 2.0 GW ($147M), Multi-site cluster 4.0 GW ($290M), Compact fusion PPA 10 GW ($700M, speculative)
+- gpu: Rubin building ($36M, +3%/tile, needs liquid_cooling); speculative: Opal photonic stack ($70M, +5%/tile, needs photonic_compute and the nuclear tier), Boreal cryo-logic vault ($95M, +5%/tile, needs superconducting_logic and the fusion tier)
 - cooling: Closed-loop dry coolers ($80k)
 - network: Optical fabric, feeds 4194304 ($61M)
-- central cooling: Dry-cooler farm −550/tile ($13M)
-- research: Multi-token prediction $1.8B, Expert data (PhD annotators) $2.1B, Test-time compute scaling $6.6B, Agentic RL environments $11B, Prefill/decode disaggregation $3B
+- central cooling: Dry-cooler farm −550/tile ($13M); Cryogenic helium plant −1500/tile ($30M, speculative, needs superconducting_logic)
+- research: Multi-token prediction $1.8B, Expert data (PhD annotators) $2.1B, Test-time compute scaling $6.6B, Agentic RL environments $11B, Prefill/decode disaggregation $3B; speculative hardware: Photonic computing $3.6B, Superconducting logic $15B
 - design research: Adaptive thinking budgets $3.6B
 - stunts: Big-game TV ad
 - runs: 1m / 3m / 5m at 500× (0.3 d / 1.0 d / 1.7 d of compute)
@@ -288,25 +288,24 @@ Seeds (time to unlock, h:mm:ss; `--seeds=...`):
 
 ```
 phases off (default bot)
-seed  |  Startup | Small lab | Medium lab |  Big lab | Frontier | final    | idle max
-12345 |  0:50:29 |  1:02:29 |  1:50:01 |  3:22:25 |  4:22:45 |  7:07:33 | 1.7m
-1     |  0:50:45 |  1:02:37 |  1:52:37 |  3:21:33 |  4:19:21 |  7:16:05 | 1.7m
-777   |  0:50:45 |  1:02:17 |  1:51:13 |  3:19:01 |  4:18:29 |  6:55:29 | 1.7m
-2026  |  0:50:33 |  1:04:09 |  1:53:57 |  3:27:45 |  4:22:09 |  7:18:29 | 1.7m
-4242  |  0:49:29 |  1:01:25 |  1:49:41 |  3:22:53 |  4:16:49 |  7:07:01 | 1.7m
-99    |  0:50:17 |  1:01:45 |  1:51:41 |  3:20:21 |  4:21:01 |  7:00:45 | 1.7m
-31337 |  0:49:49 |  1:01:53 |  1:49:41 |  3:23:25 |  4:27:57 |  7:07:57 | 1.7m
+12345 |  0:50:29 |  1:02:29 |  1:50:01 |  3:22:25 |  4:22:45 |  7:07:09 | 1.7m
+1     |  0:50:45 |  1:02:37 |  1:52:37 |  3:21:33 |  4:19:21 |  7:15:57 | 1.7m
+777   |  0:50:45 |  1:02:17 |  1:51:13 |  3:19:01 |  4:18:29 |  7:02:25 | 1.7m
+2026  |  0:50:33 |  1:04:09 |  1:53:57 |  3:27:45 |  4:22:09 |  7:17:09 | 1.7m
+4242  |  0:49:29 |  1:01:25 |  1:49:41 |  3:22:53 |  4:16:49 |  7:12:49 | 1.7m
+99    |  0:50:17 |  1:01:45 |  1:51:41 |  3:20:21 |  4:21:01 |  7:05:25 | 1.7m
+31337 |  0:49:49 |  1:01:53 |  1:49:41 |  3:23:25 |  4:27:57 |  7:12:25 | 1.7m
 phases on (Bot(specializePhases: true))
-12345 |  0:50:21 |  1:03:37 |  1:57:29 |  3:35:17 |  4:36:13 |  7:23:05 | 1.7m
-1     |  0:51:41 |  1:02:45 |  1:53:25 |  3:32:45 |  4:38:25 |  7:38:41 | 1.7m
-777   |  0:51:45 |  1:05:05 |  1:55:17 |  3:33:09 |  4:33:21 |  7:25:13 | 1.7m
-2026  |  0:51:33 |  1:05:13 |  1:54:49 |  3:33:57 |  4:30:49 |  7:20:21 | 1.7m
-4242  |  0:49:41 |  1:03:05 |  1:52:37 |  3:31:21 |  4:29:33 |  7:09:49 | 1.7m
-99    |  0:49:57 |  1:03:37 |  1:53:57 |  3:27:41 |  4:30:37 |  7:24:33 | 1.7m
-31337 |  0:49:45 |  1:02:21 |  1:52:21 |  3:31:09 |  4:32:05 |  7:19:05 | 1.7m
+12345 |  0:50:29 |  1:02:29 |  1:50:01 |  3:22:25 |  4:22:45 |  7:17:37 | 1.7m
+1     |  0:50:45 |  1:02:37 |  1:52:37 |  3:21:33 |  4:19:21 |  7:16:09 | 1.7m
+777   |  0:50:45 |  1:02:17 |  1:51:13 |  3:19:01 |  4:18:29 |  7:04:45 | 1.7m
+2026  |  0:50:33 |  1:04:09 |  1:53:57 |  3:27:45 |  4:22:09 |  7:22:09 | 1.7m
+4242  |  0:49:29 |  1:01:25 |  1:49:41 |  3:22:53 |  4:16:49 |  7:05:33 | 1.7m
+99    |  0:50:17 |  1:01:45 |  1:51:41 |  3:20:21 |  4:21:01 |  7:01:33 | 1.7m
+31337 |  0:49:49 |  1:01:53 |  1:49:41 |  3:23:25 |  4:27:57 |  7:13:53 | 1.7m
 ```
 
-- Every seed finishes in 6h55–7h18 (phases on: 7h09–7h38) and none has a
+- Every seed finishes in 7h02–7h17 (phases on: 7h01–7h22) and none has a
   2-minute idle stretch. The Startup no longer depends on a lucky viral
   spike (v5: 2:28–4:06), since its gate is hardware.
 
@@ -324,14 +323,44 @@ another GPU (`RoomFill`).
 | Colocation cage | 1:05–1:50 | 73 | 100/100 | 443 / 500 kW (89%) | 2.3 min |
 | Datacenter hall | 1:52–3:22 | 132 | 156/196 | 3.6 / 3.6 MW (100%) | 0.3 min |
 | Datacenter campus | 3:27–4:22 | 228 | 300/324 | 90 / 90 MW (100%) | none at exit (first hit 10 min before) |
-| Gigawatt site | 4:24–7:07 | 350 | 411/484 | 3.1 / 4 GW (77%) | (last room) |
+| Gigawatt site | 4:24–7:07 | 341 | 390/484 | 2.6 / 10 GW (26%) | (last room) |
 
 Over the 7 seeds: garage 16/16 cells, 90% power, 3.8–4.1 min at the wall;
 closet 87–96%, 0–5.4 min; colo 100/100 cells (86–92% power), 0.6–9.1 min;
 hall 96–100%, 0–13.6 min (one seed; the rest ≤4); campus 85–100%, not at
 the wall at exit (it touches 90 MW ~10 min before on most seeds); gigasite
-~77% at the final rival. v5 sat in a full colo (504 GPUs, 496/500 kW) from
+~2.6–3 GW at the final rival (26–30% of the 10 GW the speculative fusion
+PPA allows; ~77% of the 4 GW multi-site tier). v5 sat in a full colo (504 GPUs, 496/500 kW) from
 0:48 to 1:43, and left the garage with 5–9 GPUs.
+
+### The speculative endgame (sci-fi tiers past Rubin)
+
+Rubin is the newest real hardware, so two invented generations sit after it
+(`TileDef.speculative`; blurbs start with "Speculative:"). They follow the
+same rule as every tier: better per $ and per kW at list price, hard to get
+through gates.
+
+| Tier | Per tile | Value | Gate |
+|---|---|---|---|
+| Rubin building (real) | 28.7M TFLOPS, 27.0 MW, $36M | 796 TFLOPS/$k, 1,061/kW | liquid cooling, gigawatt tier |
+| Opal photonic stack | 65.5M TFLOPS, 22.9 MW, $70M (+5%) | 936 TFLOPS/$k, 2,857/kW | Photonic computing ($3.6B), nuclear tier (2 GW) |
+| Boreal cryo-logic vault | 98.3M TFLOPS, 13.1 MW, $95M (+5%), heat 1400 | 1,035 TFLOPS/$k, 7,500/kW | Superconducting logic ($15B), Compact fusion PPA (10 GW, $700M); wants the Cryogenic helium plant (−1500/tile, $30M) |
+
+Seed 12345: the multi-site tier lands at 6:09, Photonic computing and the
+first Opal stacks at 6:32, the final rival at 7:07 (rating is data-limited
+by then, so the extra compute mostly adds users). After the final rival:
+50 Opal stacks by 7:32, the fusion PPA at 8:14, Superconducting logic, the
+cryo plant and the first Boreal vaults at 9:14, 50 vaults by 9:34. So Opal
+is a late-Frontier upgrade and Boreal is a post-game goal. Photonic
+computing at $4.5B came too late (6:50) and pulled money away from rating
+research (final 7:04–7:27); at $3B seed 777 finished at 6:52.
+
+The bot values research with no effects of its own that makes a
+speculative GPU the room's best buy like a power tier: at least what an
+equal spend on that GPU adds. A power tier that unlocks a speculative GPU
+(the fusion PPA) is wanted even before power is tight and is valued with
+that GPU. Both rules apply only to speculative tiles, so earlier eras play
+exactly as before (identical era times on all 7 seeds).
 
 ### The garage (v6)
 
@@ -495,11 +524,11 @@ in every category, with no exceptions (`content_test.dart` enforces it):
 
 | Category | Value | Tiers, oldest → newest (v6) |
 |---|---|---|
-| GPUs | TFLOPS per $k | 2060 33 → 4090 40 → V100 42 → DGX A100 43 → HGX H100 44 → H100 rack 45 → GB200 48 → B200 pod 197 → Vera Rubin 215 → Rubin pod 219 → Rubin building 796 |
+| GPUs | TFLOPS per $k | 2060 33 → 4090 40 → V100 42 → DGX A100 43 → HGX H100 44 → H100 rack 45 → GB200 48 → B200 pod 197 → Vera Rubin 215 → Rubin pod 219 → Rubin building 796 → Opal photonic 936 → Boreal cryo-logic 1035 |
 | Coolers | cooling per $k | fan 27 → window AC 29 → CRAC 31 → rear door 32 → chiller 33 → liquid loop 35 → tower 36 → dry coolers 38 |
 | Network | GPUs fed per $k | 10G 16 → fiber 17 → IB 400G 18 → IB spine 18.2 → NVLink 18.7 → optical 68 |
-| Central cooling | per-tile cooling per $M | chilled water 40 → towers 42 → liquid loop 43 → dry coolers 44 |
-| Power | kW per $k | panel 3.3 → 3-phase 3.4 → colo 3.6 → MV feed 4.1 → substation 6.3 → PPA 12 → GW 13.5 → nuclear 13.6 → multi-site 13.8 |
+| Central cooling | per-tile cooling per $M | chilled water 40 → towers 42 → liquid loop 43 → dry coolers 44 → cryo plant 50 |
+| Power | kW per $k | panel 3.3 → 3-phase 3.4 → colo 3.6 → MV feed 4.1 → substation 6.3 → PPA 12 → GW 13.5 → nuclear 13.6 → multi-site 13.8 → fusion 14.3 |
 
 v5 broke this in places: the hall racks (doubled in the first v6 draft to
 slow the hall), almost every cooler (a CRAC was $13.8k for 40 cooling, a
@@ -513,7 +542,8 @@ get is a gate, never worse value:
   **power tier** a tile needs (`minPowerTier`).
 - **A steeper supply crunch** per unit owned (`priceGrowth`): 2060 25%,
   4090 15%, V100 10%, DGX A100 10%, HGX H100 16%, hall racks 25%, Big-lab
-  pods and racks 12%, Rubin buildings 3%; the cap is ×4 list. The old tier
+  pods and racks 12%, Rubin buildings 3%, the speculative Opal and Boreal
+  tiers 5%; the cap is ×4 list. The old tier
   stays the one you can afford now; the new one is what you save for.
 - **A big upfront price**: the late power tiers ($7.5M PPA, $74M gigawatt,
   $147M nuclear, $290M multi-site) are saved for, but each still buys more
@@ -615,7 +645,8 @@ $61M).
 substation, PPA, gigawatt grid interconnect), never a place, and each room's
 electrical service caps the tier you can buy there: garage 10 kW, closet
 65 kW, colo 500 kW, hall 3.6 MW, campus 1 GW (90 MW in the Big lab: the
-gigawatt tier is a Frontier part), gigasite 4 GW (v6). Moving buys no
+gigawatt tier is a Frontier part), gigasite 10 GW (4 GW before the
+speculative fusion PPA). Moving buys no
 power; you keep your tier. The campus takes the gigawatt interconnect
 (suggested: 300 MW) because the Frontier's first push happens there: at
 300 MW the bot must buy the $400M gigasite before the $350M tier and the

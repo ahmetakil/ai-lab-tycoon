@@ -1473,6 +1473,9 @@ const researchTracks = <String, ResearchTrack>{
   'dpo': ResearchTrack.postTraining,
   'reward_model_scaling': ResearchTrack.postTraining,
   'adaptive_thinking': ResearchTrack.postTraining,
+  // Speculative hardware (content.dart, the sci-fi tiers past Rubin).
+  'photonic_compute': ResearchTrack.infrastructure,
+  'superconducting_logic': ResearchTrack.infrastructure,
 };
 
 /// Track of a research id; unknown ids (e.g. added later) default to

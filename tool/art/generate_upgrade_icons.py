@@ -121,13 +121,60 @@ def disaggregated_serving():
     save(s, 'disaggregated_serving')
 
 
+def photonic_compute():
+    # speculative: a photonic chip, laser light fanning through an
+    # interferometer mesh (the matmul) into detectors
+    s = Scene(glow=3.5)
+    chip = s.box(6, 6, 0, 88, 88, 10, color='#202A55', top='#1A2242')
+    # the mesh: diamond lattice of waveguides on the die
+    for k in range(4):
+        v = 0.2 + k * 0.2
+        s.fline(chip, 'top', [(0.12, v), (0.88, v)], shade(CYAN, -0.45), sw=2)
+    for i in range(3):
+        u0 = 0.2 + i * 0.22
+        for k in range(3):
+            v0 = 0.2 + k * 0.2
+            s.fline(chip, 'top', [(u0, v0), (u0 + 0.22, v0 + 0.2)], VIOLET, sw=2.4, glow=True)
+            s.fline(chip, 'top', [(u0, v0 + 0.2), (u0 + 0.22, v0)], CYAN, sw=2.4, glow=True)
+    # lasers in on the left edge, detectors out on the right
+    for k, c in enumerate((PINK, CYAN, VIOLET, PINK)):
+        v = 0.2 + k * 0.2
+        s.fline(chip, 'top', [(0.0, v), (0.14, v)], c, sw=4, glow=True)
+        px, py = Scene.fpt(chip, 'top', 0.9, v)
+        s.ellipse2(px, py, 4.5, 3, WHITE, stroke=OUT, sw=1, glow=True)
+    lx, ly = Scene.fpt(chip, 'top', 0.0, 0.5)
+    s.sparkle(lx - 6, ly - 4, 22, WHITE)
+    save(s, 'photonic_compute')
+
+
+def superconducting_logic():
+    # speculative: a niobium chip on a cold stage, frost and a flux quantum
+    s = Scene(glow=3.5)
+    stage = s.cyl(50, 50, 0, 46, 10, color='#8FB3D9', top='#DCEFFF')
+    chip = s.box(28, 28, 10, 44, 44, 6, color='#4A5470', top='#2E3B6B')
+    for k in range(3):
+        v = 0.25 + k * 0.25
+        s.fline(chip, 'top', [(0.1, v), (0.9, v)], '#9EC4E6', sw=2)
+        s.fline(chip, 'top', [(v, 0.1), (v, 0.9)], '#9EC4E6', sw=2)
+    # a single flux quantum: a glowing ring hopping along the line
+    s.fcircle(chip, 'top', 0.5, 0.5, 0.14, 0.14, 'none', stroke=CYAN, sw=3, glow=True)
+    s.fcircle(chip, 'top', 0.5, 0.5, 0.05, 0.05, WHITE, stroke=None, glow=True)
+    # frost on the cold stage
+    for (x, y) in ((22, 74), (74, 22), (78, 70)):
+        px, py = iso(x, y, 10)
+        s.sparkle(px, py, 13, WHITE)
+    tx, ty = iso(50, 50, 34)
+    s.sparkle(tx, ty, 18, '#BFEFFF')
+    save(s, 'superconducting_logic')
+
+
 if __name__ == '__main__':
     if not shutil.which('rsvg-convert'):
         sys.exit('missing rsvg-convert')
     os.makedirs(OUT, exist_ok=True)
-    books_papers()
-    chinchilla_scaling()
-    zero_sharding()
-    paged_attention()
-    disaggregated_serving()
+    only = set(os.environ.get('ONLY', '').split(',')) - {''}
+    for fn in (books_papers, chinchilla_scaling, zero_sharding, paged_attention, disaggregated_serving,
+               photonic_compute, superconducting_logic):
+        if not only or fn.__name__ in only:
+            fn()
     shutil.rmtree(TMP, ignore_errors=True)

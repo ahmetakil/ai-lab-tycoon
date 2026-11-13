@@ -768,7 +768,49 @@ def plant_dry(s):
     pipe3(s, [(100, 172, 14), (100, 196, 14)], CYAN, sw=8)
 
 
-PLANTS = {'chiller': plant_chiller, 'tower': plant_tower, 'liquid': plant_liquid, 'dry': plant_dry}
+ICE = '#BFEFFF'
+
+
+def cryostat(s, x, y, z, r, h, bands=2):
+    """Frosted vertical dewar with glowing cold bands and a lit cap."""
+    c = s.cyl(x, y, z, r, h, color='#B8D6F2', top='#F2FAFF')
+    for k in range(bands):
+        bx, by = iso(x, y, z + h * (k + 1) / (bands + 1))
+        s.ellipse2(bx, by, c[2], c[3], 'none', stroke=CYAN, sw=2.6, glow=True)
+    s.ellipse2(c[0], c[4], c[2] * 0.5, c[3] * 0.5, CYAN, stroke=None, glow=True)
+    return c
+
+
+def plant_cryo(s):
+    # speculative: a helium refrigeration plant for the cryo-logic vaults
+    ground(s, 100, 100, 175, ICE, 4, 4, 196, 196, op=0.32)
+    pad(s)
+    # compressor hall at the back
+    b = s.box(12, 14, 6, 120, 44, 34, color='#5D7FA8', top='#DCEFFF', right='#3F5C82')
+    for i in range(6):
+        u = 0.04 + i * 0.16
+        s.frect(b, 'left', u, 0.2, u + 0.12, 0.75, '#9EC4E6', stroke=OUT, sw=0.6)
+        s.frect(b, 'left', u + 0.02, 0.58, u + 0.1, 0.68, CYAN, glow=True)
+    for cu in (0.2, 0.5, 0.8):
+        fan_top(s, b, cu, 0.5, 11, blade=SILVER, hub=CYAN)
+    # helium storage spheres on the right
+    for (x, y) in ((160, 30), (168, 78)):
+        p = iso(x, y, 34)
+        s.box(x - 4, y - 4, 6, 8, 8, 14, color=STEEL, sw=1)
+        s.ellipse2(p[0], p[1], 22, 22, '#CFE3F5')
+        s.ellipse2(p[0] - 6, p[1] - 7, 8, 6, WHITE, stroke=None, opacity=0.7)
+    # transfer lines into two big cold boxes
+    pipe3(s, [(72, 58, 30), (72, 96, 30), (60, 120, 30)], ICE, sw=6)
+    pipe3(s, [(110, 58, 24), (110, 110, 24), (128, 128, 24)], ICE, sw=6)
+    cryostat(s, 56, 136, 6, 26, 62)
+    cryostat(s, 136, 146, 6, 22, 50)
+    for (x, y, z) in ((56, 136, 68), (136, 146, 56)):
+        p = iso(x, y, z)
+        s.sparkle(p[0], p[1] - 14, 16, WHITE)
+
+
+PLANTS = {'chiller': plant_chiller, 'tower': plant_tower, 'liquid': plant_liquid, 'dry': plant_dry,
+          'cryo': plant_cryo}
 
 
 # ---- cooling tier icons (simplified, chunkier versions)
@@ -841,7 +883,46 @@ def cool_icon_dry(s):
             fan_top(s, b, 0.27 + i * 0.46, 0.27 + j * 0.46, 15, blade=SILVER, hub=CYAN)
 
 
-COOL_ICONS = {'chiller': cool_icon_chiller, 'tower': cool_icon_tower, 'liquid': cool_icon_liquid, 'dry': cool_icon_dry}
+def cool_icon_cryo(s):
+    cool_plate(s)
+    b = s.box(54, 8, 6, 38, 34, 26, color='#5D7FA8', top='#DCEFFF', right='#3F5C82')
+    fan_top(s, b, 0.5, 0.5, 12, blade=SILVER, hub=CYAN)
+    pipe3(s, [(62, 42, 22), (62, 56, 22), (50, 56, 22)], ICE, sw=6)
+    c = cryostat(s, 36, 60, 6, 24, 62, bands=3)
+    s.sparkle(c[0], c[4] - 18, 22, WHITE)
+
+
+COOL_ICONS = {'chiller': cool_icon_chiller, 'tower': cool_icon_tower, 'liquid': cool_icon_liquid, 'dry': cool_icon_dry,
+              'cryo': cool_icon_cryo}
+
+
+# ---- power tier icons (only the speculative one is generated here; the
+# older power_<id>.png icons predate these scripts)
+def power_icon_fusion_ppa(s):
+    plate(s, AMBER)
+    # a compact tokamak: squat torus vessel ringed by D-shaped magnet coils
+    cx, cy = 50, 50
+    coils = [(cx + 30 * math.cos(t), cy + 30 * math.sin(t))
+             for t in (2 * math.pi * (k + 0.5) / 8 for k in range(8))]
+
+    def coil(x, y):
+        s.box(x - 4, y - 4, 4, 8, 8, 26, color=VIOLET, top=shade(VIOLET, 0.4))
+
+    for x, y in coils:
+        if x + y < cx + cy:
+            coil(x, y)  # behind the vessel
+    vessel = s.cyl(cx, cy, 6, 34, 18, color='#4A5470', top='#6B7898')
+    s.ellipse2(vessel[0], vessel[4], vessel[2] * 0.42, vessel[3] * 0.42, DARK, sw=1.4)
+    # plasma ring (pink/violet glow) in the torus
+    s.ellipse2(vessel[0], vessel[4], vessel[2] * 0.72, vessel[3] * 0.72, 'none', stroke=PINK, sw=5, glow=True)
+    s.ellipse2(vessel[0], vessel[4], vessel[2] * 0.72, vessel[3] * 0.72, 'none', stroke=WHITE, sw=1.6, glow=True)
+    for x, y in sorted(coils, key=lambda c: c[0] + c[1]):
+        if x + y >= cx + cy:
+            coil(x, y)
+    s.bolt(*iso(86, 86, 40), 30, AMBER)
+
+
+POWER_ICONS = {'fusion_ppa': power_icon_fusion_ppa}
 
 
 # ============================================================ 4. moving sequence
@@ -1166,6 +1247,11 @@ def main():
             s = Scene(glow=3.5)
             COOL_ICONS[k](s)
             made.append(icon(s, f'cool_tier_{k}'))
+    for k, fn in POWER_ICONS.items():
+        if want('power_icons') or want(k):
+            s = Scene(glow=3.5)
+            fn(s)
+            made.append(icon(s, f'power_{k}', size=512))
     if want('move'):
         made += move_truck()
         made.append(move_boxes())

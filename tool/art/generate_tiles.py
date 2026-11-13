@@ -309,6 +309,89 @@ def bldg_r_class(s):
     s.box(68, 56, 46, 18, 24, 16, color=NAVY)
 
 
+# ------------------------------------------------ speculative (sci-fi) GPUs
+VIOLET = '#B07CFF'
+PINK = '#FF6FD8'
+ICE = '#BFEFFF'
+
+
+@tile('bldg_p_class', 'gpu')
+def bldg_p_class(s):
+    # Opal photonic stack: a dark glass block of stacked dies, light
+    # conduits (violet/cyan/pink) running up the faces and over the roof
+    # into a glowing prism.
+    cx, cy = iso(50, 50, 40)
+    s.aura(cx, cy, 98, VIOLET, 0.32)
+    s.box(6, 10, 0, 88, 80, 6, color='#1B2140')
+    layers = 4
+    for k in range(layers):
+        b = s.box(10 + k * 3, 14 + k * 3, 6 + k * 10, 80 - k * 6, 72 - k * 6, 10,
+                  color='#202A55', top='#2B3A70')
+        # glassy stripe along each layer's faces
+        s.frect(b, 'left', 0.03, 0.35, 0.97, 0.65, shade(CYAN, -0.55), opacity=0.9)
+        s.frect(b, 'right', 0.03, 0.35, 0.97, 0.65, shade(VIOLET, -0.6), opacity=0.9)
+    top = (10 + 3 * 3, 14 + 3 * 3, 6 + 3 * 10, 80 - 3 * 6, 72 - 3 * 6, 10)
+    # vertical light conduits through the stack (waveguides)
+    cols = [VIOLET, CYAN, PINK, CYAN, VIOLET]
+    for i, c in enumerate(cols):
+        u = 0.12 + i * 0.19
+        s.line3([(10 + u * 80, 86, 6), (19 + u * 62, 77, 46)], c, sw=2.6, glow=True)
+    for i, c in enumerate([PINK, CYAN, VIOLET, PINK]):
+        v = 0.15 + i * 0.23
+        s.line3([(90, 14 + v * 72, 6), (81, 23 + v * 54, 46)], c, sw=2.2, glow=True, opacity=0.9)
+    # roof: waveguide grid feeding a central prism
+    for t in (0.25, 0.5, 0.75):
+        s.fline(top, 'top', [(0.06, t), (0.94, t)], CYAN, sw=1.6, glow=True, opacity=0.8)
+        s.fline(top, 'top', [(t, 0.06), (t, 0.94)], VIOLET, sw=1.6, glow=True, opacity=0.8)
+    px, py, pz = 50, 50, 46
+    tip = (px, py, pz + 30)
+    base4 = [(px - 11, py - 11, pz), (px + 11, py - 11, pz), (px + 11, py + 11, pz), (px - 11, py + 11, pz)]
+    s.poly2([iso(*base4[1]), iso(*base4[2]), iso(*tip)], shade(VIOLET, -0.15), sw=1.2)
+    s.poly2([iso(*base4[2]), iso(*base4[3]), iso(*tip)], shade(CYAN, -0.05), sw=1.2)
+    s.poly2([iso(*base4[2]), iso(*tip), iso(px + 4, py + 4, pz + 12)], WHITE, stroke=None, glow=True, opacity=0.55)
+    tx, ty = iso(*tip)
+    s.sparkle(tx, ty - 2, 14, WHITE)
+
+
+@tile('bldg_s_class', 'gpu')
+def bldg_s_class(s):
+    # Boreal cryo-logic vault: a frosted white-blue vault with a big
+    # cryostat dome on the roof, helium lines and icy glow.
+    cx, cy = iso(50, 50, 30)
+    s.aura(cx, cy, 98, ICE, 0.34)
+    b = s.box(8, 12, 0, 84, 76, 40, color='#5D7FA8', top='#DCEFFF', right='#3F5C82')
+    # frosted panels with ice-cyan seams
+    for i in range(5):
+        u = 0.05 + i * 0.19
+        s.frect(b, 'left', u, 0.12, u + 0.16, 0.8, '#9EC4E6', stroke=OUT, sw=0.6)
+        s.frect(b, 'left', u + 0.02, 0.62, u + 0.14, 0.72, CYAN, glow=True)
+    for i in range(4):
+        u = 0.06 + i * 0.235
+        s.frect(b, 'right', u, 0.15, u + 0.2, 0.8, '#6E92BC', stroke=OUT, sw=0.6)
+        s.frect(b, 'right', u + 0.03, 0.62, u + 0.17, 0.72, shade(CYAN, -0.1), glow=True)
+    # frost rim along the bottom
+    s.frect(b, 'left', 0.0, 0.86, 1.0, 1.0, WHITE, opacity=0.75)
+    s.frect(b, 'right', 0.0, 0.86, 1.0, 1.0, ICE, opacity=0.6)
+    # helium compressor at the back, line into the cryostat
+    s.box(14, 18, 40, 14, 14, 10, color=STEEL)
+    pipe3(s, [(21, 25, 50), (21, 25, 56), (38, 40, 56)], ICE, sw=3)
+    # cryostat: a frosted tank with glowing cold bands
+    s.cyl(50, 50, 40, 24, 6, color='#7FA4CC', top='#DCEFFF')
+    c = s.cyl(50, 50, 46, 17, 26, color='#B8D6F2', top='#F2FAFF')
+    for k, z in enumerate((52, 62)):
+        bx, by = iso(50, 50, z)
+        s.ellipse2(bx, by, c[2], c[3], 'none', stroke=CYAN, sw=2.4, glow=True)
+    s.ellipse2(c[0], c[4], c[2] * 0.55, c[3] * 0.55, CYAN, stroke=None, glow=True)
+    s.sparkle(c[0], c[4] - 2, 12, WHITE)
+    # second compressor in front
+    s.box(70, 66, 40, 14, 14, 10, color=STEEL)
+    pipe3(s, [(77, 73, 50), (77, 73, 56), (62, 62, 56)], ICE, sw=3)
+    # frost crystals on the roof edge
+    for (u, v) in ((0.1, 0.85), (0.9, 0.15), (0.85, 0.9)):
+        px, py = Scene.fpt(b, 'top', u, v)
+        s.sparkle(px, py, 8, WHITE)
+
+
 # ============================================================ Cooling (cyan)
 COOL = '#3E6E95'   # steel-blue chassis for cooling gear
 COOLD = '#2A4D70'

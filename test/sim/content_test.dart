@@ -68,6 +68,8 @@ void main() {
         'rack_r_class',
         'pod_b_class',
         'bldg_r_class',
+        'bldg_p_class',
+        'bldg_s_class',
         'cool_fan',
         'cool_window_ac',
         'cool_crac',
@@ -83,6 +85,7 @@ void main() {
 
     test('ids existing saves rely on are still present', () {
       const v1Power = ['outlet', 'panel', 'office', 'colo', 'hall', 'campus', 'plant'];
+      const v6Power = [...v1Power, 'gw_campus', 'nuclear_restart', 'multi_site'];
       const v1Upgrades = [
         'mixed_precision',
         'batching',
@@ -108,12 +111,12 @@ void main() {
         'reasoning',
       ];
       // Power tiers are saved by index: the v1 tiers must keep their slots.
-      expect(powerTiers.take(v1Power.length).map((p) => p.id), v1Power);
+      expect(powerTiers.take(v6Power.length).map((p) => p.id), v6Power);
       expect(upgrades.map((u) => u.id), containsAll(v1Upgrades));
     });
 
     test('upgrade count stays reasonable and blurbs are one-liners', () {
-      expect(upgrades.length, inInclusiveRange(25, 36));
+      expect(upgrades.length, inInclusiveRange(25, 40));
       for (final u in upgrades) {
         expect(u.blurb.length, lessThanOrEqualTo(140), reason: u.id);
         expect(u.blurb, isNot(contains('\n')), reason: u.id);
@@ -133,13 +136,22 @@ void main() {
             expect(t.tflops, greaterThan(0), reason: t.id);
             expect(t.heat, greaterThan(0), reason: t.id);
             expect(t.gpusPerTile, greaterThanOrEqualTo(1), reason: t.id);
-            // Per-GPU numbers stay in real-world ranges.
-            expect(t.tflops / t.gpusPerTile, inInclusiveRange(20, 4000), reason: t.id);
+            // Per-GPU numbers stay in real-world ranges; the speculative
+            // (sci-fi) tiers past Rubin may beat them, and say so.
+            expect(t.tflops / t.gpusPerTile, inInclusiveRange(20, t.speculative ? 20000 : 4000), reason: t.id);
             expect(t.powerKw / t.gpusPerTile, inInclusiveRange(0.2, 4), reason: t.id);
           case TileKind.cooling:
             expect(t.cooling, greaterThan(0), reason: t.id);
         }
+        // Made-up tech is labelled, comes last and is the endgame only.
+        if (t.speculative) {
+          expect(t.blurb, startsWith('Speculative'), reason: t.id);
+          expect(t.era, Era.globalLab, reason: t.id);
+          expect(t.requires, isNotEmpty, reason: t.id);
+        }
       }
+      final gpus = tiles.where((t) => t.isGpu).toList();
+      expect(gpus.skipWhile((t) => !t.speculative).every((t) => t.speculative), isTrue);
       // Network tiers grow: copper 2–4 GPUs ... optical in the millions,
       // gated in era order, with ids the cable art uses.
       for (var i = 1; i < networkTiers.length; i++) {
@@ -156,7 +168,7 @@ void main() {
       for (var i = 1; i < coolingTiers.length; i++) {
         expect(coolingTiers[i].perGpuTile, greaterThan(coolingTiers[i - 1].perGpuTile));
       }
-      expect(coolingTiers.skip(1).map((c) => c.id), ['chiller', 'tower', 'liquid', 'dry']);
+      expect(coolingTiers.skip(1).map((c) => c.id), ['chiller', 'tower', 'liquid', 'dry', 'cryo']);
     });
 
     test('power tiers grow and newer GPUs dominate older ones', () {
@@ -229,7 +241,9 @@ void main() {
           expect(tiles.where((t) => t.era == era && t.kind == kind), isNotEmpty, reason: '${era.name} ${kind.name}');
         }
         expect(powerTiers.where((p) => p.era == era), isNotEmpty, reason: era.name);
-        expect(upgrades.where((u) => u.era == era).length, inInclusiveRange(3, 6), reason: era.name);
+        // The Frontier also carries the speculative hardware research.
+        expect(upgrades.where((u) => u.era == era).length, inInclusiveRange(3, era == Era.globalLab ? 8 : 6),
+            reason: era.name);
       }
     });
 

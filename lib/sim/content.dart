@@ -300,6 +300,10 @@ class TileDef {
   /// maxSupplyPremium × list price. See Game.tilePrice.
   final double priceGrowth;
 
+  /// Made-up, near-future hardware (the sci-fi endgame past Rubin). Its
+  /// blurb says so, and its per-GPU numbers may leave real-world ranges.
+  final bool speculative;
+
   const TileDef({
     required this.id,
     required this.name,
@@ -316,6 +320,7 @@ class TileDef {
     this.requires = const [],
     this.minPowerTier = 0,
     this.priceGrowth = 0,
+    this.speculative = false,
   });
 
   bool get isGpu => kind == TileKind.gpu;
@@ -669,6 +674,48 @@ const tiles = <TileDef>[
     powerKw: 450,
     cooling: 3000,
   ),
+
+  // --- Speculative GPUs (made-up, near-future tech; [TileDef.speculative]) --
+  // The endgame past Rubin: each is gated by Frontier research and a power
+  // tier, and still beats the tier before it per $ and per kW at list price.
+  TileDef(
+    id: 'bldg_p_class',
+    name: 'Opal photonic stack',
+    blurb:
+        'Speculative: 3D-stacked chips that multiply matrices with light. '
+        'Waveguides don\'t heat like copper: ~2.7× Rubin\'s math per watt.',
+    kind: TileKind.gpu,
+    era: Era.globalLab,
+    rooms: {'gigasite'},
+    cost: 7e7,
+    powerKw: 22938, // 8192 × 2.8
+    tflops: 65536000, // 8192 × 8000
+    heat: 600,
+    gpusPerTile: 8192,
+    requires: ['photonic_compute'],
+    minPowerTier: 8, // nuclear_restart
+    priceGrowth: 0.05,
+    speculative: true,
+  ),
+  TileDef(
+    id: 'bldg_s_class',
+    name: 'Boreal cryo-logic vault',
+    blurb:
+        'Speculative: superconducting chips at 4 K. Zero-resistance wires '
+        'switch on a whisper of energy; the cryoplant is the catch.',
+    kind: TileKind.gpu,
+    era: Era.globalLab,
+    rooms: {'gigasite'},
+    cost: 9.5e7,
+    powerKw: 13107, // 8192 × 1.6, cryocoolers included
+    tflops: 98304000, // 8192 × 12000
+    heat: 1400, // every watt at 4 K costs hundreds at the wall to pump out
+    gpusPerTile: 8192,
+    requires: ['superconducting_logic'],
+    minPowerTier: 10, // fusion_ppa
+    priceGrowth: 0.05,
+    speculative: true,
+  ),
 ];
 
 const rooms = <RoomDef>[
@@ -752,7 +799,7 @@ const rooms = <RoomDef>[
     cost: 2e7,
     ambientCooling: 70,
     tileScaleLabel: 'building (~8k GPUs)',
-    maxPowerTier: 9, // multi-site cluster (4 GW)
+    maxPowerTier: 10, // compact fusion PPA (10 GW)
   ),
 ];
 
@@ -880,6 +927,16 @@ const powerTiers = <PowerDef>[
     era: Era.globalLab,
     capacityKw: 4e6,
     cost: 2.9e8,
+  ),
+  PowerDef(
+    id: 'fusion_ppa',
+    name: 'Compact fusion PPA',
+    blurb:
+        'Speculative: buy the output of compact tokamaks held by '
+        'high-temperature superconducting magnets. Ignition: next year, again.',
+    era: Era.globalLab,
+    capacityKw: 1e7,
+    cost: 7e8,
   ),
 ];
 
@@ -1025,6 +1082,17 @@ const coolingTiers = <CoolingDef>[
     era: Era.globalLab,
     perGpuTile: 550,
     cost: 1.25e7,
+  ),
+  CoolingDef(
+    id: 'cryo',
+    name: 'Cryogenic helium plant',
+    blurb:
+        'Speculative scale: helium refrigerators hold the vaults at 4 K. Each '
+        'watt pumped out at 4 K costs hundreds of watts at the wall.',
+    era: Era.globalLab,
+    perGpuTile: 1500,
+    cost: 3e7,
+    requires: ['superconducting_logic'],
   ),
 ];
 
@@ -1433,6 +1501,31 @@ const upgrades = <UpgradeDef>[
     cost: 3e9,
     // Was ×1.4 before model design added INT4, GQA and SSM serving.
     effects: Effects(serveEffMult: 1.2),
+  ),
+  // Speculative hardware research (made-up, near-future tech): it only
+  // unlocks the sci-fi tiers past Rubin.
+  UpgradeDef(
+    id: 'photonic_compute',
+    name: 'Photonic computing',
+    blurb:
+        'Speculative: do matrix multiplies with light in on-chip '
+        'interferometer meshes. Photons don\'t heat wires: far less energy per op.',
+    category: UpgradeCategory.software,
+    era: Era.globalLab,
+    cost: 3.6e9,
+    effects: Effects(),
+  ),
+  UpgradeDef(
+    id: 'superconducting_logic',
+    name: 'Superconducting logic',
+    blurb:
+        'Speculative: niobium Josephson-junction chips at 4 K. Bits ride '
+        'single flux quanta, switching on ~1000× less energy than CMOS.',
+    category: UpgradeCategory.software,
+    era: Era.globalLab,
+    cost: 1.5e10,
+    effects: Effects(),
+    requires: ['photonic_compute'],
   ),
 ];
 
