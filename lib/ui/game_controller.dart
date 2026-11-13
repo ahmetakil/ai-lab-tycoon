@@ -23,6 +23,9 @@ class GameController extends ChangeNotifier with WidgetsBindingObserver {
   /// Debug speed multiplier (1 = normal).
   double speed = 1;
 
+  /// Bumped by [resetGame]; the app rebuilds the whole shell on it.
+  final resets = ValueNotifier<int>(0);
+
   /// Set after load if the player was away; the UI shows it once and clears it.
   OfflineReport? offlineReport;
 
@@ -117,6 +120,12 @@ class GameController extends ChangeNotifier with WidgetsBindingObserver {
     // A fresh game starts at normal speed, not at the last playtest speed.
     speed = 1;
     await save();
+    // A full restart: the intro and the tutorial play again too. (Sound
+    // settings and the analytics id are kept.)
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('intro_seen_v1'); // kIntroSeenKey
+    await prefs.remove('tutorial_done_v1'); // GameShell._tutorialKey
+    resets.value++;
     notifyListeners();
   }
 

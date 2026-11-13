@@ -265,9 +265,12 @@ class GameState {
   /// The UI can show "fresh start" and skip offline progress.
   bool startedFromOldSave = false;
 
-  /// Bumped on every grid change; Game caches grid stats against it (and the
-  /// network and cooling tiers). Not saved.
-  int gridRevision = 0;
+  /// Changes on every grid change; Game and the room painter cache against
+  /// it (and the network and cooling tiers). Not saved. Drawn from one
+  /// process-wide counter so a new state (reset, load) never reuses an old
+  /// state's value and shows its stale grid.
+  int gridRevision = ++_revisionCounter;
+  static int _revisionCounter = 0;
 
   GameState({
     this.time = 0,
@@ -347,11 +350,11 @@ class GameState {
   void setTile(String roomId, int x, int y, String? tileId) {
     final room = roomById(roomId)!;
     grids[roomId]![y * room.width + x] = tileId;
-    gridRevision++;
+    gridRevision = ++_revisionCounter;
   }
 
   /// Call after mutating [grids] directly.
-  void touchGrid() => gridRevision++;
+  void touchGrid() => gridRevision = ++_revisionCounter;
 
   /// Count of each placed tile id.
   Map<String, int> get tileCounts {

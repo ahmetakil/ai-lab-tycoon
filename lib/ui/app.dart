@@ -21,7 +21,12 @@ class AiLabTycoonApp extends StatelessWidget {
       theme: buildTheme(),
       darkTheme: buildTheme(),
       themeMode: ThemeMode.dark,
-      home: GameShell(controller: controller),
+      // Keyed on the Game so a reset rebuilds every screen from scratch
+      // (no build mode, camera, caches or animations from the old run).
+      home: ValueListenableBuilder<int>(
+        valueListenable: controller.resets,
+        builder: (context, n, _) => GameShell(key: ValueKey('game-$n'), controller: controller),
+      ),
     );
   }
 }
