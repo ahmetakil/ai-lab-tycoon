@@ -475,7 +475,9 @@ class _GridLayers extends StatelessWidget {
         if (rows.values.fold(0, (a, r) => a + r.length) > 1)
           Positioned.fill(
             child: IgnorePointer(
-              child: CustomPaint(painter: _CablePainter(geo, rows, g.network.id)),
+              child: CustomPaint(
+                painter: _CablePainter(geo, rows, g.network.id, ground: room.width >= 18),
+              ),
             ),
           ),
         if (gridKey.buildMode && cluster != null)
@@ -525,17 +527,26 @@ class _ClusterLabel extends StatelessWidget {
 
 /// Cable trays hung above the GPU rows: one run per row over its GPUs, drops
 /// down to each tile, and a trunk joining the rows. Style follows the tier.
+/// On campus-sized sites ([ground]) every tile is a whole pod or building,
+/// so the runs are buried fiber trenches on the ground instead: thin, dim
+/// and without drops (overhead trays there floated far above the floor).
 class _CablePainter extends CustomPainter {
   final RoomGeo geo;
   final Map<int, List<int>> rows;
   final String tierId;
-  _CablePainter(this.geo, this.rows, this.tierId);
+  final bool ground;
+  _CablePainter(this.geo, this.rows, this.tierId, {this.ground = false});
 
-  static const _z = 105.0;
+  double get _z => ground ? 1.0 : 105.0;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final (color, width, glow) = cableStyle(tierId);
+    var (color, width, glow) = cableStyle(tierId);
+    if (ground) {
+      color = color.withValues(alpha: 0.45);
+      width *= 0.45;
+      glow = 0;
+    }
     final sw = width * geo.scale * 1.6;
     final shadow =
         Paint()
@@ -554,7 +565,7 @@ class _CablePainter extends CustomPainter {
         Paint()
           ..color = color.withValues(alpha: 0.55)
           ..strokeWidth = math.max(1, sw * 0.45);
-    Offset p(double gx, double gy, [double z = _z]) => geo.svgToLocal(geo.gridSvg(gx, gy, z));
+    Offset p(double gx, double gy, [double? z]) => geo.svgToLocal(geo.gridSvg(gx, gy, z ?? _z));
     final ys = rows.keys.toList()..sort();
     final path = Path();
     var trunkX = double.infinity;
@@ -568,8 +579,10 @@ class _CablePainter extends CustomPainter {
       path
         ..moveTo(a.dx, a.dy)
         ..lineTo(b.dx, b.dy);
-      for (final x in xs) {
-        canvas.drawLine(p(x + 0.5, y + 0.5), p(x + 0.5, y + 0.5, 70), drop);
+      if (!ground) {
+        for (final x in xs) {
+          canvas.drawLine(p(x + 0.5, y + 0.5), p(x + 0.5, y + 0.5, 70), drop);
+        }
       }
     }
     if (ys.length > 1) {
@@ -583,7 +596,8 @@ class _CablePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_CablePainter old) => old.tierId != tierId || old.rows != rows;
+  bool shouldRepaint(_CablePainter old) =>
+      old.tierId != tierId || old.rows != rows || old.ground != ground;
 }
 
 class _FloorPainter extends CustomPainter {
