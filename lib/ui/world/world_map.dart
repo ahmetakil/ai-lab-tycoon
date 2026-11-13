@@ -22,7 +22,11 @@ import 'room_grid.dart';
 import 'world_layout.dart';
 
 /// How long the move moment lasts (tap skips it).
-const kMoveDuration = Duration(milliseconds: 2800);
+const kMoveDuration = Duration(milliseconds: 3200);
+
+/// Point of the move moment where the truck pulls up at the new place and
+/// your gear is unloaded (the tiles appear); see [_MovingTruck].
+const kMoveArrive = 0.75;
 
 class WorldMap extends StatefulWidget {
   final GameController controller;
@@ -330,7 +334,7 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
                   clock: _seconds,
                   reveal: fadeIn,
                   // Tiles pop in once the room has faded in.
-                  showGrid: !moving || _move.value > 0.45,
+                  showGrid: !moving || _move.value >= 1,
                   move: _move,
                   buildState: widget.build,
                   hasFounder: geoOf(id).art.seat != null,
@@ -655,7 +659,7 @@ class _MovingTruck extends StatelessWidget {
     return AnimatedBuilder(
       animation: t,
       builder: (context, _) {
-        final k = Curves.easeInOutCubic.transform(((t.value - 0.05) / 0.7).clamp(0.0, 1.0));
+        final k = Curves.easeInOutCubic.transform(((t.value - 0.05) / (kMoveArrive - 0.05)).clamp(0.0, 1.0));
         final p = Offset.lerp(from, to, k)!;
         final fade = t.value > 0.85 ? (1 - (t.value - 0.85) / 0.15) : 1.0;
         final bounce = math.sin(t.value * math.pi * 14).abs() * 6;
@@ -804,7 +808,7 @@ class _OwnedRoom extends StatelessWidget {
                 cheering: cheering,
               ),
             ),
-          // While moving, the tiles pop in once the room has faded in.
+          // While moving, the tiles appear once the truck has arrived.
           if (showGrid)
             RoomGrid(
               controller: controller,
@@ -819,12 +823,16 @@ class _OwnedRoom extends StatelessWidget {
               animation: move,
               builder:
                   (context, _) =>
-                      move.value > 0.45
-                          ? RoomGrid(
-                            controller: controller,
-                            room: room,
-                            build: buildState,
-                            onCellTap: onCellTap,
+                      move.value > kMoveArrive
+                          ? Opacity(
+                            // Unloaded off the truck as it pulls up.
+                            opacity: ((move.value - kMoveArrive) / 0.12).clamp(0.0, 1.0),
+                            child: RoomGrid(
+                              controller: controller,
+                              room: room,
+                              build: buildState,
+                              onCellTap: onCellTap,
+                            ),
                           )
                           : const SizedBox.shrink(),
             ),
