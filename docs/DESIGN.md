@@ -92,10 +92,9 @@ beat rival labs.
 
 ## Rules
 - Parody names only. Never real company or product names, logos or people.
-- Upgrade blurbs must be technically accurate. Made-up tech is labelled: only the
+- Upgrade blurbs must be technically accurate. Made-up tech is limited to the
   speculative endgame past Rubin (photonic stacks, superconducting cryo-logic, a
-  compact fusion PPA, a cryogenic plant), each blurb starting "Speculative:" and
-  saying what physics would make it better.
+  compact fusion PPA, a cryogenic plant). Blurbs don't label it "Speculative" (it's obvious); they say what physics would make it better.
 - No real-money monetization in v1.
 
 ## Out of scope for v1

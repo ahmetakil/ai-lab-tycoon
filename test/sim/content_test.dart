@@ -143,9 +143,8 @@ void main() {
           case TileKind.cooling:
             expect(t.cooling, greaterThan(0), reason: t.id);
         }
-        // Made-up tech is labelled, comes last and is the endgame only.
+        // Made-up tech comes last and is the endgame only.
         if (t.speculative) {
-          expect(t.blurb, startsWith('Speculative'), reason: t.id);
           expect(t.era, Era.globalLab, reason: t.id);
           expect(t.requires, isNotEmpty, reason: t.id);
         }

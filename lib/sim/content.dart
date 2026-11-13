@@ -682,7 +682,7 @@ const tiles = <TileDef>[
     id: 'bldg_p_class',
     name: 'Opal photonic stack',
     blurb:
-        'Speculative: 3D-stacked chips that multiply matrices with light. '
+        '3D-stacked chips that multiply matrices with light. '
         'Waveguides don\'t heat like copper: ~2.7× Rubin\'s math per watt.',
     kind: TileKind.gpu,
     era: Era.globalLab,
@@ -701,7 +701,7 @@ const tiles = <TileDef>[
     id: 'bldg_s_class',
     name: 'Boreal cryo-logic vault',
     blurb:
-        'Speculative: superconducting chips at 4 K. Zero-resistance wires '
+        'Superconducting chips at 4 K. Zero-resistance wires '
         'switch on a whisper of energy; the cryoplant is the catch.',
     kind: TileKind.gpu,
     era: Era.globalLab,
@@ -932,7 +932,7 @@ const powerTiers = <PowerDef>[
     id: 'fusion_ppa',
     name: 'Compact fusion PPA',
     blurb:
-        'Speculative: buy the output of compact tokamaks held by '
+        'Buy the output of compact tokamaks held by '
         'high-temperature superconducting magnets. Ignition: next year, again.',
     era: Era.globalLab,
     capacityKw: 1e7,
@@ -1087,7 +1087,7 @@ const coolingTiers = <CoolingDef>[
     id: 'cryo',
     name: 'Cryogenic helium plant',
     blurb:
-        'Speculative scale: helium refrigerators hold the vaults at 4 K. Each '
+        'Helium refrigerators hold the vaults at 4 K. Each '
         'watt pumped out at 4 K costs hundreds of watts at the wall.',
     era: Era.globalLab,
     perGpuTile: 1500,
@@ -1526,7 +1526,7 @@ const upgrades = <UpgradeDef>[
     id: 'photonic_compute',
     name: 'Photonic computing',
     blurb:
-        'Speculative: do matrix multiplies with light in on-chip '
+        'Do matrix multiplies with light in on-chip '
         'interferometer meshes. Photons don\'t heat wires: far less energy per op.',
     category: UpgradeCategory.software,
     era: Era.globalLab,
@@ -1537,7 +1537,7 @@ const upgrades = <UpgradeDef>[
     id: 'superconducting_logic',
     name: 'Superconducting logic',
     blurb:
-        'Speculative: niobium Josephson-junction chips at 4 K. Bits ride '
+        'Niobium Josephson-junction chips at 4 K. Bits ride '
         'single flux quanta, switching on ~1000× less energy than CMOS.',
     category: UpgradeCategory.software,
     era: Era.globalLab,

@@ -94,8 +94,8 @@ and **cooling** (network switch tiles are gone since v4).
 | `bldg_s_class` ✦ | gigasite | 8.2k | 98.3M | 13.1k | 1400 | $95M (+5%) | superconducting_logic, tier 10 (fusion_ppa) |
 
 ✦ **Speculative (sci-fi) tiers past Rubin** (`TileDef.speculative`, appended
-after the coolers in `tiles`): made-up, near-future hardware, labelled
-"Speculative:" in the blurb. The *Opal photonic stack* multiplies matrices
+after the coolers in `tiles`): made-up, near-future hardware (no "Speculative" label in
+the blurb; it's obvious). The *Opal photonic stack* multiplies matrices
 with light in 3D-stacked chips (8k TFLOPS, 2.8 kW per chip: ~2.7× Rubin per
 watt). The *Boreal cryo-logic vault* runs superconducting logic at 4 K
 (12k TFLOPS, 1.6 kW per chip with its cryocoolers) and runs hot in game

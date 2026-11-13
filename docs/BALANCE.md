@@ -336,7 +336,7 @@ PPA allows; ~77% of the 4 GW multi-site tier). v5 sat in a full colo (504 GPUs, 
 ### The speculative endgame (sci-fi tiers past Rubin)
 
 Rubin is the newest real hardware, so two invented generations sit after it
-(`TileDef.speculative`; blurbs start with "Speculative:"). They follow the
+(`TileDef.speculative`; blurbs don't spell out "Speculative"). They follow the
 same rule as every tier: better per $ and per kW at list price, hard to get
 through gates.
 
