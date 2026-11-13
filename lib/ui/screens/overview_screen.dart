@@ -1267,6 +1267,8 @@ String specSummary(ModelSpec s) {
       Attention.gqa => 'GQA',
       Attention.slidingWindow => 'Sliding window',
       Attention.hybridSsm => 'Hybrid SSM',
+      Attention.latent => 'MLA',
+      Attention.hybridLinear => 'Hybrid linear',
     },
     s.context.label,
     '${s.sizing.tokensPerParam.round()} tok/param',

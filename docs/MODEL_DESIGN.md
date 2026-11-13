@@ -81,6 +81,8 @@ from DeepSeek-V3's ~1:1 compute:communication ratio. Without `router_balancing` 
 | GQA | `gqa` | 0.99 | ×0.7 | ×1.15 | ×1 |
 | Sliding window | `sliding_window` | 0.96 | ×0.6 | ×1.05 | ×0.8 |
 | Hybrid SSM | `ssm_hybrid` | 1.02 | ×0.5 | ×1.03 | ×0.92 |
+| Latent attention (MLA) | `latent_attention` | 1.00 | ×0.6 | ×1.08 | ×1 |
+| Hybrid linear attention | `linear_attention_hybrid` | 1.03 | ×0.5 | ×1.02 | ×1 |
 
 ### Context length (§4)
 Tiers: 2k (−1), 4k (0), 8k (1), 32k (2), 128k (3), 1M (4).
@@ -110,6 +112,10 @@ Tiers: 2k (−1), 4k (0), 8k (1), 32k (2), 128k (3), 1M (4).
 | Code-heavy | 30/55/15/0 | `code_data` | 1.13 | ×2.43 | ×1 |
 | Synthetic-augmented | 40/20/15/25 | `synthetic_data` | 1.12 | ×1.43 | ×1.17 |
 | Mostly synthetic | 15/10/5/70 | `synthetic_data` | 0.74 | ×1.03 | ×2.17 |
+| Filtered + rephrased | 35/25/15/25 | `rephrased_data` | 1.21 | ×1.57 | ×1.17 |
+
+Filtered + rephrased adds a model-based quality-filter factor (`curatedQuality` 1.06, Design,
+DCLM direction) on top of the code/books terms; its synthetic share is rephrased real documents.
 
 - `CEM_code = 1 + 0.4 × min(code, 0.3)`, ×`(1 − 0.6 × (code − 0.5))` past 50% code (knowledge
   and chat penalty). `CEM_books = 1 + 0.25 × min(books, 0.2)` (Design).
@@ -125,6 +131,7 @@ Tiers: 2k (−1), 4k (0), 8k (1), 32k (2), 128k (3), 1M (4).
 | RLHF | `rlhf` | +70·g(x) | +4%·k | ×1 | ×(1 + 0.1·g) |
 | DPO | `dpo` | +63·g(x), d* ×0.8 | +1.2%·k | ×1 | ×(1 + 0.1·g) |
 | RL reasoning | `reasoning` | +50 + 70·g(x) | +14%·k | ×6 (×2.5 with `adaptive_thinking`) | ×1.25 (and ×(1 + 0.1·g)) |
+| Multi-stage RL | `post_training_pipeline` | RL reasoning + 10 | +22%·k | as RL reasoning | as RL reasoning ×1.1, chat ×1.15 |
 
 - **RL strength** k ∈ {0.5, 1, 1.5, 2, 3} × the reward model's sweet spot d*. `x = k/d*`,
   `g(x) = x(1 − ln x)` (Gao 2022, normalised): g(1) = 1, g(0.5) = 0.85, g(2) = 0.61,
@@ -141,6 +148,7 @@ Tiers: 2k (−1), 4k (0), 8k (1), 32k (2), 128k (3), 1M (4).
 | FP16 | — | ×1 | 1 |
 | INT8 | `quantization` | ×0.55 | 1 |
 | INT4 | `int4_weights` | ×0.35 | `0.97 − 0.08 × max(0, log10(r/20))` |
+| FP4 (QAT) | `fp4_qat` | ×0.3 | `0.99 − 0.04 × max(0, log10(r/20))` |
 
 **INT4 on an over-trained model**: 0.89 at r = 200, 0.83 at r = 1000 (Kumar 2024). The doc's
 0.03 slope was steepened to 0.08 so the mistake is visible.
@@ -154,6 +162,55 @@ collapse penalties), long context (see above). Reasoning multiplies math and cod
 `ModelSpec.bestGuessFor(ctx)` runs coordinate ascent (3 passes over all slots) on
 `designScore = ratingDelta + 30·log2(demand) − 6·log2(serve) + E[risk]`. Raise `serveWeight`
 when capacity-limited, so the bot picks over-training or INT4.
+
+## Frontier recipe (public sources)
+The best non-sci-fi design at the end (Frontier lab, all research) should look like how
+frontier models are built today, as far as public reports say. Labs don't publish full recipes,
+so this follows technical reports of open frontier models and published papers; in-game text
+never claims internal details of a named commercial model.
+
+With everything researched, `bestGuessFor` (default weights, fat-tree network) picks
+**Fine-grained MoE · Hybrid linear attention · 1M · 20 tok/param · Filtered + rephrased ·
+Multi-stage RL (strong) · FP4 (QAT)** (before: Hybrid SSM · Balanced · RL reasoning · INT4).
+The Big lab optimum is unchanged (Fine-grained MoE, Hybrid SSM, RL reasoning, INT4) and earlier
+eras still pick dense / MHA / short context (`test/sim/model_design_test.dart`, "frontier recipe").
+
+| Ingredient | In the game | Where |
+|---|---|---|
+| Sparse MoE, many fine-grained + shared experts, aux-loss-free balancing | yes | Fine-grained MoE, `router_balancing` |
+| Efficient attention (GQA, MLA, hybrid local/global or linear) | GQA, sliding window, hybrid SSM; **added** MLA (Big lab) and hybrid linear attention (Frontier) | Attention |
+| ≥1M context via staged extension | yes | RoPE scaling → YaRN → ring attention, `long_data`, long-context anneal |
+| Data scale, quality filtering, synthetic data | dedup, synthetic mixes; **added** model-based filtering + rephrasing | Data mix |
+| Low-precision training (FP8, FP4 emerging) | FP8 (flat research); **added** FP4 with QAT | `fp8`, Serving precision |
+| Multi-token prediction | yes (flat research) | `multi_token_prediction` |
+| SFT → preference optimization → large-scale RL with verifiable rewards | single-method choices; **added** the multi-stage pipeline | Post-training |
+| AI feedback / constitution-style safety | RLAIF (flat), safety phase; **added** as the pipeline's last stage | Post-training |
+| Agentic / tool-use RL | yes | `agentic_rl`, Agentic RL phase |
+| Test-time reasoning, thinking budgets | yes | RL reasoning, `adaptive_thinking`, `test_time_compute` |
+| Distillation into smaller served models | yes (flat serving research) | `distillation` |
+| Native multimodality | partly (multimodal anneal phase, Big lab era) | Run phases |
+
+Sources: DeepSeek-V2 (MLA, 2024); DeepSeekMoE (Dai 2024); DeepSeek-V3 Technical Report (FP8
+training, multi-token prediction, aux-loss-free balancing, 2024); DeepSeek-R1 (multi-stage
+post-training, rule-based rewards, 2025); The Llama 3 Herd of Models (Dubey 2024: SFT + DPO
+rounds, staged long-context pre-training, annealing); Qwen3 Technical Report (2025: four-stage
+post-training, thinking budgets, YaRN to 128k); Qwen2.5-1M (2025: staged 1M context); Kimi K2
+(2025: MuonClip, rephrased pre-training data, large-scale agentic RL); Kimi Linear (2025) and
+Gated Delta Networks (Yang 2024): hybrid linear attention; MiniMax-01 (2025: lightning attention
+hybrid, 1M+ context); Gemma 3 Technical Report (2025: interleaved local/global attention,
+distillation); DataComp-LM (Li 2024) and FineWeb-Edu (Penedo 2024): classifier quality
+filtering; Rephrasing the Web (Maini 2024); Microscaling Data Formats (Rouhani 2023) and
+Pretraining LLMs with NVFP4 (NVIDIA 2025); Constitutional AI (Bai 2022); SWE-RL (Wei 2025).
+
+**Balance.** The recipe adds about +15 to the endgame design score (about +10 from multi-stage
+RL, +2 each from the data mix and FP4, +1 from attention; +9 of it is rating, the rest demand and
+serving). It is paid for inside the recipe: the multi-stage RL
+costs +8%·k extra training compute (large-scale RL is a big share of the run), and the five
+research items cost 0.6–3B, money that would otherwise buy GPUs in the last hour. Over seeds
+12345, 1, 777, 42, 2024, 9 the final rival lands at a mean of 7h06 on the defaults (7h07
+before) and 7h07 with `--phases` (7h10 before). The bot buys FP4 and the multi-stage RL and
+ships with them; it skips hybrid linear attention (+0.3 rating for a rating-chasing run at 4k
+context isn't worth 2B), which is the right call for its weights.
 
 ## Run phases (mid-run decisions)
 Game Dev Tycoon's development stages, for training runs. Code: `lib/sim/run_phases.dart`
@@ -275,6 +332,14 @@ New entries in `designUpgrades` (identity `Effects`; their value is the option t
 | `dpo` | Direct Preference Optimization | Big lab | 500M | Post-training | rlhf | DPO |
 | `reward_model_scaling` | Bigger reward models | Big lab | 900M | Post-training | rlhf | RL sweet spot ×1.5 |
 | `adaptive_thinking` | Adaptive thinking budgets | Frontier lab | 12B | Post-training | reasoning | reasoning serving ×2.5 |
+| `latent_attention` | Multi-head latent attention | Big lab | 600M | Pre-training | gqa | Latent attention (MLA) |
+| `linear_attention_hybrid` | Hybrid linear attention | Frontier lab | 2B | Pre-training | ssm_hybrid | Hybrid linear attention |
+| `rephrased_data` | Model-filtered & rephrased data | Frontier lab | 2.5B | Data | synthetic_data | Filtered + rephrased mix |
+| `fp4_qat` | Native FP4 (quantization-aware) | Frontier lab | 1.5B | Infrastructure | fp8, int4_weights | FP4 (QAT) |
+| `post_training_pipeline` | Multi-stage post-training | Frontier lab | 3B | Post-training | reasoning, rlaif | Multi-stage RL |
+
+The last five (the frontier recipe) are listed with their code costs; the table's older costs
+predate the v6 pacing pass, `designUpgrades` is the source of truth.
 
 Existing ids reused as unlocks: `moe`, `chinchilla_scaling`, `flash_attention`, `long_context`,
 `code_data`, `books_papers`, `synthetic_data`, `rlhf`, `reasoning`, `quantization`.
