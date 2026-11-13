@@ -89,6 +89,21 @@ enum Attention implements DesignChoice {
     'Mostly Mamba-style state-space layers with a few attention layers: '
         'near-constant memory per token and a slight quality gain.',
     ['ssm_hybrid'],
+  ),
+  // Appended (saves store names).
+  latent(
+    'Latent attention (MLA)',
+    'Keys and values are compressed into one small latent vector per token '
+        'and expanded on the fly: a KV cache smaller than GQA\'s at '
+        'full-attention quality.',
+    ['latent_attention'],
+  ),
+  hybridLinear(
+    'Hybrid linear attention',
+    'Most layers use gated linear attention (DeltaNet-style) with a '
+        'fixed-size state; a full attention layer every few layers keeps '
+        'exact recall. Near-constant memory, slightly better quality.',
+    ['linear_attention_hybrid'],
   );
 
   const Attention(this.label, this.blurb, this.requires);
@@ -263,9 +278,34 @@ enum DataMix implements DesignChoice {
     'Model output replaces most real data: lots of tokens, but the rare '
         'tails vanish (model collapse).',
     ['synthetic_data'],
+  ),
+  // Appended (saves store names).
+  curated(
+    0.35,
+    0.25,
+    0.15,
+    0.25,
+    'Filtered + rephrased',
+    'A classifier keeps the most educational web pages, and a model '
+        'rephrases the best documents into new wording: more value per '
+        'token, real facts kept.',
+    ['rephrased_data'],
+    quality: curatedQuality,
   );
 
-  const DataMix(this.webShare, this.code, this.books, this.synthetic, this.label, this.blurb, this.requires);
+  const DataMix(
+    this.webShare,
+    this.code,
+    this.books,
+    this.synthetic,
+    this.label,
+    this.blurb,
+    this.requires, {
+    this.quality = 1,
+  });
+
+  /// Compute-equivalent gain from model-based quality filtering (1 = none).
+  final double quality;
 
   /// Shares of the training tokens (sum to 1).
   final double webShare;
@@ -310,6 +350,14 @@ enum PostTraining implements DesignChoice {
         'to think at length. Much better at math, but answers run several '
         'times longer, so serving costs more.',
     ['reasoning'],
+  ),
+  // Appended (saves store names).
+  pipeline(
+    'Multi-stage RL',
+    'SFT cold start, preference tuning, large-scale RL on verifiable math, '
+        'code and agent tasks, then a general RL pass graded by reward models '
+        'and a written constitution for helpfulness and safety.',
+    ['post_training_pipeline'],
   );
 
   const PostTraining(this.label, this.blurb, this.requires);
@@ -324,7 +372,10 @@ enum PostTraining implements DesignChoice {
   @override
   String get id => name;
 
-  bool get usesRl => this == rlhf || this == dpo || this == reasoning;
+  bool get usesRl => this == rlhf || this == dpo || this == reasoning || this == pipeline;
+
+  /// Trained with RL on verifiable rewards: thinks at length before answering.
+  bool get thinks => this == reasoning || this == pipeline;
 }
 
 /// How far RL moves the policy from the SFT model, as a multiple of the
@@ -366,6 +417,14 @@ enum Quantization implements DesignChoice {
     '4-bit weights (GPTQ/AWQ): ~3× faster serving, small loss that grows '
         'the more over-trained the model is.',
     ['int4_weights'],
+  ),
+  // Appended (saves store names).
+  fp4(
+    'FP4 (QAT)',
+    'Block-scaled 4-bit floats (MXFP4/NVFP4) on the newest tensor cores, '
+        'with quantization-aware training so the weights are learned for '
+        '4-bit: cheaper than INT4 with almost none of its loss.',
+    ['fp4_qat'],
   );
 
   const Quantization(this.label, this.blurb, this.requires);
@@ -804,6 +863,27 @@ const reasoningMinBaseRating = 1000.0;
 /// blend (Design), ×2.5 once thinking budgets adapt to difficulty.
 const reasoningServeMult = 6.0;
 const adaptiveReasoningServeMult = 2.5;
+/// Multi-stage post-training on top of RL reasoning: the general RL pass
+/// (reward models plus written principles) restores chat and adds
+/// helpfulness and safety (DeepSeek-R1's last stage; Constitutional AI
+/// finds AI feedback can be more harmless without being more evasive).
+/// Design numbers.
+const pipelineBonus = 10.0;
+const pipelineDemand = 1.1;
+/// Extra training compute per unit of RL strength: large-scale RL on many
+/// environments is a sizeable share of the run (Design).
+const pipelineTrainPerKl = 0.08;
+
+/// Model-based quality filtering (DCLM, FineWeb-Edu): a classifier-filtered
+/// corpus trains a better model on the same compute. Design.
+const curatedQuality = 1.06;
+
+/// FP4 with quantization-aware training: the weights are learned for 4-bit,
+/// so the loss is far below post-hoc INT4 and grows half as fast with
+/// over-training; FP4 tensor cores also run ~2× FP8's math (Design).
+const fp4Quality = 0.99;
+const fp4OvertrainPenalty = 0.04;
+const fp4Serve = 0.3;
 const moeCollapseChance = 0.25;
 const moeCollapsedCem = 1.2;
 
@@ -924,6 +1004,12 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
     Attention.gqa => (0.99, 0.7, 1.15, 1.0),
     Attention.slidingWindow => (0.99 * 0.97, 0.6, 1.05, 0.8),
     Attention.hybridSsm => (1.02, 0.5, 1.03, 0.92),
+    // MLA caches one compressed latent per token (smaller than GQA's
+    // cache) and matches or beats MHA in DeepSeek-V2's ablations.
+    Attention.latent => (1.0, 0.6, 1.08, 1.0),
+    // Linear-attention layers with a few full layers: SSM-class memory, and
+    // the full layers keep long-range recall (Kimi Linear, Qwen3-Next).
+    Attention.hybridLinear => (1.03, 0.5, 1.02, 1.0),
   };
   cem *= attnCem;
   serve *= attnServe;
@@ -945,6 +1031,20 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
         DesignSlot.attention,
         'Hybrid SSM: serving ×0.5, near-constant memory, quality +2%',
         'An Empirical Study of Mamba-based LMs, Waleffe 2024',
+        NoteTone.good,
+      );
+    case Attention.latent:
+      note(
+        DesignSlot.attention,
+        'Latent attention: serving ×0.6, full-attention quality and recall',
+        'DeepSeek-V2 (MLA), 2024',
+        NoteTone.good,
+      );
+    case Attention.hybridLinear:
+      note(
+        DesignSlot.attention,
+        'Hybrid linear attention: serving ×0.5, near-constant memory, full layers keep recall, quality +3%',
+        'Kimi Linear, 2025; Gated Delta Networks, Yang 2024',
         NoteTone.good,
       );
   }
@@ -1001,7 +1101,7 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
   final codeCem = 1 + 0.4 * math.min(mix.code, 0.3);
   final codeTax = mix.code > 0.5 ? 1 - 0.6 * (mix.code - 0.5) : 1.0;
   final booksCem = 1 + 0.25 * math.min(mix.books, 0.2);
-  cem *= codeCem * codeTax * booksCem;
+  cem *= codeCem * codeTax * booksCem * mix.quality;
   // Synthetic tokens count at half value (doc §5e) on top of the real pool.
   final synthBudget = 1 + 0.5 * mix.synthetic / (1 - mix.synthetic);
   dataMult *= synthBudget;
@@ -1032,6 +1132,14 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
       NoteTone.good,
     );
   }
+  if (mix.quality > 1) {
+    note(
+      DesignSlot.dataMix,
+      'Model-based quality filtering: quality ${pct(mix.quality)}; rephrased copies of the best documents',
+      'DataComp-LM, Li 2024; Rephrasing the Web, Maini 2024',
+      NoteTone.good,
+    );
+  }
   if (mix.synthetic > 0.5) {
     cem *= 0.7;
     demand *= 0.9;
@@ -1057,7 +1165,7 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
     case PostTraining.sft:
       absRating = sftRating;
       train *= 1.01;
-    case PostTraining.rlhf || PostTraining.dpo || PostTraining.reasoning:
+    case PostTraining.rlhf || PostTraining.dpo || PostTraining.reasoning || PostTraining.pipeline:
       absRating = sftRating;
       train *= 1.01;
       final isDpo = post == PostTraining.dpo;
@@ -1098,7 +1206,7 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
           NoteTone.good,
         );
       }
-      if (post == PostTraining.reasoning) {
+      if (post.thinks) {
         var bonus = reasoningBonus;
         final baseRating = ctx.plannedCompute > 0
             ? ratingBase + ratingPerDoubling * _log2(ctx.plannedCompute * cem / startEffectiveCompute)
@@ -1126,6 +1234,21 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
           'DeepSeek-R1, 2025',
           NoteTone.good,
         );
+        if (post == PostTraining.pipeline) {
+          absRating += pipelineBonus;
+          final rlTrain = 1 + pipelineTrainPerKl * spec.rlStrength.kl;
+          train *= rlTrain;
+          demand *= pipelineDemand;
+          chat *= 1.15;
+          note(
+            DesignSlot.postTraining,
+            'Multi-stage: a general RL pass on top of reasoning RL, graded by reward models and written '
+                'principles: +${pipelineBonus.round()} rating, chat +15%, demand ${pct(pipelineDemand)}, '
+                'training ${pct(rlTrain)}',
+            'DeepSeek-R1, 2025; Constitutional AI, Bai 2022',
+            NoteTone.good,
+          );
+        }
         note(
           DesignSlot.postTraining,
           'Thinks at length: serving ${times(s)}${adaptive ? ' (adaptive budgets)' : ''}',
@@ -1169,6 +1292,17 @@ DesignEffects evaluate(ModelSpec spec, DesignContext ctx) {
         over > 0 ? 'Scaling Laws for Precision, Kumar 2024' : 'GPTQ, Frantar 2022',
         over > 0.5 ? NoteTone.bad : NoteTone.good,
       );
+    case Quantization.fp4:
+      final over = math.max(0.0, math.log(r / 20) / math.ln10);
+      final q = fp4Quality - fp4OvertrainPenalty * over;
+      cem *= q;
+      serve *= fp4Serve;
+      note(
+        DesignSlot.quantization,
+        'FP4 with quantization-aware training: serving ${times(fp4Serve)}, quality ${pct(q)}',
+        'Pretraining LLMs with NVFP4, NVIDIA 2025; Microscaling Formats, Rouhani 2023',
+        NoteTone.good,
+      );
   }
 
   final ratingAdd = absRating - sftRating;
@@ -1211,7 +1345,7 @@ String strengthHeadline(ModelSpec spec, BenchmarkStrengths s) {
   if (best.value < 1.15) return 'An all-rounder';
   final cause = switch (best.key) {
     'Coding' when spec.dataMix == DataMix.codeHeavy => 'Code-heavy mix',
-    'Coding' || 'Math' when spec.postTraining == PostTraining.reasoning => 'RL reasoning',
+    'Coding' || 'Math' when spec.postTraining.thinks => spec.postTraining.label,
     'Coding' => '${spec.dataMix.label} data',
     'Math' => '${spec.dataMix.label} data',
     'Chat' => spec.postTraining.label,
@@ -1397,6 +1531,72 @@ const designUpgrades = <UpgradeDef>[
     effects: Effects(),
     requires: ['reasoning'],
   ),
+  // --- Frontier recipe (appended; docs/MODEL_DESIGN.md "Frontier recipe") ----
+  UpgradeDef(
+    id: 'latent_attention',
+    name: 'Multi-head latent attention',
+    blurb:
+        'Compress each token\'s keys and values into one small latent vector '
+        'and project it back per head: a KV cache smaller than GQA\'s, with '
+        'full-attention quality.',
+    category: UpgradeCategory.research,
+    era: Era.bigLab,
+    cost: 6e8,
+    effects: Effects(),
+    requires: ['gqa'],
+  ),
+  UpgradeDef(
+    id: 'linear_attention_hybrid',
+    name: 'Hybrid linear attention',
+    blurb:
+        'Make most layers gated linear attention with a fixed-size state and '
+        'keep a full attention layer every few layers for exact recall: '
+        'long contexts at almost constant memory.',
+    category: UpgradeCategory.research,
+    era: Era.globalLab,
+    cost: 2e9,
+    effects: Effects(),
+    requires: ['ssm_hybrid'],
+  ),
+  UpgradeDef(
+    id: 'rephrased_data',
+    name: 'Model-filtered & rephrased data',
+    blurb:
+        'Score every document with a quality classifier, keep the best, and '
+        'have a model rephrase top documents in new styles: more learning '
+        'per token without inventing facts.',
+    category: UpgradeCategory.data,
+    era: Era.globalLab,
+    cost: 2.5e9,
+    effects: Effects(),
+    requires: ['synthetic_data'],
+  ),
+  UpgradeDef(
+    id: 'fp4_qat',
+    name: 'Native FP4 (quantization-aware)',
+    blurb:
+        'Block-scaled 4-bit floats on the newest tensor cores, with the '
+        'quantization simulated during training so the weights are learned '
+        'for 4-bit: cheaper serving, almost no loss.',
+    category: UpgradeCategory.software,
+    era: Era.globalLab,
+    cost: 1.5e9,
+    effects: Effects(),
+    requires: ['fp8', 'int4_weights'],
+  ),
+  UpgradeDef(
+    id: 'post_training_pipeline',
+    name: 'Multi-stage post-training',
+    blurb:
+        'Chain the stages open reports describe: SFT, preference tuning, '
+        'large-scale RL with verifiable rewards, then a general RL pass '
+        'graded by reward models and written principles.',
+    category: UpgradeCategory.research,
+    era: Era.globalLab,
+    cost: 3e9,
+    effects: Effects(),
+    requires: ['reasoning', 'rlaif'],
+  ),
 ];
 
 /// Every research item: content.dart's [upgrades] plus [designUpgrades].
@@ -1473,6 +1673,11 @@ const researchTracks = <String, ResearchTrack>{
   'dpo': ResearchTrack.postTraining,
   'reward_model_scaling': ResearchTrack.postTraining,
   'adaptive_thinking': ResearchTrack.postTraining,
+  'latent_attention': ResearchTrack.preTraining,
+  'linear_attention_hybrid': ResearchTrack.preTraining,
+  'rephrased_data': ResearchTrack.data,
+  'fp4_qat': ResearchTrack.infrastructure,
+  'post_training_pipeline': ResearchTrack.postTraining,
 };
 
 /// Track of a research id; unknown ids (e.g. added later) default to

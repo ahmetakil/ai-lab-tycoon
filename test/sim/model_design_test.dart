@@ -350,4 +350,115 @@ void main() {
       }
     });
   });
+
+  group('frontier recipe (docs/MODEL_DESIGN.md)', () {
+    /// All research up to [era] owned, a cluster the era's network feeds.
+    DesignContext eraCtx(Era era, {double planned = 0}) {
+      final net = switch (era) {
+        Era.globalLab || Era.bigLab => 65536.0,
+        Era.mediumLab => 4096.0,
+        _ => 256.0,
+      };
+      return DesignContext(
+        clusterGpus: net,
+        networkGpuCap: net,
+        dataTokens: 3e13,
+        ownedResearch: {
+          for (final u in allUpgrades)
+            if (u.era.index <= era.index) u.id,
+        },
+        eraIndex: era.index,
+        plannedCompute: planned,
+      );
+    }
+
+    test('the endgame optimum is the modern frontier recipe', () {
+      for (final planned in [0.0, 1e26]) {
+        final c = eraCtx(Era.globalLab, planned: planned);
+        final s = ModelSpec.bestGuessFor(c);
+        expect(s.architecture, Architecture.fineMoe, reason: '$s');
+        expect(s.attention, Attention.hybridLinear, reason: '$s');
+        expect(s.context, ContextLength.m1, reason: '$s');
+        expect(s.sizing, isIn([Sizing.computeOptimal, Sizing.overTrained]), reason: '$s');
+        expect(s.dataMix, DataMix.curated, reason: '$s');
+        expect(s.postTraining, PostTraining.pipeline, reason: '$s');
+        expect(s.quantization, Quantization.fp4, reason: '$s');
+      }
+      // Whatever blocks progress, the core ingredients stay.
+      for (final w in [4.0, 23.0]) {
+        final s = ModelSpec.bestGuessFor(eraCtx(Era.globalLab), serveWeight: w, demandWeight: w <= 4 ? 8 : 30);
+        expect(s.architecture, Architecture.fineMoe, reason: '$w $s');
+        expect(s.attention, Attention.hybridLinear, reason: '$w $s');
+        expect(s.dataMix, DataMix.curated, reason: '$w $s');
+        expect(s.postTraining, PostTraining.pipeline, reason: '$w $s');
+        expect(s.quantization, Quantization.fp4, reason: '$w $s');
+      }
+    });
+
+    test('earlier eras keep era-appropriate optima', () {
+      final frontierOnly = <DesignChoice>[
+        Attention.hybridLinear,
+        DataMix.curated,
+        PostTraining.pipeline,
+        Quantization.fp4,
+      ];
+      for (final era in [Era.garage, Era.startup, Era.smallLab, Era.mediumLab, Era.bigLab]) {
+        final c = eraCtx(era);
+        final s = ModelSpec.bestGuessFor(c);
+        for (final slot in DesignSlot.values) {
+          expect(frontierOnly, isNot(contains(slot.of(s))), reason: '$era $s');
+        }
+        for (final o in frontierOnly) {
+          expect(c.isUnlocked(o), isFalse, reason: '$era $o');
+        }
+      }
+      // Before MoE research (2017-22 era labs): a dense model, no reasoning RL.
+      final small = ModelSpec.bestGuessFor(eraCtx(Era.smallLab));
+      expect(small.architecture, Architecture.dense);
+      expect(small.postTraining.thinks, isFalse);
+      expect(small.context.tier, lessThanOrEqualTo(1));
+    });
+
+    test('each frontier option beats the option it supersedes', () {
+      final c = eraCtx(Era.globalLab, planned: 1e26);
+      final best = ModelSpec.bestGuessFor(c);
+      double score(ModelSpec s) => designScore(evaluate(s, c));
+      for (final (newer, older) in <(ModelSpec, ModelSpec)>[
+        (best, best.copyWith(attention: Attention.hybridSsm)),
+        (best, best.copyWith(attention: Attention.latent)),
+        (best, best.copyWith(dataMix: DataMix.balanced)),
+        (best, best.copyWith(dataMix: DataMix.synthMix)),
+        (best, best.copyWith(postTraining: PostTraining.reasoning)),
+        (best, best.copyWith(quantization: Quantization.int4)),
+      ]) {
+        expect(score(newer), greaterThan(score(older)), reason: '$older');
+      }
+      // MLA: GQA's serving win without its quality cost, and full recall.
+      final mla = evaluate(base.copyWith(attention: Attention.latent), rich);
+      final gqa = evaluate(base.copyWith(attention: Attention.gqa), rich);
+      expect(mla.cem, greaterThan(gqa.cem));
+      expect(mla.serveCostMult, lessThan(gqa.serveCostMult));
+    });
+
+    test('frontier research is gated and appended', () {
+      for (final id in ['linear_attention_hybrid', 'rephrased_data', 'fp4_qat', 'post_training_pipeline']) {
+        expect(researchById(id)!.era, Era.globalLab, reason: id);
+        expect(optionsUnlockedBy(id), isNotEmpty, reason: id);
+      }
+      expect(researchById('latent_attention')!.era, Era.bigLab);
+      expect(designUpgrades.last.id, 'post_training_pipeline');
+      // Saved by name: the new options are appended after the old ones.
+      expect(Attention.values.last, Attention.hybridLinear);
+      expect(DataMix.values.last, DataMix.curated);
+      expect(PostTraining.values.last, PostTraining.pipeline);
+      expect(Quantization.values.last, Quantization.fp4);
+      const s = ModelSpec(
+        attention: Attention.hybridLinear,
+        dataMix: DataMix.curated,
+        postTraining: PostTraining.pipeline,
+        quantization: Quantization.fp4,
+      );
+      expect(ModelSpec.fromJson(jsonDecode(jsonEncode(s.toJson())) as Map<String, dynamic>), s);
+    });
+  });
 }
