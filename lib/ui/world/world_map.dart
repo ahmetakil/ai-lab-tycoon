@@ -2,7 +2,8 @@
 // faint silhouette of the next property with its "Move here" sign. (The
 // parents' house sits beside the garage while you're there.) Moving is a
 // moment: boxes and a truck along the road, the camera follows, the old room
-// fades away and your tiles pop in at the new place. Tap to skip.
+// fades away and your tiles pop in at the new place (to the orbital station
+// it's a rocket on a launch arc instead). Tap to skip.
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -62,6 +63,18 @@ class WorldMap extends StatefulWidget {
 
 /// The next room you could move to (shown faintly), if any.
 RoomDef? nextPlot(Game g) => g.nextRoom;
+
+/// The way between two places goes to orbit (a launch arc, not a road).
+bool _toOrbit(String a, String b) =>
+    (roomById(a)?.speculative ?? false) || (roomById(b)?.speculative ?? false);
+
+/// A point [t] along the launch arc from [a] to [b]: a quadratic curve that
+/// climbs well above the straight line (up the screen) before coming down.
+Offset _arcAt(Offset a, Offset b, double t) {
+  final c = Offset((a.dx + b.dx) / 2, math.min(a.dy, b.dy) - 0.55 * (b - a).distance);
+  final u = 1 - t;
+  return a * (u * u) + c * (2 * u * t) + b * (t * t);
+}
 
 class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
   final camera = WorldCamera();
@@ -354,9 +367,16 @@ class WorldMapState extends State<WorldMap> with TickerProviderStateMixin {
               Positioned.fromRect(
                 key: ValueKey('plot-$id'),
                 rect: geoOf(id).rect,
-                child: _FaintPlot(geo: geoOf(id), reachable: g.isUnlocked(roomById(id)!.era)),
+                child: _FaintPlot(
+                  geo: geoOf(id),
+                  reachable:
+                      g.isUnlocked(roomById(id)!.era) &&
+                      roomById(id)!.requires.every(g.s.ownedUpgrades.contains),
+                ),
               ),
-          if (from != null)
+          if (from != null && _toOrbit(from, _room))
+            _Launch(from: geoOf(from).worldCenter, to: geoOf(_room).worldCenter, t: _move)
+          else if (from != null)
             _MovingTruck(from: geoOf(from).worldCenter, to: geoOf(_room).worldCenter, t: _move),
         ],
       ),
@@ -533,6 +553,14 @@ class _Backdrop extends CustomPainter {
           ..strokeWidth = 4;
     void drawRoad(String a, String b, double alpha) {
       final pa = geoOf(a).worldCenter, pb = geoOf(b).worldCenter;
+      if (_toOrbit(a, b)) {
+        // No road to orbit: a dotted launch trajectory.
+        final dot = Paint()..color = const Color(0xFF7FD8FF).withValues(alpha: 0.55 * alpha);
+        for (var i = 0; i <= 60; i++) {
+          canvas.drawCircle(_arcAt(pa, pb, i / 60), i % 5 == 0 ? 7 : 4, dot);
+        }
+        return;
+      }
       canvas.drawLine(pa, pb, road..color = const Color(0xFF12151D).withValues(alpha: alpha));
       final len = (pb - pa).distance;
       final dir = (pb - pa) / len;
@@ -689,6 +717,118 @@ class _MovingTruck extends StatelessWidget {
       },
     );
   }
+}
+
+/// Moving to orbit: a heavy-lift rocket climbs the launch arc from the old
+/// site to the station, nose along its path, with a flickering plume.
+class _Launch extends StatelessWidget {
+  final Offset from, to;
+  final Animation<double> t;
+  const _Launch({required this.from, required this.to, required this.t});
+
+  @override
+  Widget build(BuildContext context) {
+    const w = 120.0, h = 260.0;
+    return AnimatedBuilder(
+      animation: t,
+      builder: (context, _) {
+        // Liftoff pause, then an accelerating climb along the arc.
+        final k = Curves.easeInQuad.transform(((t.value - 0.08) / (kMoveArrive - 0.08)).clamp(0.0, 1.0));
+        final p = _arcAt(from, to, k);
+        final q = _arcAt(from, to, math.min(1, k + 0.01));
+        final dir = k >= 1 ? const Offset(0.4, 1) : q - p;
+        // Nose up the screen at liftoff, then along the path.
+        final angle = k <= 0 ? 0.0 : math.atan2(dir.dx, -dir.dy);
+        final fade = t.value > 0.82 ? (1 - (t.value - 0.82) / 0.12) : 1.0;
+        return Positioned(
+          left: p.dx - w / 2,
+          top: p.dy - h / 2,
+          width: w,
+          height: h,
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: fade.clamp(0.0, 1.0),
+              child: Transform.rotate(
+                key: const ValueKey('move-rocket'),
+                angle: angle,
+                child: CustomPaint(painter: _RocketPainter(t.value)),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RocketPainter extends CustomPainter {
+  final double t;
+  _RocketPainter(this.t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final top = size.height * 0.1, body = size.height * 0.42, r = size.width * 0.16;
+    final ink = Paint()
+      ..color = const Color(0xFF080C1A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    // Plume: a flickering teardrop of light below the engines.
+    final flick = 0.85 + 0.15 * math.sin(t * 90);
+    final base = top + body + r * 0.4;
+    final plume = Path()
+      ..moveTo(cx - r * 0.9, base)
+      ..quadraticBezierTo(cx, base + size.height * 0.5 * flick, cx + r * 0.9, base)
+      ..close();
+    canvas.drawPath(
+      plume,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFFFFFFF), Color(0xFFFFD58A), Color(0x00FF6B3D)],
+        ).createShader(Rect.fromLTWH(cx - r, base, 2 * r, size.height * 0.5))
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    // Fins.
+    for (final s in [-1.0, 1.0]) {
+      final fin = Path()
+        ..moveTo(cx + s * r, top + body - r * 1.6)
+        ..lineTo(cx + s * r * 2.0, top + body + r * 0.4)
+        ..lineTo(cx + s * r, top + body)
+        ..close();
+      canvas.drawPath(fin, Paint()..color = const Color(0xFF55658F));
+      canvas.drawPath(fin, ink);
+    }
+    // Body with a nose cone and a window.
+    final hull = Path()
+      ..moveTo(cx, top - r * 1.2)
+      ..quadraticBezierTo(cx + r * 1.05, top - r * 0.2, cx + r, top + r * 0.6)
+      ..lineTo(cx + r, top + body)
+      ..lineTo(cx - r, top + body)
+      ..lineTo(cx - r, top + r * 0.6)
+      ..quadraticBezierTo(cx - r * 1.05, top - r * 0.2, cx, top - r * 1.2)
+      ..close();
+    canvas.drawPath(
+      hull,
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [Color(0xFFEAF2FF), Color(0xFFB8C2D6), Color(0xFF8E9CC4)],
+        ).createShader(Rect.fromLTWH(cx - r, top, 2 * r, body)),
+    );
+    canvas.drawRect(Rect.fromLTWH(cx - r, top + body * 0.62, 2 * r, body * 0.06), Paint()..color = const Color(0xFF2E3B6B));
+    canvas.drawPath(hull, ink);
+    canvas.drawCircle(Offset(cx, top + body * 0.28), r * 0.42, Paint()..color = const Color(0xFF3DD6FF));
+    canvas.drawCircle(Offset(cx, top + body * 0.28), r * 0.42, ink..strokeWidth = 2.4);
+    // Engine bell.
+    canvas.drawRect(
+      Rect.fromLTWH(cx - r * 0.6, top + body, r * 1.2, r * 0.4),
+      Paint()..color = const Color(0xFF2A3048),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RocketPainter old) => old.t != t;
 }
 
 /// "Moving to the Server closet · tap to skip".
@@ -1015,7 +1155,11 @@ class _MoveSign extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      buyable ? Icons.local_shipping_rounded : Icons.lock_rounded,
+                      !buyable
+                          ? Icons.lock_rounded
+                          : room.speculative
+                          ? Icons.rocket_launch_rounded
+                          : Icons.local_shipping_rounded,
                       size: 13,
                       color: color,
                     ),
@@ -1063,13 +1207,17 @@ class _MoveSign extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          buyable ? Icons.local_shipping_rounded : Icons.lock_rounded,
+                          !buyable
+                              ? Icons.lock_rounded
+                              : room.speculative
+                              ? Icons.rocket_launch_rounded
+                              : Icons.local_shipping_rounded,
                           size: 15,
                           color: color,
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          buyable ? 'MOVE HERE' : 'NEXT PLACE',
+                          buyable ? (room.speculative ? 'LAUNCH' : 'MOVE HERE') : 'NEXT PLACE',
                           style: labelStyle(color: color, size: 12).copyWith(letterSpacing: 1.6),
                         ),
                       ],

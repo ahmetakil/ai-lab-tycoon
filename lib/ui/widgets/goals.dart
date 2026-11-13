@@ -132,11 +132,16 @@ class _RequirementRow extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
               ),
-              icon: Icon(
-                action == RequirementAction.power ? Icons.bolt_rounded : Icons.model_training_rounded,
-                size: 16,
-              ),
-              label: Text(action == RequirementAction.power ? 'Open power' : 'Train'),
+              icon: Icon(switch (action) {
+                RequirementAction.power => Icons.bolt_rounded,
+                RequirementAction.research => Icons.science_rounded,
+                _ => Icons.model_training_rounded,
+              }, size: 16),
+              label: Text(switch (action) {
+                RequirementAction.power => 'Open power',
+                RequirementAction.research => 'Research',
+                _ => 'Train',
+              }),
             ),
           ],
         ],

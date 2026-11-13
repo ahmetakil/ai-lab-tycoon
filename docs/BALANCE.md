@@ -246,13 +246,13 @@ the 150 MW Big lab couldn't reach; the playthrough tests guard against that.
 - runs: 1m / 3m / 5m at 13000× (9.0 d / 27 d / 45 d of compute)
 - rivals: GPT-ish-4 (1339), Claudette 3.5 Sonata (1373), DeepSleep-R1 (1378), Claudette 3.7 Sonata (1455), o-three (1463), Grokk 3 (1503), GPT-ish-4.5 (1506)
 ### Frontier lab (`globalLab`, 2025–26)
-- room: Gigawatt site 22×22 ($20M)
-- power: Gigawatt grid interconnect 1.0 GW ($74M), Restarted nuclear plant 2.0 GW ($147M), Multi-site cluster 4.0 GW ($290M), Compact fusion PPA 10 GW ($700M, speculative)
-- gpu: Rubin building ($36M, +3%/tile, needs liquid_cooling); speculative: Opal photonic stack ($70M, +5%/tile, needs photonic_compute and the nuclear tier), Boreal cryo-logic vault ($95M, +5%/tile, needs superconducting_logic and the fusion tier)
-- cooling: Closed-loop dry coolers ($80k)
+- room: Gigawatt site 22×22 ($20M); post-game: Orbital station 24×24 ($20B, needs Reusable heavy-lift launch and 75% of the gigasite's cells holding GPUs)
+- power: Gigawatt grid interconnect 1.0 GW ($74M), Restarted nuclear plant 2.0 GW ($147M), Multi-site cluster 4.0 GW ($290M), Compact fusion PPA 10 GW ($700M, speculative); Orbital solar array 20 GW ($1.3B, the station only)
+- gpu: Rubin building ($36M, +3%/tile, needs liquid_cooling); speculative: Opal photonic stack ($350M, +4%/tile, needs photonic_compute and the nuclear tier), Boreal cryo-logic vault ($2B, +4%/tile, needs superconducting_logic and the fusion tier), Zenith orbital cryo-module ($12B, +5%/tile, needs orbital_launch, station only)
+- cooling: Closed-loop dry coolers ($80k); Deployable radiator wing ($100k, station only)
 - network: Optical fabric, feeds 4194304 ($61M)
-- central cooling: Dry-cooler farm −550/tile ($13M); Cryogenic helium plant −1500/tile ($30M, speculative, needs superconducting_logic)
-- research: Multi-token prediction $1.8B, Expert data (PhD annotators) $2.1B, Test-time compute scaling $6.6B, Agentic RL environments $11B, Prefill/decode disaggregation $3B; speculative hardware: Photonic computing $3.6B, Superconducting logic $15B
+- central cooling: Dry-cooler farm −550/tile ($13M); Cryogenic helium plant −5000/tile ($100M, speculative, needs superconducting_logic)
+- research: Multi-token prediction $1.8B, Expert data (PhD annotators) $2.1B, Test-time compute scaling $6.6B, Agentic RL environments $11B, Prefill/decode disaggregation $3B; speculative hardware: Photonic computing $6B, Superconducting logic $30B, Reusable heavy-lift launch $30B
 - design research: Adaptive thinking budgets $3.6B
 - stunts: Big-game TV ad
 - runs: 1m / 3m / 5m at 500× (0.3 d / 1.0 d / 1.7 d of compute)
@@ -312,7 +312,7 @@ phases on (Bot(specializePhases: true))
 ### Room fill when the way out opens
 
 Each room at the moment the next room's era unlocks (seed 12345; the
-gigasite at the final rival). Power is of the most the building takes in
+gigasite at the final rival; for the post-game orbital station see below). Power is of the most the building takes in
 that era; "wall" is how long it had had no empty cell or no power for
 another GPU (`RoomFill`).
 
@@ -335,25 +335,58 @@ PPA allows; ~77% of the 4 GW multi-site tier). v5 sat in a full colo (504 GPUs, 
 
 ### The speculative endgame (sci-fi tiers past Rubin)
 
-Rubin is the newest real hardware, so two invented generations sit after it
-(`TileDef.speculative`; blurbs don't spell out "Speculative"). They follow the
-same rule as every tier: better per $ and per kW at list price, hard to get
-through gates.
+Rubin is the newest real hardware, so three invented generations sit after
+it (`TileDef.speculative`). Each is a dramatic leap in price and power, and
+still follows the rule of every tier: better per $ and per kW at list
+price, hard to get through gates. Each one plays differently:
 
-| Tier | Per tile | Value | Gate |
-|---|---|---|---|
-| Rubin building (real) | 28.7M TFLOPS, 27.0 MW, $36M | 796 TFLOPS/$k, 1,061/kW | liquid cooling, gigawatt tier |
-| Opal photonic stack | 65.5M TFLOPS, 22.9 MW, $70M (+5%) | 936 TFLOPS/$k, 2,857/kW | Photonic computing ($3.6B), nuclear tier (2 GW) |
-| Boreal cryo-logic vault | 98.3M TFLOPS, 13.1 MW, $95M (+5%), heat 1400 | 1,035 TFLOPS/$k, 7,500/kW | Superconducting logic ($15B), Compact fusion PPA (10 GW, $700M); wants the Cryogenic helium plant (−1500/tile, $30M) |
+| Tier | Per tile | × Rubin | TF per $k | TF per kW | Character and gate |
+|---|---|---|---|---|---|
+| Rubin building (real) | 28.7M TFLOPS, 27 MW, heat 700, $36M | 1× | 796 | 1,061 | liquid cooling, gigawatt tier |
+| Opal photonic stack | 287M TFLOPS, 191 MW, heat 120, $350M (+4%) | 10× | 819 | 1,500 | almost no heat, power-hungry: ~50 fill 10 GW. Photonic computing ($6B), nuclear tier |
+| Boreal cryo-logic vault | 1.72B TFLOPS, 80 MW, heat 4800, $2B (+4%) | 60× | 860 | 21,500 | sips power, but throttles to the floor without the Cryogenic helium plant (−5000/tile, $100M). Superconducting logic ($30B), fusion tier |
+| Zenith orbital cryo-module | 11.5B TFLOPS, 1 MW, heat 40, $12B (+5%) | 400× | 956 | 11.5M | own solar wings, radiators chilled by space: no grid power, no cooling. Orbital station only (`nativeOnly`). Reusable heavy-lift launch ($30B) |
 
-Seed 12345: the multi-site tier lands at 6:09, Photonic computing and the
-first Opal stacks at 6:32, the final rival at 7:07 (rating is data-limited
-by then, so the extra compute mostly adds users). After the final rival:
-50 Opal stacks by 7:32, the fusion PPA at 8:14, Superconducting logic, the
-cryo plant and the first Boreal vaults at 9:14, 50 vaults by 9:34. So Opal
-is a late-Frontier upgrade and Boreal is a post-game goal. Photonic
-computing at $4.5B came too late (6:50) and pulled money away from rating
-research (final 7:04–7:27); at $3B seed 777 finished at 6:52.
+The UI prints compute with SI prefixes (`formatTflops`: TFLOPS → PFLOPS →
+EFLOPS → ZFLOPS → YFLOPS) and power in GW past 1,000 MW.
+
+Pacing (7 seeds, `--phases`): nothing speculative lands before the final
+rival any more (7:02–7:19). Before the rework, Photonic computing at $3.6B
+was bought around 6:30 and the bot spent on $70M Opal stacks before the
+final rival, which cost seeds 1, 3 and 6 about five minutes (7:04–7:24);
+at $3.6B with the new 10× Opal the final rival came at 6:46–7:08, too early.
+Seed 1 after the final rival (7:01): Photonic computing and the first Opal
+stack at 7:32, the fusion PPA at 7:36, ten Opal stacks by 7:58 (the
+gigasite then sits at its 10 GW wall), Superconducting logic and the cryo
+plant at ~9:30, Reusable heavy-lift launch and the move to orbit at 10:37.
+The bot buys no Boreal vaults: post-game, rating is data-limited and users
+sit at the 5B cap, so extra compute is worth almost nothing to it. That is
+a sandbox for the player, not a pacing problem.
+
+### The orbital station (post-game room)
+
+The 7th room is in the Frontier era like the gigasite, so it can't be
+gated by an era goal. `RoomDef.requires` (Reusable heavy-lift launch, $30B,
+after Superconducting logic) and `RoomDef.fromFill` (75% of the gigasite's
+cells hold GPU tiles) gate it instead, then its $20B price; `Game.canMoveSoon`
+checks all of them, and the bot only sees the move then. The bot buys the
+station's own power tier (Orbital solar array, 20 GW, $1.3B) right after
+moving (`_roomPowerFloor`). `RoomFill` snaps the gigasite when the gates
+open (not on an era), and `--seeds` now plays on past the final rival and
+prints the move:
+
+| seed | final rival | move to orbit | gigasite GPU tiles (of 484 cells) | cells used | gigasite power |
+|---|---|---|---|---|---|
+| 1 | 7:01:53 | 10:37:33 | 380 (79%) | 448 | 10 / 10 GW (wall 84 min) |
+| 2 | 7:05:29 | 10:42:25 | 370 (76%) | 436 | 100% (84 min) |
+| 3 | 7:18:37 | 11:03:45 | 371 (77%) | 438 | 100% (84 min) |
+| 4 | 7:18:41 | 10:59:01 | 379 (78%) | 446 | 100% (88 min) |
+| 5 | 7:12:29 | 10:50:25 | 369 (76%) | 434 | 100% (84 min) |
+| 6 | 7:05:25 | 10:40:49 | 380 (79%) | 448 | 100% (91 min) |
+| 7 | 7:04:45 | 10:43:25 | 376 (78%) | 439 | 100% (84 min) |
+
+The gigasite is full when the station opens: at its 10 GW wall (Opal
+stacks are power-bound) with ~77% of its cells holding GPUs.
 
 The bot values research with no effects of its own that makes a
 speculative GPU the room's best buy like a power tier: at least what an
@@ -524,11 +557,11 @@ in every category, with no exceptions (`content_test.dart` enforces it):
 
 | Category | Value | Tiers, oldest → newest (v6) |
 |---|---|---|
-| GPUs | TFLOPS per $k | 2060 33 → 4090 40 → V100 42 → DGX A100 43 → HGX H100 44 → H100 rack 45 → GB200 48 → B200 pod 197 → Vera Rubin 215 → Rubin pod 219 → Rubin building 796 → Opal photonic 936 → Boreal cryo-logic 1035 |
-| Coolers | cooling per $k | fan 27 → window AC 29 → CRAC 31 → rear door 32 → chiller 33 → liquid loop 35 → tower 36 → dry coolers 38 |
+| GPUs | TFLOPS per $k | 2060 33 → 4090 40 → V100 42 → DGX A100 43 → HGX H100 44 → H100 rack 45 → GB200 48 → B200 pod 197 → Vera Rubin 215 → Rubin pod 219 → Rubin building 796 → Opal photonic 819 → Boreal cryo-logic 860 → Zenith orbital 956 |
+| Coolers | cooling per $k | fan 27 → window AC 29 → CRAC 31 → rear door 32 → chiller 33 → liquid loop 35 → tower 36 → dry coolers 38 → radiator wing 40 |
 | Network | GPUs fed per $k | 10G 16 → fiber 17 → IB 400G 18 → IB spine 18.2 → NVLink 18.7 → optical 68 |
 | Central cooling | per-tile cooling per $M | chilled water 40 → towers 42 → liquid loop 43 → dry coolers 44 → cryo plant 50 |
-| Power | kW per $k | panel 3.3 → 3-phase 3.4 → colo 3.6 → MV feed 4.1 → substation 6.3 → PPA 12 → GW 13.5 → nuclear 13.6 → multi-site 13.8 → fusion 14.3 |
+| Power | kW per $k | panel 3.3 → 3-phase 3.4 → colo 3.6 → MV feed 4.1 → substation 6.3 → PPA 12 → GW 13.5 → nuclear 13.6 → multi-site 13.8 → fusion 14.3 → orbital solar 15.4 |
 
 v5 broke this in places: the hall racks (doubled in the first v6 draft to
 slow the hall), almost every cooler (a CRAC was $13.8k for 40 cooling, a
@@ -543,7 +576,7 @@ get is a gate, never worse value:
 - **A steeper supply crunch** per unit owned (`priceGrowth`): 2060 25%,
   4090 15%, V100 10%, DGX A100 10%, HGX H100 16%, hall racks 25%, Big-lab
   pods and racks 12%, Rubin buildings 3%, the speculative Opal and Boreal
-  tiers 5%; the cap is ×4 list. The old tier
+  tiers 4% and the Zenith module 5%; the cap is ×4 list. The old tier
   stays the one you can afford now; the new one is what you save for.
 - **A big upfront price**: the late power tiers ($7.5M PPA, $74M gigawatt,
   $147M nuclear, $290M multi-site) are saved for, but each still buys more

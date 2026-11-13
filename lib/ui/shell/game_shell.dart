@@ -669,6 +669,8 @@ class _GameShellState extends State<GameShell> {
         _openPower();
       case RequirementAction.train:
         _openTrain();
+      case RequirementAction.research:
+        _openResearch();
       case RequirementAction.none:
         break;
     }
@@ -726,7 +728,7 @@ class _GameShellState extends State<GameShell> {
                     if (!owned) ...[
                       Text(
                         'Everything you\'ve built comes with you: same layout, centred in the bigger floor. '
-                        'The ${room.name} opens in the ${room.era.label} era, with its new parts, power and research.',
+                        '${room.requires.isEmpty ? 'The ${room.name} opens in the ${room.era.label} era, with its new parts, power and research.' : 'The ${room.name} opens after its research, once the ${g.currentRoom.name} is built out.'}',
                         style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.3),
                       ),
                       const SizedBox(height: 10),
@@ -744,7 +746,7 @@ class _GameShellState extends State<GameShell> {
                         key: const ValueKey('buy-room'),
                         label: 'Move to ${room.name}',
                         sublabel: formatMoney(room.cost),
-                        icon: Icons.local_shipping_rounded,
+                        icon: room.speculative ? Icons.rocket_launch_rounded : Icons.local_shipping_rounded,
                         expand: true,
                         dense: false,
                         enabled: reason == null,

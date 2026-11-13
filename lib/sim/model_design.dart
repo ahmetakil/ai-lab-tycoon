@@ -1681,6 +1681,7 @@ const researchTracks = <String, ResearchTrack>{
   'post_training_pipeline': ResearchTrack.postTraining,
   // Speculative hardware (content.dart, the sci-fi tiers past Rubin).
   'photonic_compute': ResearchTrack.infrastructure,
+  'orbital_launch': ResearchTrack.infrastructure,
   'superconducting_logic': ResearchTrack.infrastructure,
 };
 

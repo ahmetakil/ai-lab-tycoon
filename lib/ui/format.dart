@@ -20,11 +20,28 @@ String formatNumber(double v, {int decimals = 1}) {
 
 String formatMoney(double v) => '\$${formatNumber(v)}';
 
+/// Compute from TFLOPS with the right SI prefix, so the speculative endgame
+/// stays readable: "450 TFLOPS", "1.2 PFLOPS", "287 EFLOPS", "11.5 ZFLOPS".
+String formatTflops(double tflops, {int decimals = 1}) {
+  const units = [(1e12, 'YFLOPS'), (1e9, 'ZFLOPS'), (1e6, 'EFLOPS'), (1e3, 'PFLOPS')];
+  final a = tflops.abs();
+  for (final (scale, unit) in units) {
+    if (a >= scale) {
+      final v = tflops / scale;
+      return '${v.abs() >= 100 ? v.toStringAsFixed(0) : v.toStringAsFixed(decimals)} $unit';
+    }
+  }
+  return '${formatNumber(tflops, decimals: decimals)} TFLOPS';
+}
+
 /// FLOPs in scientific form, e.g. "3.2e21 FLOP".
 String formatFlops(double v) => '${v.toStringAsExponential(1)} FLOP';
 
-String formatPower(double kw) =>
-    kw >= 1000 ? '${formatNumber(kw / 1000)} MW' : '${formatNumber(kw)} kW';
+String formatPower(double kw) => kw >= 1e6
+    ? '${formatNumber(kw / 1e6)} GW'
+    : kw >= 1000
+    ? '${formatNumber(kw / 1000)} MW'
+    : '${formatNumber(kw)} kW';
 
 String formatDuration(double seconds) {
   final s = seconds.round();

@@ -28,7 +28,10 @@ void main() {
       // At the moment the next room's era unlocks: the last cell used, or
       // the power the building can take now nearly used up.
       final fill = r.roomFill.snaps;
-      for (final room in rooms.take(rooms.length - 1)) {
+      // (Up to the final rival: the gigasite is the last room of the story;
+      // the orbital station opens post-game.)
+      final story = rooms.where((r) => r.requires.isEmpty).toList();
+      for (final room in story.take(story.length - 1)) {
         final s = fill[room.id];
         expect(s, isNotNull, reason: room.id);
         expect(s!.exit, isTrue, reason: room.id);
@@ -82,10 +85,11 @@ void main() {
       expect(r.usersAtFinish, greaterThanOrEqualTo(rivalLadder.last.users));
     });
 
-    test('it moves all the way to the last room and trains one well-fed cluster', () {
+    test('it moves all the way to the last story room and trains one well-fed cluster', () {
       final g = r.game;
-      expect(g.currentRoom.id, rooms.last.id);
-      expect(g.s.grids.keys, [rooms.last.id]);
+      // At the final rival: the gigasite (the orbital station is post-game).
+      expect(g.currentRoom.id, 'gigasite');
+      expect(g.s.grids.keys, ['gigasite']);
       final c = g.trainingCluster!;
       expect(c.roomId, 'gigasite');
       expect(c.scalingEfficiency, greaterThan(0.95));

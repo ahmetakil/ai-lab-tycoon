@@ -661,7 +661,7 @@ class _Hero extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '${formatNumber(game.effectiveTflops)} effective TFLOPS',
+                          '${formatTflops(game.effectiveTflops)} effective',
                           style: numStyle(
                             size: 12.5,
                             color: AppColors.neon,
@@ -997,7 +997,7 @@ class _ComputeCard extends StatelessWidget {
             'Compute',
             icon: Icons.memory,
             trailing: Text(
-              '${formatNumber(total)} TFLOPS',
+              formatTflops(total),
               style: numStyle(size: 12, color: AppColors.text),
             ),
           ),

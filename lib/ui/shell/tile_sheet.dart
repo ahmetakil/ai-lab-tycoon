@@ -63,7 +63,7 @@ class TileSheet extends StatelessWidget {
           value: formatNumber(st.netHeat.abs()),
           color: st.netHeat > 0 ? AppColors.red : AppColors.cyan,
         ),
-        _Stat(label: 'TFLOPS', value: formatNumber(st.effectiveTflops), color: AppColors.text),
+        _Stat(label: 'Compute', value: formatTflops(st.effectiveTflops), color: AppColors.text),
       ]);
     } else if (t.isCooling) {
       chips.addAll([
@@ -129,7 +129,7 @@ class TileSheet extends StatelessWidget {
                   Text(t.name, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
                   if (t.isGpu)
                     Text(
-                      '${formatNumber(t.gpusPerTile)} GPU${t.gpusPerTile == 1 ? '' : 's'} · ${formatNumber(t.tflops)} TFLOPS peak · ${formatPower(g.tilePowerKw(t))}',
+                      '${formatNumber(t.gpusPerTile)} GPU${t.gpusPerTile == 1 ? '' : 's'} · ${formatTflops(t.tflops)} peak · ${formatPower(g.tilePowerKw(t))}',
                       style: numStyle(size: 11, color: AppColors.muted, weight: FontWeight.w500),
                     ),
                 ],

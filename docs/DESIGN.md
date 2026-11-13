@@ -69,6 +69,13 @@ beat rival labs.
   | Medium lab | Datacenter hall 14×14 | rating 1130 | Mixtrawl, ChatGPT-ish |
   | Big lab | Datacenter campus 18×18 | rating 1260 | GPT-ish-4 → GPT-ish-4.5 (the big labs) |
   | Frontier lab | Gigawatt site 22×22 | rating 1490 | GPT-ish-5 → GPT-ish-6 Astral |
+  | (post-game) | Orbital station 24×24 | Reusable heavy-lift launch research + a 75%-built gigasite, $20B | none: a sandbox past the final rival |
+
+  The Orbital station is the 7th and final place: compute modules on a
+  truss in dawn-dusk sun-synchronous orbit (solar power that never sets,
+  radiators as the only cooling). It sits in the Frontier era behind a
+  research gate and a fill gate, and most players reach it after the final
+  rival. The move is a rocket on a launch arc instead of the truck.
 
 - Pacing: an active game. A full playthrough (garage to the final rival) is
   6–8 hours of active play (about 7h10): the garage takes ~50 min (2060s,
@@ -92,9 +99,11 @@ beat rival labs.
 
 ## Rules
 - Parody names only. Never real company or product names, logos or people.
-- Upgrade blurbs must be technically accurate. Made-up tech is limited to the
-  speculative endgame past Rubin (photonic stacks, superconducting cryo-logic, a
-  compact fusion PPA, a cryogenic plant). Blurbs don't label it "Speculative" (it's obvious); they say what physics would make it better.
+- Upgrade blurbs must be technically accurate. Made-up tech is confined to the
+  speculative endgame past Rubin (photonic stacks, superconducting cryo-logic,
+  orbital cryo-modules, a compact fusion PPA, a cryogenic plant, the orbital
+  station), flagged `TileDef.speculative` / `RoomDef.speculative`, each blurb
+  saying what physics would make it better and how big the leap is.
 - No real-money monetization in v1.
 
 ## Out of scope for v1

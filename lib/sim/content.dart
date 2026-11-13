@@ -1,7 +1,8 @@
 // Static game content: grid tiles and rooms, power tiers, upgrades, launch stunts, rivals.
 // Pure Dart — no Flutter imports. All balance knobs live here or in balance.dart.
 
-/// The six eras, one new room each (garage → gigawatt site). Order matters:
+/// The six eras, one new room each (garage → gigawatt site), plus the
+/// post-game Orbital station inside the last one. Order matters:
 /// saves store the name, gates and unlocks use the index.
 enum Era { garage, startup, smallLab, mediumLab, bigLab, globalLab }
 
@@ -304,6 +305,10 @@ class TileDef {
   /// blurb says so, and its per-GPU numbers may leave real-world ranges.
   final bool speculative;
 
+  /// Placeable only in its [rooms] (the orbital module needs the station),
+  /// not in any room once unlocked like other tiles.
+  final bool nativeOnly;
+
   const TileDef({
     required this.id,
     required this.name,
@@ -321,6 +326,7 @@ class TileDef {
     this.minPowerTier = 0,
     this.priceGrowth = 0,
     this.speculative = false,
+    this.nativeOnly = false,
   });
 
   bool get isGpu => kind == TileKind.gpu;
@@ -352,6 +358,18 @@ class RoomDef {
   /// so you move first; moving keeps the tier you have (it buys nothing).
   final int maxPowerTier;
 
+  /// Research that must be owned before you can move here, on top of the
+  /// era (a post-game room inside the last era has no era gate of its own).
+  final List<String> requires;
+
+  /// Share of the previous room's cells that must hold GPU tiles before you
+  /// can move here (0 = none): fill each room before you move on. Earlier
+  /// rooms get this from their era gates instead.
+  final double fromFill;
+
+  /// Made-up, near-future place (the orbital station).
+  final bool speculative;
+
   const RoomDef({
     required this.id,
     required this.name,
@@ -363,6 +381,9 @@ class RoomDef {
     required this.ambientCooling,
     required this.tileScaleLabel,
     required this.maxPowerTier,
+    this.requires = const [],
+    this.fromFill = 0,
+    this.speculative = false,
   });
 
   int get cells => width * height;
@@ -674,47 +695,85 @@ const tiles = <TileDef>[
     powerKw: 450,
     cooling: 3000,
   ),
+  TileDef(
+    id: 'cool_radiator',
+    name: 'Deployable radiator wing',
+    blurb:
+        'In vacuum, heat can only leave as infrared light: a pumped ammonia '
+        'loop feeds big panels that glow it out to space. No fans, no water.',
+    kind: TileKind.cooling,
+    era: Era.globalLab,
+    rooms: {'orbital'},
+    cost: 100000,
+    powerKw: 60, // coolant pumps only
+    cooling: 4000,
+    requires: ['orbital_launch'],
+    nativeOnly: true,
+  ),
 
   // --- Speculative GPUs (made-up, near-future tech; [TileDef.speculative]) --
-  // The endgame past Rubin: each is gated by Frontier research and a power
-  // tier, and still beats the tier before it per $ and per kW at list price.
+  // The endgame past Rubin: each step is a dramatic leap (10× → 60× → 400×
+  // a Rubin building) at a matching price, still a little better per $ and
+  // per kW at list price, and each plays differently:
+  //   Opal: almost no heat, but its lasers want a whole power plant per tile.
+  //   Boreal: sips power, but its 4 K heat load needs the cryogenic plant.
+  //   Zenith: no grid power, no cooling, but only on the orbital station.
   TileDef(
     id: 'bldg_p_class',
     name: 'Opal photonic stack',
     blurb:
-        '3D-stacked chips that multiply matrices with light. '
-        'Waveguides don\'t heat like copper: ~2.7× Rubin\'s math per watt.',
+        '10× a Rubin building: matrix maths done with light, so it barely '
+        'warms up. The lasers, though, want ~190 MW per stack.',
     kind: TileKind.gpu,
     era: Era.globalLab,
-    rooms: {'gigasite'},
-    cost: 7e7,
-    powerKw: 22938, // 8192 × 2.8
-    tflops: 65536000, // 8192 × 8000
-    heat: 600,
+    rooms: {'gigasite', 'orbital'},
+    cost: 3.5e8,
+    powerKw: 191147, // 1500 TFLOPS/kW: just past Rubin's 1060
+    tflops: 286720000, // 10 × Rubin building
+    heat: 120, // waveguides don't heat like copper
     gpusPerTile: 8192,
     requires: ['photonic_compute'],
     minPowerTier: 8, // nuclear_restart
-    priceGrowth: 0.05,
+    priceGrowth: 0.04,
     speculative: true,
   ),
   TileDef(
     id: 'bldg_s_class',
     name: 'Boreal cryo-logic vault',
     blurb:
-        'Superconducting chips at 4 K. Zero-resistance wires '
-        'switch on a whisper of energy; the cryoplant is the catch.',
+        '60× a Rubin building for 3× its power: superconducting chips at 4 K. '
+        'Without the cryogenic plant they cook and crawl.',
     kind: TileKind.gpu,
     era: Era.globalLab,
-    rooms: {'gigasite'},
-    cost: 9.5e7,
-    powerKw: 13107, // 8192 × 1.6, cryocoolers included
-    tflops: 98304000, // 8192 × 12000
-    heat: 1400, // every watt at 4 K costs hundreds at the wall to pump out
+    rooms: {'gigasite', 'orbital'},
+    cost: 2e9,
+    powerKw: 80000, // cryocoolers included
+    tflops: 1720320000, // 60 × Rubin building
+    heat: 4800, // every watt at 4 K costs hundreds at the wall to pump out
     gpusPerTile: 8192,
     requires: ['superconducting_logic'],
     minPowerTier: 10, // fusion_ppa
+    priceGrowth: 0.04,
+    speculative: true,
+  ),
+  TileDef(
+    id: 'mod_z_class',
+    name: 'Zenith orbital cryo-module',
+    blurb:
+        '400× a Rubin building. Its own solar wings power it; shaded radiators '
+        'reach ~40 K in space: no grid, no cooling plant. Orbit only.',
+    kind: TileKind.gpu,
+    era: Era.globalLab,
+    rooms: {'orbital'},
+    cost: 1.2e10,
+    powerKw: 1000, // housekeeping only: the module brings its own solar
+    tflops: 11468800000, // 400 × Rubin building
+    heat: 40, // radiated away for free in vacuum
+    gpusPerTile: 8192,
+    requires: ['orbital_launch'],
     priceGrowth: 0.05,
     speculative: true,
+    nativeOnly: true,
   ),
 ];
 
@@ -800,6 +859,25 @@ const rooms = <RoomDef>[
     ambientCooling: 70,
     tileScaleLabel: 'building (~8k GPUs)',
     maxPowerTier: 10, // compact fusion PPA (10 GW)
+  ),
+  // The post-game room: same era, gated by research and a built-out
+  // gigasite instead of an era goal (docs/BALANCE.md, "Orbital station").
+  RoomDef(
+    id: 'orbital',
+    name: 'Orbital station',
+    blurb:
+        'A truss in dawn-dusk sun-synchronous orbit: the Sun never sets on the '
+        'arrays, and with no air or water, radiators are the only way to shed heat.',
+    era: Era.globalLab,
+    width: 24,
+    height: 24,
+    cost: 2e10,
+    ambientCooling: 50, // the hull's own radiating skin, no air to move
+    tileScaleLabel: 'module (~16k GPUs)',
+    maxPowerTier: 11, // orbital solar array (20 GW)
+    requires: ['orbital_launch'],
+    fromFill: 0.75,
+    speculative: true,
   ),
 ];
 
@@ -937,6 +1015,16 @@ const powerTiers = <PowerDef>[
     era: Era.globalLab,
     capacityKw: 1e7,
     cost: 7e8,
+  ),
+  PowerDef(
+    id: 'orbital_solar',
+    name: 'Orbital solar array',
+    blurb:
+        'Square kilometres of thin-film cells in permanent sunlight: no night, '
+        'no clouds, no weather, and about 1.36 kW of sunshine per m².',
+    era: Era.globalLab,
+    capacityKw: 2e7,
+    cost: 1.3e9,
   ),
 ];
 
@@ -1087,11 +1175,11 @@ const coolingTiers = <CoolingDef>[
     id: 'cryo',
     name: 'Cryogenic helium plant',
     blurb:
-        'Helium refrigerators hold the vaults at 4 K. Each '
-        'watt pumped out at 4 K costs hundreds of watts at the wall.',
+        'Helium refrigerators hold the vaults at 4 K, pulling 5,000 heat per '
+        'tile. Each watt pumped out at 4 K costs hundreds at the wall.',
     era: Era.globalLab,
-    perGpuTile: 1500,
-    cost: 3e7,
+    perGpuTile: 5000,
+    cost: 1e8,
     requires: ['superconducting_logic'],
   ),
 ];
@@ -1526,24 +1614,37 @@ const upgrades = <UpgradeDef>[
     id: 'photonic_compute',
     name: 'Photonic computing',
     blurb:
-        'Do matrix multiplies with light in on-chip '
-        'interferometer meshes. Photons don\'t heat wires: far less energy per op.',
+        'Matrix multiplies done with light in on-chip interferometer meshes. '
+        'Photons don\'t heat wires: opens the Opal stack, 10× a Rubin building.',
     category: UpgradeCategory.software,
     era: Era.globalLab,
-    cost: 3.6e9,
+    cost: 6e9,
     effects: Effects(),
   ),
   UpgradeDef(
     id: 'superconducting_logic',
     name: 'Superconducting logic',
     blurb:
-        'Niobium Josephson-junction chips at 4 K. Bits ride '
-        'single flux quanta, switching on ~1000× less energy than CMOS.',
+        'Niobium Josephson-junction chips at 4 K: bits ride single flux quanta, '
+        'switching on ~1000× less energy than CMOS. Opens the Boreal vault.',
     category: UpgradeCategory.software,
     era: Era.globalLab,
-    cost: 1.5e10,
+    cost: 3e10,
     effects: Effects(),
     requires: ['photonic_compute'],
+  ),
+  // Opens the post-game Orbital station (RoomDef.requires) and its modules.
+  UpgradeDef(
+    id: 'orbital_launch',
+    name: 'Reusable heavy-lift launch',
+    blurb:
+        'Fully reusable super-heavy rockets aim for ~\$100 per kg to orbit: '
+        'cheap enough to launch a datacenter one module at a time.',
+    category: UpgradeCategory.research,
+    era: Era.globalLab,
+    cost: 3e10,
+    effects: Effects(),
+    requires: ['superconducting_logic'],
   ),
 ];
 
