@@ -1,7 +1,8 @@
 // The game screen: one full-screen world map with HUD overlays on top, a
 // vertical toolbar on the left, contextual call-to-action buttons, and
 // centered modal cards for everything else. Build mode slides up the parts
-// tray; tap glowing floor cells to place.
+// tray; tap or drag across glowing floor cells to plan parts (ghosts), then
+// Done in the plan bar buys them all at once.
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -54,6 +55,11 @@ class _GameShellState extends State<GameShell> {
   String? _placing;
   (String, int, int)? _moveFrom;
   TileKind _trayKind = TileKind.gpu;
+
+  /// Planned, not yet bought tiles in [_planRoom]. Replaced, never mutated,
+  /// on every change (the grid caches against its identity).
+  List<PlannedTile> _plan = const [];
+  String? _planRoom;
 
   String? _toastText;
   Color _toastColor = AppColors.amber;
@@ -112,8 +118,18 @@ class _GameShellState extends State<GameShell> {
   // --- Build mode -------------------------------------------------------------
 
   void _toggleBuild() {
+    if (_build) {
+      _leaveBuild(() {
+        setState(() {
+          _build = false;
+          _placing = null;
+          _moveFrom = null;
+        });
+      });
+      return;
+    }
     setState(() {
-      _build = !_build;
+      _build = true;
       _placing = null;
       _moveFrom = null;
     });
@@ -121,11 +137,184 @@ class _GameShellState extends State<GameShell> {
 
   void _exitModes() {
     Sound.play(Sfx.click);
-    setState(() {
-      _build = false;
-      _placing = null;
-      _moveFrom = null;
+    _leaveBuild(() {
+      setState(() {
+        _build = false;
+        _placing = null;
+        _moveFrom = null;
+      });
     });
+  }
+
+  // --- Build plan -------------------------------------------------------------
+  // Tapping / painting cells plans tiles; nothing is bought until Done.
+
+  Game? _preview;
+  Object? _previewKey;
+
+  /// The game as if the plan were built (cached per plan and grid).
+  Game get _planPreview {
+    final s = g.s;
+    final key = (
+      g,
+      _plan,
+      s.gridRevision,
+      s.powerTier,
+      s.networkTier,
+      s.coolingTier,
+      s.ownedUpgrades.length,
+      s.era,
+    );
+    if (_preview == null || _previewKey != key) {
+      _preview = g.withPlan(_roomId, _plan);
+      _previewKey = key;
+    }
+    return _preview!;
+  }
+
+  void _setPlan(List<PlannedTile> plan) {
+    setState(() {
+      _plan = List.unmodifiable(plan);
+      _planRoom = _roomId;
+    });
+  }
+
+  String? _planReason(int x, int y, String tileId, {bool replace = false}) =>
+      g.planBlockReasonIn(_planPreview, _roomId, _plan, PlannedTile(x, y, tileId, replace: replace));
+
+  int _planIndexAt(int x, int y) => _plan.indexWhere((p) => p.x == x && p.y == y);
+
+  /// A drag starting here paints (adds to the plan) rather than panning.
+  bool _canPaintFrom(String roomId, int x, int y) {
+    final placing = _placing;
+    if (placing == null || roomId != _roomId) return false;
+    if (_planIndexAt(x, y) >= 0) return true;
+    return g.tileAt(roomId, x, y) == null && _planReason(x, y, placing) == null;
+  }
+
+  String _partsLabel(int n) => '$n ${n == 1 ? 'part' : 'parts'}';
+
+  /// Done: buys the whole plan in one action, in order. Anything that no
+  /// longer fits (money spent, power used since) is skipped and named.
+  void _commitPlan() {
+    final plan = _plan;
+    if (plan.isEmpty) return;
+    final before = g.s.money;
+    final skipped = c.act((g) => g.placePlan(_roomId, plan));
+    final done = plan.length - skipped.length;
+    final spent = before - g.s.money;
+    setState(() => _plan = const []);
+    if (done > 0) {
+      Sound.play(Sfx.purchase);
+      HapticFeedback.mediumImpact();
+    } else {
+      Sound.play(Sfx.error);
+      HapticFeedback.heavyImpact();
+    }
+    if (skipped.isEmpty) {
+      _toast('Built ${_partsLabel(done)} for ${formatMoney(spent)}.', color: AppColors.neon);
+      return;
+    }
+    final first = skipped.first;
+    final why =
+        (first.replace
+            ? g.replaceBlockReason(_roomId, first.x, first.y, first.tileId)
+            : g.placeBlockReason(_roomId, first.x, first.y, first.tileId)) ??
+        'Something changed since you planned it.';
+    _toast(
+      done == 0
+          ? 'Nothing built. $why'
+          : 'Built $done of ${plan.length}; skipped ${skipped.length}. $why',
+      color: AppColors.amber,
+    );
+  }
+
+  void _cancelPlan() {
+    Sound.play(Sfx.click);
+    setState(() => _plan = const []);
+  }
+
+  /// "Upgrade GPUs": plans swaps of your weakest GPUs for the best one you
+  /// can afford (Game.upgradePlan), after anything already planned.
+  void _planUpgrade() {
+    final swaps = g.upgradePlan(_roomId, plan: _plan);
+    if (swaps.isEmpty) {
+      Sound.play(Sfx.error);
+      _toast('No GPU upgrade you can afford right now.', color: AppColors.red);
+      return;
+    }
+    Sound.play(Sfx.click);
+    HapticFeedback.selectionClick();
+    _setPlan([..._plan, ...swaps]);
+    final t = tileById(swaps.first.tileId)!;
+    _toast(
+      'Planned ${swaps.length} × ${t.name}. Tap a ghost to drop it, Done to buy.',
+      color: AppColors.neon,
+    );
+  }
+
+  /// Leaving build mode with a plan asks first: never silently buy or drop.
+  Future<void> _leaveBuild(VoidCallback leave) async {
+    if (_plan.isEmpty) {
+      leave();
+      return;
+    }
+    final n = _plan.length;
+    final cost = g.planCost(_plan);
+    final choice = await showGameModal<String>(
+      context,
+      title: 'Unbuilt plan',
+      icon: Icons.construction_rounded,
+      color: AppColors.neon,
+      maxWidth: 420,
+      child: Builder(
+        builder:
+            (sheet) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  'Place ${_partsLabel(n)} for ${formatMoney(cost)}?',
+                  key: const ValueKey('plan-exit-question'),
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                ),
+                const SizedBox(height: 14),
+                FilledButton(
+                  key: const ValueKey('plan-exit-place'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.neon,
+                    foregroundColor: AppColors.bg,
+                  ),
+                  onPressed: () => Navigator.of(sheet).pop('place'),
+                  child: const Text('Place', style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(height: 6),
+                OutlinedButton(
+                  key: const ValueKey('plan-exit-discard'),
+                  style: OutlinedButton.styleFrom(foregroundColor: AppColors.red),
+                  onPressed: () => Navigator.of(sheet).pop('discard'),
+                  child: const Text('Discard'),
+                ),
+                TextButton(
+                  key: const ValueKey('plan-exit-keep'),
+                  onPressed: () => Navigator.of(sheet).pop('keep'),
+                  child: const Text('Keep editing'),
+                ),
+              ],
+            ),
+      ),
+    );
+    if (!mounted) return;
+    switch (choice) {
+      case 'place':
+        _commitPlan();
+        leave();
+      case 'discard':
+        setState(() => _plan = const []);
+        leave();
+      default:
+        break; // keep editing
+    }
   }
 
   void _selectPart(TileDef t) {
@@ -159,18 +348,26 @@ class _GameShellState extends State<GameShell> {
       setState(() => _moveFrom = null);
       return;
     }
+    // Tapping a ghost drops it from the plan.
+    final planned = _planIndexAt(x, y);
+    if (planned >= 0 && roomId == _roomId) {
+      Sound.play(Sfx.click);
+      HapticFeedback.selectionClick();
+      _setPlan([..._plan]..removeAt(planned));
+      return;
+    }
     final placing = _placing;
     if (placing != null) {
-      final reason = g.placeBlockReason(roomId, x, y, placing);
+      final reason = _planReason(x, y, placing);
       if (reason != null) {
         Sound.play(Sfx.error);
         HapticFeedback.heavyImpact();
         _toast(reason, color: AppColors.red);
         return;
       }
-      c.act((g) => g.placeTile(roomId, x, y, placing));
-      Sound.play(Sfx.purchase);
-      HapticFeedback.mediumImpact();
+      _setPlan([..._plan, PlannedTile(x, y, placing)]);
+      Sound.play(Sfx.click);
+      HapticFeedback.selectionClick();
       return;
     }
     Sound.play(Sfx.click);
@@ -179,32 +376,43 @@ class _GameShellState extends State<GameShell> {
     } else {
       _toast(
         _build
-            ? 'Pick a part in the tray below, then tap a cell to place it.'
+            ? 'Pick a part in the tray below, then tap a cell to plan it.'
             : 'Tap Build to place parts on the floor.',
       );
     }
   }
 
-  /// Drag-to-paint: place the selected part on every crossed cell that
-  /// allows it (blocked cells are skipped quietly); one toast at the end.
+  /// Drag-to-paint: plan the selected part on every crossed cell that
+  /// allows it (blocked cells are skipped quietly; running out of money
+  /// stops it); one toast at the end.
   int _painted = 0;
+  String? _paintStop;
 
   void _onCellPaint(String roomId, int x, int y) {
     final placing = _placing;
-    if (placing == null || g.placeBlockReason(roomId, x, y, placing) != null) return;
-    if (c.act((g) => g.placeTile(roomId, x, y, placing))) {
+    if (placing == null || _paintStop != null || roomId != _roomId) return;
+    if (_planIndexAt(x, y) >= 0) return;
+    final reason = _planReason(x, y, placing);
+    if (reason == null) {
+      _setPlan([..._plan, PlannedTile(x, y, placing)]);
       _painted++;
-      if (_painted == 1) Sound.play(Sfx.purchase);
+      if (_painted == 1) Sound.play(Sfx.click);
       HapticFeedback.selectionClick();
+    } else if (reason.startsWith('Not enough money')) {
+      _paintStop = reason;
     }
   }
 
   void _onPaintEnd() {
-    final n = _painted;
+    final n = _painted, stop = _paintStop;
     _painted = 0;
-    if (n > 1 && _placing != null) {
-      Sound.play(Sfx.purchase);
-      _toast('Placed $n × ${tileById(_placing!)!.name}.', color: AppColors.neon);
+    _paintStop = null;
+    if (stop != null) {
+      Sound.play(Sfx.error);
+      HapticFeedback.heavyImpact();
+      _toast(stop, color: AppColors.red);
+    } else if (n > 1 && _placing != null) {
+      _toast('Planned $n × ${tileById(_placing!)!.name}. Tap Done to build.', color: AppColors.neon);
     }
   }
 
@@ -286,13 +494,22 @@ class _GameShellState extends State<GameShell> {
     final pct = formatPercent(run.progress);
     if (gpus < 2) {
       final gpu = tileById('gpu_old')!;
+      if (_plan.any((p) => tileById(p.tileId)?.isGpu ?? false)) {
+        return _TutorialStep(
+          step: 2,
+          title: 'Now tap Done',
+          body:
+              'The see-through GPU is only planned. Done in the bar below buys '
+              'everything you planned at once.',
+        );
+      }
       if (_placing != null && tileById(_placing!)!.isGpu) {
         return _TutorialStep(
           step: 2,
           title: 'Tap a glowing floor cell',
           body:
               'Anywhere works: every GPU in the room is cabled into one training cluster. '
-              'Leave room for a cooler next to it if it gets hot.',
+              'Place it, then tap Done to buy it.',
         );
       }
       final short = gpu.cost - s.money;
@@ -536,6 +753,7 @@ class _GameShellState extends State<GameShell> {
                               _build = false;
                               _placing = null;
                               _moveFrom = null;
+                              _plan = const [];
                             });
                           }
                         },
@@ -717,6 +935,8 @@ class _GameShellState extends State<GameShell> {
     if (_placing != null && !g.isTileUnlocked(tileById(_placing!)!)) _placing = null;
     final mv = _moveFrom;
     if (mv != null && g.tileAt(mv.$1, mv.$2, mv.$3) == null) _moveFrom = null;
+    // A plan belongs to one room (moving or a reset drops it).
+    if (_plan.isNotEmpty && _planRoom != _roomId) _plan = const [];
 
     return Stack(
       children: [
@@ -731,6 +951,9 @@ class _GameShellState extends State<GameShell> {
               activeRoom: room.id,
               placing: _placing,
               moveFrom: _moveFrom,
+              plan: _plan,
+              preview: _plan.isEmpty ? null : _planPreview,
+              canPaintFrom: _canPaintFrom,
             ),
             onCellTap: _onCellTap,
             onCellPaint: _onCellPaint,
@@ -886,6 +1109,11 @@ class _GameShellState extends State<GameShell> {
                                 room: room,
                                 kind: _trayKind,
                                 placing: _placing,
+                                plan: _plan,
+                                preview: _plan.isEmpty ? null : _planPreview,
+                                onCommit: _commitPlan,
+                                onCancelPlan: _cancelPlan,
+                                onUpgrade: _planUpgrade,
                                 onDone: _exitModes,
                                 onKind: (k) {
                                   Sound.play(Sfx.click);
@@ -921,7 +1149,7 @@ class _GameShellState extends State<GameShell> {
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  'Placing ${t.name} · ${formatMoney(g.tilePrice(t))} · tap or drag across cells',
+                  'Planning ${t.name} · ${formatMoney((_plan.isEmpty ? g : _planPreview).tilePrice(t))} · tap or drag, then Done',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),

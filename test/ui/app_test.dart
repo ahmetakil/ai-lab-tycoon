@@ -74,6 +74,11 @@ Future<void> tapCell(WidgetTester tester, String room, int x, int y) async {
   await tester.pump(const Duration(milliseconds: 400));
 }
 
+Future<void> tapPlanDone(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('plan-done')));
+  await tester.pump(const Duration(milliseconds: 400));
+}
+
 Finder get modalScrollable =>
     find.descendant(of: find.byType(GameModalCard), matching: find.byType(Scrollable)).first;
 
@@ -187,8 +192,12 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('tutorial-action')));
       await settle();
       expect(find.text('Tap a glowing floor cell'), findsOneWidget);
-      // Anywhere works: the whole room is one cluster.
+      // Anywhere works: the whole room is one cluster. It's planned first.
       await tapCell(tester, 'garage', 3, 0);
+      await settle();
+      expect(c.game.tileAt('garage', 3, 0), isNull);
+      expect(find.text('Now tap Done'), findsOneWidget);
+      await tapPlanDone(tester);
       await settle();
       expect(c.game.tileAt('garage', 3, 0), 'gpu_old');
       expect(c.game.trainingCluster!.gpus, 2);
@@ -213,12 +222,15 @@ void main() {
       final gpu = tileById('gpu_gamer')!;
       final fan = tileById('cool_fan')!;
 
-      // Pick the RTX 4090, tap an empty cell: placed and cabled in.
+      // Pick the RTX 4090, tap an empty cell: planned (a ghost), and the
+      // preview already counts it in the cluster.
       await tester.tap(find.byKey(const ValueKey('part-gpu_gamer')));
       await tester.pump(const Duration(milliseconds: 200));
       await tapCell(tester, 'garage', 3, 1);
-      expect(c.game.tileAt('garage', 3, 1), 'gpu_gamer');
-      expect(c.game.trainingCluster!.gpus, 2);
+      expect(c.game.tileAt('garage', 3, 1), isNull);
+      expect(find.byKey(const ValueKey('plan-3-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('plan-bar')), findsOneWidget);
+      expect(c.game.s.money, closeTo(before, 1)); // only income ticks
 
       // Tapping a taken cell explains why instead of placing.
       await tapCell(tester, 'garage', 1, 1);
@@ -231,8 +243,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('part-cool_fan')));
       await tester.pump(const Duration(milliseconds: 200));
       await tapCell(tester, 'garage', 2, 1);
+      expect(find.textContaining('2 parts'), findsOneWidget);
+      // Done buys both in one go.
+      await tapPlanDone(tester);
+      expect(c.game.tileAt('garage', 3, 1), 'gpu_gamer');
       expect(c.game.tileAt('garage', 2, 1), 'cool_fan');
+      expect(c.game.trainingCluster!.gpus, 2);
       expect(c.game.s.money, closeTo(before - gpu.cost - fan.cost, 5));
+      expect(find.byKey(const ValueKey('plan-bar')), findsNothing);
       expect(find.textContaining('Training cluster: 2 GPUs on Copper Ethernet 1G'), findsWidgets);
       expect(find.byKey(const ValueKey('cluster-label')), findsOneWidget);
 
@@ -246,10 +264,11 @@ void main() {
       }
       await gesture.up();
       await tester.pump(const Duration(milliseconds: 300));
+      expect(find.textContaining('Planned 4 ×'), findsOneWidget);
+      await tapPlanDone(tester);
       for (var x = 0; x < 4; x++) {
         expect(c.game.tileAt('garage', x, 0), 'cool_fan', reason: 'painted $x');
       }
-      expect(find.textContaining('Placed 4 ×'), findsOneWidget);
 
       // Done leaves build mode; tapping a tile then opens its info card.
       await tester.tap(find.byKey(const ValueKey('cancel-mode')));
@@ -268,6 +287,153 @@ void main() {
       expect(c.game.s.money, closeTo(mid + gpu.cost / 2, 5));
       expect(tester.takeException(), isNull);
     }, state: GameState(money: 10000));
+  });
+
+  testWidgets('plan: tap again removes, money limit with price growth, cancel', (tester) async {
+    final old = tileById('gpu_old')!;
+    // Two more RTX 2060s at their grown prices, not three.
+    final money = old.cost * (1 + old.priceGrowth) + old.cost * (1 + old.priceGrowth) * (1 + old.priceGrowth) + 1;
+    await withApp(tester, (c) async {
+      await openTool(tester, 'build');
+      await tester.tap(find.byKey(const ValueKey('part-gpu_old')));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tapCell(tester, 'garage', 0, 0);
+      await tapCell(tester, 'garage', 2, 0);
+      expect(find.byKey(const ValueKey('plan-0-0')), findsOneWidget);
+      expect(find.textContaining('2 parts'), findsOneWidget);
+      // A third doesn't fit the money (the second one already costs more).
+      await tapCell(tester, 'garage', 3, 0);
+      expect(find.byKey(const ValueKey('plan-3-0')), findsNothing);
+      expect(find.textContaining('Not enough money for another'), findsOneWidget);
+      // Tapping a ghost drops it; then the third fits.
+      await tapCell(tester, 'garage', 0, 0);
+      expect(find.byKey(const ValueKey('plan-0-0')), findsNothing);
+      expect(find.textContaining('1 part '), findsOneWidget);
+      await tapCell(tester, 'garage', 3, 0);
+      expect(find.byKey(const ValueKey('plan-3-0')), findsOneWidget);
+      // Cancel clears it, nothing bought.
+      await tester.tap(find.byKey(const ValueKey('plan-cancel')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const ValueKey('plan-bar')), findsNothing);
+      expect(find.byKey(const ValueKey('plan-3-0')), findsNothing);
+      expect(c.game.tileAt('garage', 3, 0), isNull);
+      expect(c.game.s.money, closeTo(money, 50));
+    }, state: GameState(money: money, powerTier: 1));
+  });
+
+  testWidgets('Done skips what no longer fits and says so', (tester) async {
+    await withApp(tester, (c) async {
+      await openTool(tester, 'build');
+      await tester.tap(find.byKey(const ValueKey('part-gpu_gamer')));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tapCell(tester, 'garage', 0, 0);
+      await tapCell(tester, 'garage', 2, 0);
+      c.game.s.money = 2500; // spent elsewhere: one 4090 left in budget
+      await tapPlanDone(tester);
+      expect(c.game.tileAt('garage', 0, 0), 'gpu_gamer');
+      expect(c.game.tileAt('garage', 2, 0), isNull);
+      expect(find.textContaining('Built 1 of 2; skipped 1'), findsOneWidget);
+    }, state: GameState(money: 10000));
+  });
+
+  testWidgets('leaving build mode with a plan asks: keep, discard or place', (tester) async {
+    await withApp(tester, (c) async {
+      await openTool(tester, 'build');
+      await tester.tap(find.byKey(const ValueKey('part-gpu_gamer')));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tapCell(tester, 'garage', 0, 0);
+      Future<void> close() async {
+        await tester.tap(find.byKey(const ValueKey('cancel-mode')));
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+
+      Future<void> choose(String k) async {
+        await tester.tap(find.byKey(ValueKey('plan-exit-$k')));
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+
+      await close();
+      expect(find.textContaining('Place 1 part for \$2'), findsOneWidget);
+      await choose('keep');
+      expect(find.byKey(const ValueKey('plan-bar')), findsOneWidget);
+      expect(find.byKey(const ValueKey('cancel-mode')), findsOneWidget);
+
+      await close();
+      await choose('place');
+      expect(c.game.tileAt('garage', 0, 0), 'gpu_gamer');
+      expect(find.byKey(const ValueKey('cancel-mode')), findsNothing);
+
+      await openTool(tester, 'build');
+      await tester.tap(find.byKey(const ValueKey('part-gpu_gamer')));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tapCell(tester, 'garage', 2, 0);
+      final money = c.game.s.money;
+      await close();
+      await choose('discard');
+      expect(c.game.tileAt('garage', 2, 0), isNull);
+      expect(c.game.s.money, greaterThanOrEqualTo(money));
+      expect(find.byKey(const ValueKey('cancel-mode')), findsNothing);
+      // Back in build mode the plan is gone.
+      await openTool(tester, 'build');
+      expect(find.byKey(const ValueKey('plan-bar')), findsNothing);
+    }, state: GameState(money: 10000));
+  });
+
+  testWidgets('build mode: a drag from a tile pans the camera instead of painting', (tester) async {
+    await withApp(tester, (c) async {
+      await openTool(tester, 'build');
+      await tester.tap(find.byKey(const ValueKey('kind-cooling')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('part-cool_fan')));
+      await tester.pump(const Duration(milliseconds: 200));
+      final cam = tester.state<WorldMapState>(find.byType(WorldMap)).camera;
+      final c0 = cam.center;
+      // Start on the RTX 2060 at (1, 1) and drag across empty cells.
+      final from = cellOnScreen(tester, 'garage', 1, 1);
+      final to = cellOnScreen(tester, 'garage', 3, 1);
+      final gesture = await tester.startGesture(from);
+      for (var i = 1; i <= 8; i++) {
+        await gesture.moveTo(Offset.lerp(from, to, i / 8)!);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(cam.center, isNot(c0));
+      expect(find.byKey(const ValueKey('plan-bar')), findsNothing);
+      expect(c.game.tileAt('garage', 2, 1), isNull);
+      expect(c.game.tileAt('garage', 3, 1), isNull);
+    }, state: GameState(money: 10000));
+  });
+
+  testWidgets('Upgrade GPUs plans swaps, Done buys them', (tester) async {
+    final garage = List<String?>.filled(16, null)
+      ..[0] = 'gpu_old'
+      ..[1] = 'gpu_old'
+      ..[2] = 'gpu_gamer';
+    await withApp(tester, (c) async {
+      await openTool(tester, 'build');
+      await tester.tap(find.byKey(const ValueKey('upgrade-gpus')));
+      await tester.pump(const Duration(milliseconds: 400));
+      // Both 2060s first (weakest), then the 4090, all to V100s.
+      expect(find.textContaining('Upgrade 3 GPUs → Used V100'), findsOneWidget);
+      expect(find.byKey(const ValueKey('plan-0-0')), findsOneWidget);
+      // Tapping a ghost drops that swap.
+      await tapCell(tester, 'garage', 2, 0);
+      expect(find.textContaining('Upgrade 2 GPUs → Used V100'), findsOneWidget);
+      await tapPlanDone(tester);
+      expect(c.game.tileAt('garage', 0, 0), 'gpu_v_class');
+      expect(c.game.tileAt('garage', 1, 0), 'gpu_v_class');
+      expect(c.game.tileAt('garage', 2, 0), 'gpu_gamer');
+      expect(find.byKey(const ValueKey('plan-bar')), findsNothing);
+    },
+        state: GameState(
+          money: 1e5,
+          powerTier: 1,
+          ownedUpgrades: {'mixed_precision'},
+          grids: {'garage': garage},
+        ));
   });
 
   testWidgets('a later room offers every unlocked part, older ones grouped', (tester) async {

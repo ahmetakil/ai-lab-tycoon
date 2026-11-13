@@ -11,6 +11,29 @@ import 'run_phases.dart';
 
 export 'grid.dart' show TileStatus, Cluster, minThrottleSpeed;
 
+/// One planned (not yet bought) tile in the current room: place [tileId]
+/// on the empty cell (x, y), or with [replace], swap the tile there for it.
+class PlannedTile {
+  final int x, y;
+  final String tileId;
+  final bool replace;
+  const PlannedTile(this.x, this.y, this.tileId, {this.replace = false});
+
+  @override
+  bool operator ==(Object other) =>
+      other is PlannedTile &&
+      other.x == x &&
+      other.y == y &&
+      other.tileId == tileId &&
+      other.replace == replace;
+
+  @override
+  int get hashCode => Object.hash(x, y, tileId, replace);
+
+  @override
+  String toString() => '${replace ? 'swap' : 'place'} $tileId at ($x, $y)';
+}
+
 /// Transient notifications for the UI (not saved).
 sealed class GameEvent {
   const GameEvent();
@@ -362,13 +385,13 @@ class Game {
   /// What placing one more [t] costs now: the list price, plus the supply
   /// crunch premium for every tile of that type already placed
   /// (TileDef.priceGrowth, GPUs only).
-  double tilePrice(TileDef t) => t.priceGrowth == 0
+  double tilePrice(TileDef t) => _priceWith(t, grid.counts[t.id] ?? 0);
+
+  /// The price of [t] with [count] of them already placed.
+  double _priceWith(TileDef t, int count) => t.priceGrowth == 0
       ? t.cost
       : t.cost *
-          math.min(
-            maxSupplyPremium,
-            math.pow(1 + t.priceGrowth, grid.counts[t.id] ?? 0).toDouble(),
-          );
+          math.min(maxSupplyPremium, math.pow(1 + t.priceGrowth, count).toDouble());
 
   /// Supply-crunch premium on the next [t] as a fraction (0.3 = +30%).
   double tilePremium(TileDef t) => tilePrice(t) / t.cost - 1;
@@ -870,6 +893,164 @@ class Game {
     s.money -= tilePrice(tileById(tileId)!);
     s.setTile(roomId, x, y, tileId);
     return true;
+  }
+
+  // --- Build plans -------------------------------------------------------------
+  // The build UI lets you plan several tiles (ghosts) and buy them together.
+  // Each planned tile is checked as if the earlier ones were already done.
+
+  /// What carrying out [plan] in order would cost now: each placement at its
+  /// grown price (every planned GPU raises the next one's), each swap at the
+  /// new tile's price minus the old one's [sellValue], as [replaceTile] does.
+  double planCost(List<PlannedTile> plan) {
+    final counts = Map.of(grid.counts);
+    final swapped = <(int, int), String>{};
+    var total = 0.0;
+    for (final p in plan) {
+      final t = tileById(p.tileId);
+      if (t == null) continue;
+      final n = counts[p.tileId] ?? 0;
+      total += _priceWith(t, n);
+      counts[p.tileId] = n + 1;
+      if (p.replace) {
+        final old = swapped[(p.x, p.y)] ?? tileAt(s.roomId, p.x, p.y);
+        if (old != null) {
+          total -= sellValue(old);
+          counts[old] = (counts[old] ?? 1) - 1;
+        }
+      }
+      swapped[(p.x, p.y)] = p.tileId;
+    }
+    return total;
+  }
+
+  /// Power [plan] adds once carried out (a swap adds only the difference).
+  double planPowerKw(List<PlannedTile> plan) {
+    var kw = 0.0;
+    for (final p in plan) {
+      final t = tileById(p.tileId);
+      if (t == null) continue;
+      kw += tilePowerKw(t);
+      final old = p.replace ? tileById(tileAt(s.roomId, p.x, p.y) ?? '') : null;
+      if (old != null) kw -= tilePowerKw(old);
+    }
+    return kw;
+  }
+
+  /// A what-if copy of this game with [plan] already carried out in
+  /// [roomId] (no money spent). For checks and the heat / cluster preview;
+  /// it shares nothing mutable with this game.
+  Game withPlan(String roomId, List<PlannedTile> plan) {
+    final copy = GameState(
+      money: s.money,
+      powerTier: s.powerTier,
+      networkTier: s.networkTier,
+      coolingTier: s.coolingTier,
+      grids: {for (final e in s.grids.entries) e.key: List.of(e.value)},
+      ownedUpgrades: Set.of(s.ownedUpgrades),
+      openReleases: s.openReleases,
+      era: s.era,
+    );
+    for (final p in plan) {
+      if (p.replace || copy.tileAt(roomId, p.x, p.y) == null) {
+        copy.setTile(roomId, p.x, p.y, p.tileId);
+      }
+    }
+    return Game(copy);
+  }
+
+  /// Why [next] can't be added to [plan], or null: the cell isn't planned
+  /// already, it's free (a swap: holds a different tile), the part is
+  /// unlocked, the power cap holds with the plan included, and the money
+  /// covers the plan's running total plus this one.
+  String? planBlockReason(String roomId, List<PlannedTile> plan, PlannedTile next) =>
+      planBlockReasonIn(withPlan(roomId, plan), roomId, plan, next);
+
+  /// [planBlockReason] against a [preview] made by [withPlan] for [plan]
+  /// (reuse it to check many cells against the same plan).
+  String? planBlockReasonIn(
+    Game preview,
+    String roomId,
+    List<PlannedTile> plan,
+    PlannedTile next,
+  ) {
+    if (plan.any((p) => p.x == next.x && p.y == next.y)) {
+      return 'That cell is already in your plan.';
+    }
+    final r = next.replace
+        ? preview.replaceBlockReason(roomId, next.x, next.y, next.tileId, ignoreMoney: true)
+        : preview.placeBlockReason(roomId, next.x, next.y, next.tileId, ignoreMoney: true);
+    if (r != null) return r;
+    final t = tileById(next.tileId)!;
+    final total = planCost([...plan, next]);
+    if (total > s.money + 1e-9) {
+      return 'Not enough money for another ${t.name}: the plan would cost '
+          '${_money(total)}, you have ${_money(s.money)}.';
+    }
+    return null;
+  }
+
+  /// Carries out [plan] in order, each tile through [placeTile] /
+  /// [replaceTile] (so each is re-checked against money and power now).
+  /// Returns the entries that couldn't be done.
+  List<PlannedTile> placePlan(String roomId, List<PlannedTile> plan) => [
+    for (final p in plan)
+      if (!(p.replace
+          ? replaceTile(roomId, p.x, p.y, p.tileId)
+          : placeTile(roomId, p.x, p.y, p.tileId)))
+        p,
+  ];
+
+  /// "Upgrade GPUs": swaps that put the best GPU you can buy in place of
+  /// your weakest ones, appended after [plan]. The target is the unlocked
+  /// GPU with the most TFLOPS whose grown price the money left after [plan]
+  /// covers (falling back to the next best if not even one swap to it
+  /// passes the power cap). Weakest GPUs (fewest TFLOPS) go first, only
+  /// ones strictly weaker than the target, as many as the money covers
+  /// (grown price minus sell refund per swap) and [replaceBlockReason]
+  /// allows given the earlier swaps. Cells already in [plan] are left
+  /// alone. Stops after [max] swaps. Empty when nothing is better.
+  List<PlannedTile> upgradePlan(String roomId, {List<PlannedTile> plan = const [], int? max}) {
+    final room = roomById(roomId);
+    if (room == null || !s.ownsRoom(roomId)) return const [];
+    final base = withPlan(roomId, plan);
+    final left = s.money - planCost(plan);
+    final planned = {for (final p in plan) (p.x, p.y)};
+    final gpus = <(int, int, TileDef)>[
+      for (var y = 0; y < room.height; y++)
+        for (var x = 0; x < room.width; x++)
+          if (!planned.contains((x, y)))
+            if (tileById(base.tileAt(roomId, x, y) ?? '') case final d? when d.isGpu) (x, y, d),
+    ];
+    if (gpus.isEmpty) return const [];
+    // Weakest first; List.sort isn't stable, so break ties row-major.
+    final order = List.of(gpus)
+      ..sort((a, b) {
+        final c = a.$3.tflops.compareTo(b.$3.tflops);
+        return c != 0 ? c : (a.$2 * room.width + a.$1).compareTo(b.$2 * room.width + b.$1);
+      });
+    final weakest = order.first.$3.tflops;
+    final targets = [
+      for (final t in tiles)
+        if (t.isGpu && t.tflops > weakest && isTileUnlocked(t) && base.tilePrice(t) <= left + 1e-9) t,
+    ]..sort((a, b) => b.tflops.compareTo(a.tflops));
+    for (final target in targets) {
+      final out = <PlannedTile>[];
+      final sim = withPlan(roomId, plan);
+      final full = [...plan];
+      for (final (x, y, d) in order) {
+        if (max != null && out.length >= max) break;
+        if (d.tflops >= target.tflops) break; // sorted: the rest are as good
+        if (sim.replaceBlockReason(roomId, x, y, target.id, ignoreMoney: true) != null) continue;
+        final swap = PlannedTile(x, y, target.id, replace: true);
+        if (planCost([...full, swap]) > s.money + 1e-9) break; // weakest first: no skipping ahead
+        out.add(swap);
+        full.add(swap);
+        sim.s.setTile(roomId, x, y, target.id);
+      }
+      if (out.isNotEmpty) return out;
+    }
+    return const [];
   }
 
   /// Like [placeBlockReason] for swapping the tile at (x, y) for [tileId]:
