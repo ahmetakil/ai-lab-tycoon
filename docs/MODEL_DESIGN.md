@@ -164,27 +164,51 @@ Game Dev Tycoon's development stages, for training runs. Code: `lib/sim/run_phas
 A run has three phases. The early data emphasis is picked in the run setup ("Data mix" row).
 The other two are **checkpoints** at fixed fractions of the run (1/3 and 2/3, so they
 survive pacing changes). At a checkpoint the run holds (no compute is added) and the
-checkpoint card asks once, so there are at most 2 prompts per run. With no answer the default
-lands after `phaseDecisionTimeout` (10 s of sim time). Offline it lands at once, so a
-checkpoint never blocks offline progress.
+checkpoint card asks once, so there are at most 2 prompts per run. Online the run waits for
+the answer as long as it takes. Offline the default lands at once, so a checkpoint never
+blocks offline progress.
 
-| Phase | Option | Benchmarks | Rating | Demand | Serving | Source |
-|---|---|---|---|---|---|---|
-| Early mix | **Web** | chat ×1.06, coding/math ×0.97 | | | | FineWeb, Penedo 2024 |
-| | Code | coding ×1.2, math ×1.05, chat ×0.95 | | | | To Code, or Not To Code, Aryabumi 2024 |
-| | Math | math ×1.25, coding ×1.03, chat ×0.95 | | | | DeepSeekMath, Shao 2024 |
-| Annealing (1/3) | **Quality data** | coding, math, chat ×1.04 | | | | MiniCPM (WSD), Hu 2024 |
-| | Long context | long context ×1.3 | −1 | ×1.04 | ×1.03 | Effective Long-Context Scaling, Xiong 2023 |
-| | Reasoning | math ×1.2, coding ×1.1, chat ×0.96 | +1 | ×0.97 | | Llama 3 Herd of Models, Dubey 2024 |
-| Post-training (2/3) | **Helpful** | chat ×1.1 | | | | InstructGPT, Ouyang 2022 |
-| | Safety | chat ×0.94 | −3 | ×1.07 | | XSTest, Röttger 2023 |
-| | Reasoning RL | math ×1.25, coding ×1.15, chat ×0.97 | +2 | | ×1.05 | DeepSeek-R1, 2025 |
+Options **unlock with research and era**, like the model-design slots: each `PhaseOption` is a
+`DesignChoice` with `requires` (research ids) and `minEra`, checked by
+`DesignContext.isUnlocked` (`Game.phaseContext`, `Game.isPhaseOptionUnlocked`,
+`Game.phaseLockReason`). Locked options show on the checkpoint card greyed, with a lock and the
+reason ("Research RLHF to unlock", "Reach Big lab to unlock"), and ignore taps; in the run
+setup they're disabled segments. The sim rejects them too: `Game.choosePhase` returns false and
+`startTraining` swaps a locked early emphasis for the default. Research bought mid-run counts
+at the next checkpoint. A garage lab has exactly one option per phase, the bold default, which
+needs nothing.
+
+| Phase | Option | Unlock (era of the gate) | Benchmarks | Rating | Demand | Serving | Source |
+|---|---|---|---|---|---|---|---|
+| Early mix | **Web** | always | chat ×1.06, coding/math ×0.97 | | | | FineWeb, Penedo 2024 |
+| | Code | `code_data` (Startup) | coding ×1.2, math ×1.05, chat ×0.95 | | | | To Code, or Not To Code, Aryabumi 2024 |
+| | Math | `books_papers` (Small lab) | math ×1.25, coding ×1.03, chat ×0.95 | | | | DeepSeekMath, Shao 2024 |
+| | Synthetic | `synthetic_data` (Big lab) | coding, math ×1.12, chat ×0.95 | | ×0.98 | | Textbooks Are All You Need, Gunasekar 2023 |
+| Annealing (1/3) | **Quality data** | always | coding, math, chat ×1.04 | | | | MiniCPM (WSD), Hu 2024 |
+| | Long context | `long_context` (Big lab) | long context ×1.3 | −1 | ×1.04 | ×1.03 | Effective Long-Context Scaling, Xiong 2023 |
+| | Reasoning | `reasoning` (Big lab) | math ×1.2, coding ×1.1, chat ×0.96 | +1 | ×0.97 | | Llama 3 Herd of Models, Dubey 2024 |
+| | Multimodal | era Big lab | chat ×1.05, math ×0.97 | −1 | ×1.05 | ×1.04 | MM1, McKinnon 2024 |
+| Post-training (2/3) | **Helpful** | always | chat ×1.1 | | | | InstructGPT, Ouyang 2022 |
+| | Safety | `rlhf` (Medium lab) | chat ×0.94 | −3 | ×1.07 | | XSTest, Röttger 2023 |
+| | Reasoning RL | `reasoning` (Big lab) | math ×1.25, coding ×1.15, chat ×0.97 | +2 | | ×1.05 | DeepSeek-R1, 2025 |
+| | Agentic RL | `agentic_rl` (Frontier lab) | coding ×1.25, long context ×1.1, math ×1.05, chat ×0.96 | | ×1.05 | ×1.06 | SWE-RL, Wei 2025 |
+
+Why these gates: the code and math emphases need the corpora they upweight (the public code
+dataset; the books & papers corpus, i.e. arXiv, which Minerva-style math pre-training uses).
+Safety tuning is preference data on refusals, so it waits for RLHF. Long-context annealing
+needs the long-context research, and the reasoning anneal and Reasoning RL need the RL on chain
+of thought research (R1-style training, 2025). The later options arrive with their technique:
+synthetic textbook data (Phi-1, 2023), natively multimodal pre-training (2023–25, no separate
+research, so it unlocks with the Big lab era) and agentic RL in tool environments (2025).
+The checkpoint card lists unlocked options first; with 4 options it lays them out 2×2
+(stacked on a phone, where a locked option shows only its name and the reason).
 
 All numbers are **Design**, set to the direction of the cited result.
 
 - **Defaults** (bold) only shape the benchmark profile. The early default follows the design:
-  a code-heavy mix gets Code and RL reasoning gets Math. A lab that never decides plays exactly
-  as it did before run phases.
+  a code-heavy mix gets Code and RL reasoning gets Math, falling back to Web while that emphasis
+  is still locked (`defaultPhaseOption(phase, spec, ctx)`). A lab that never decides plays
+  exactly as it did before run phases.
 - **Balance**: on the bot's design score (`rating + 30·log2 demand − 6·log2 serve`) every
   option sits within about ±2 rating of zero. Over 10 casual-schedule seeds the bot finishes
   at a mean of ~61 h on the defaults and ~63 h when it specializes by what blocks it
@@ -194,11 +218,14 @@ All numbers are **Design**, set to the direction of the cited result.
   carries the picks to the release. `phaseAwareHeadline` credits a phase when it, not the
   design, won the best benchmark ("Annealed on math & code won math").
 - **Saves**: `TrainingRun` stores `phases`, `autoPhases` and `phaseWait`; `DesignOutcome` stores
-  `phases`. All of them are optional, so older v4 saves load. An old in-flight run gets the
+  `phases`, all by `PhaseOption` name, so new options are appended and never renamed. All of
+  them are optional, so older v4 saves load. An old in-flight run gets the
   early default and asks at the next checkpoint it has already passed.
 - **Bot**: answers a checkpoint the tick it appears. By default it takes the defaults (with the
-  early mix matched to its design). `Bot(specializePhases: true)` picks with `bestPhaseOption`,
-  using the design weights; serving counts fully while it's capacity-limited.
+  early mix matched to its design). `Bot(specializePhases: true)` picks with `bestPhaseOption`
+  among the unlocked options (`ctx: Game.phaseContext`), using the design weights; serving
+  counts fully while it's capacity-limited. With the locks, `balance_sim.dart 480` puts the
+  final rival at 7h07 on the defaults (unchanged) and 7h13 with `--phases` (7h23 before).
 
 ## Research
 New entries in `designUpgrades` (identity `Effects`; their value is the option they unlock):

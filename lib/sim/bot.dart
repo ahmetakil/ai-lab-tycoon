@@ -404,9 +404,10 @@ class Bot {
   }
 
   PhaseOption _phasePick(RunPhase phase, ModelSpec spec) {
-    if (!specializePhases || fixedSpec != null) return defaultPhaseOption(phase, spec);
+    final ctx = g.phaseContext;
+    if (!specializePhases || fixedSpec != null) return defaultPhaseOption(phase, spec, ctx);
     final (sw, dw) = _phaseWeights;
-    return bestPhaseOption(phase, spec: spec, serveWeight: sw, demandWeight: dw);
+    return bestPhaseOption(phase, spec: spec, ctx: ctx, serveWeight: sw, demandWeight: dw);
   }
 
   // --- Training --------------------------------------------------------------

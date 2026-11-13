@@ -6,6 +6,7 @@
 
 import 'dart:math' as math;
 
+import 'content.dart';
 import 'game_state.dart';
 import 'model_design.dart';
 
@@ -41,7 +42,12 @@ final askingPhases = RunPhase.values.where((p) => p.asks).toList();
 /// rating of zero, so the choice is roughly neutral for progress; what it
 /// buys is the benchmark profile (specializing pays off on the matching
 /// benchmarks) and a nudge toward rating, demand or cheaper serving.
-enum PhaseOption {
+///
+/// Options unlock like the model-design slots ([DesignChoice]): [requires]
+/// research ids and a [minEra], checked with [DesignContext.isUnlocked].
+/// Every default ([defaultPhaseOption]) needs nothing, so a garage lab
+/// always has one. Options are saved by name: append, never rename.
+enum PhaseOption implements DesignChoice {
   // --- Early pre-training: data mix emphasis ----------------------------------
   webMix(
     RunPhase.early,
@@ -59,6 +65,7 @@ enum PhaseOption {
     'Upweight source code: better coding, and code data also helps reasoning.',
     'To Code, or Not To Code, Aryabumi 2024',
     'Early code mix',
+    requires: ['code_data'],
     coding: 1.2,
     math: 1.05,
     chat: 0.95,
@@ -69,6 +76,7 @@ enum PhaseOption {
     'Upweight math web pages and papers: stronger math, a little less chat.',
     'DeepSeekMath, Shao 2024',
     'Early math mix',
+    requires: ['books_papers'],
     math: 1.25,
     coding: 1.03,
     chat: 0.95,
@@ -91,6 +99,7 @@ enum PhaseOption {
     'Continue on long documents with a bigger RoPE base: it uses long prompts, which cost more to serve.',
     'Effective Long-Context Scaling, Xiong 2023',
     'Context extended',
+    requires: ['long_context'],
     rating: -1,
     longContext: 1.3,
     demand: 1.04,
@@ -102,6 +111,7 @@ enum PhaseOption {
     'Shift the decay mix toward math, code and worked solutions: a reasoning curriculum.',
     'The Llama 3 Herd of Models, Dubey 2024',
     'Annealed on math & code',
+    requires: ['reasoning'],
     rating: 1,
     math: 1.2,
     coding: 1.1,
@@ -124,6 +134,7 @@ enum PhaseOption {
     'More refusal and red-team data: fewer harmful answers, businesses trust it, some over-refusal.',
     'XSTest (over-refusal), Röttger 2023',
     'Safety-tuned',
+    requires: ['rlhf'],
     rating: -3,
     chat: 0.94,
     demand: 1.07,
@@ -134,17 +145,69 @@ enum PhaseOption {
     'RL on verifiable math and code answers: longer chains of thought, pricier to serve.',
     'DeepSeek-R1, 2025',
     'RL on verifiable answers',
+    requires: ['reasoning'],
     rating: 2,
     math: 1.25,
     coding: 1.15,
     chat: 0.97,
     serve: 1.05,
+  ),
+
+  // --- Later-era options (appended: saves store names) -----------------------
+  synthMix(
+    RunPhase.early,
+    'Synthetic',
+    'Upweight model-written textbooks and exercises: dense coding and math, thinner world knowledge.',
+    'Textbooks Are All You Need, Gunasekar 2023',
+    'Early synthetic mix',
+    requires: ['synthetic_data'],
+    coding: 1.12,
+    math: 1.12,
+    chat: 0.95,
+    demand: 0.98,
+  ),
+  multimodalAnneal(
+    RunPhase.anneal,
+    'Multimodal',
+    'Decay on interleaved image-text documents: it reads charts and photos; image tokens cost more to serve.',
+    'MM1, McKinnon 2024',
+    'Annealed on image-text',
+    minEra: Era.bigLab,
+    rating: -1,
+    chat: 1.05,
+    math: 0.97,
+    demand: 1.05,
+    serve: 1.04,
+  ),
+  agenticPost(
+    RunPhase.post,
+    'Agentic RL',
+    'RL in sandboxed repos and tool environments: it plans, calls tools and fixes its own code.',
+    'SWE-RL, Wei 2025',
+    'RL in agent environments',
+    requires: ['agentic_rl'],
+    coding: 1.25,
+    math: 1.05,
+    chat: 0.96,
+    longContext: 1.1,
+    demand: 1.05,
+    serve: 1.06,
   );
 
   final RunPhase phase;
+  @override
   final String label;
+  @override
   final String blurb;
   final String ref;
+
+  /// Research ids that must be owned to pick this option.
+  @override
+  final List<String> requires;
+
+  /// Era that must be reached to pick this option.
+  @override
+  final Era minEra;
 
   /// Start of the release-card line, e.g. "Annealed on math & code".
   final String tag;
@@ -162,6 +225,8 @@ enum PhaseOption {
     this.blurb,
     this.ref,
     this.tag, {
+    this.requires = const [],
+    this.minEra = Era.garage,
     this.rating = 0,
     this.coding = 1,
     this.math = 1,
@@ -170,6 +235,9 @@ enum PhaseOption {
     this.demand = 1,
     this.serve = 1,
   });
+
+  @override
+  String get id => name;
 
   /// The benchmark multipliers, in BenchmarkStrengths order.
   Map<String, double> get strengthMults => {'Coding': coding, 'Math': math, 'Chat': chat, 'Long context': longContext};
@@ -223,29 +291,44 @@ double _log2(double x) => math.log(x) / math.ln2;
 /// emphasis, RL reasoning the math one); the checkpoints take the
 /// all-rounder (quality data, helpfulness). The defaults only shape the
 /// benchmark profile: no rating, demand or serving change, so a lab that
-/// never decides plays exactly as before run phases.
-PhaseOption defaultPhaseOption(RunPhase phase, ModelSpec spec) => switch (phase) {
-  RunPhase.early =>
-    spec.dataMix == DataMix.codeHeavy
-        ? PhaseOption.codeMix
-        : spec.postTraining == PostTraining.reasoning
-        ? PhaseOption.mathMix
-        : PhaseOption.webMix,
+/// never decides plays exactly as before run phases. With [ctx], an early
+/// emphasis the lab hasn't unlocked falls back to Web; the base defaults
+/// (Web, Quality data, Helpful) need no research.
+PhaseOption defaultPhaseOption(RunPhase phase, ModelSpec spec, [DesignContext? ctx]) {
+  final pick = switch (phase) {
+    RunPhase.early =>
+      spec.dataMix == DataMix.codeHeavy
+          ? PhaseOption.codeMix
+          : spec.postTraining == PostTraining.reasoning
+          ? PhaseOption.mathMix
+          : PhaseOption.webMix,
+    RunPhase.anneal => PhaseOption.qualityAnneal,
+    RunPhase.post => PhaseOption.helpfulPost,
+  };
+  return ctx == null || ctx.isUnlocked(pick) ? pick : baseDefaultPhaseOption(phase);
+}
+
+/// The phase's always-available option (no research, garage era).
+PhaseOption baseDefaultPhaseOption(RunPhase phase) => switch (phase) {
+  RunPhase.early => PhaseOption.webMix,
   RunPhase.anneal => PhaseOption.qualityAnneal,
   RunPhase.post => PhaseOption.helpfulPost,
 };
 
-/// The option a player who wants [serveWeight]/[demandWeight] would pick;
-/// near-ties go to the default for [spec].
+/// The option a player who wants [serveWeight]/[demandWeight] would pick
+/// among those [ctx] has unlocked (all when null); near-ties go to the
+/// default for [spec].
 PhaseOption bestPhaseOption(
   RunPhase phase, {
   ModelSpec spec = const ModelSpec(),
+  DesignContext? ctx,
   double serveWeight = 6,
   double demandWeight = 30,
 }) {
   double sc(PhaseOption o) => o.score(serveWeight: serveWeight, demandWeight: demandWeight);
-  var best = defaultPhaseOption(phase, spec);
+  var best = defaultPhaseOption(phase, spec, ctx);
   for (final o in phase.options) {
+    if (ctx != null && !ctx.isUnlocked(o)) continue;
     if (sc(o) > sc(best) + 0.05) best = o;
   }
   return best;
