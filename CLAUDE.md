@@ -1,6 +1,6 @@
 # AI Lab Tycoon
 
-Personal side project (Flutter idle tycoon game). Unrelated to Routely — never use Routely names, IDs or accounts here.
+Personal side project (Flutter idle tycoon game).
 
 - `lib/sim/` is pure Dart (no Flutter imports): content.dart (data), balance.dart (knobs), game.dart (logic), game_state.dart (save state). Keep it deterministic.
 - `lib/ui/` is Flutter. Widgets read `controller.game` and mutate only via `controller.act((g) => ...)`.
